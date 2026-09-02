@@ -1,0 +1,17 @@
+{
+  "name": "mairecipe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MaiRecipe monorepo root. アプリ本体は apps/web",
+  "scripts": {
+    "dev": "npm run dev --prefix apps/web",
+    "build": "npm run build --prefix apps/web",
+    "lint": "npm run lint --prefix apps/web",
+    "typecheck": "npm run typecheck --prefix apps/web",
+    "test": "npm run test --prefix apps/web",
+    "e2e": "npm run e2e --prefix apps/web",
+    "db:push": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:types": "supabase gen types typescript --linked --schema public > apps/web/lib/supabase/database.types.ts"
+  }
+}

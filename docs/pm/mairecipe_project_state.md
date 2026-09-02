@@ -1,6 +1,6 @@
 # MaiRecipe — Project State (Single Source of Truth)
 
-最終更新: 2026-09-02 / PM
+最終更新: 2026-09-02 / Engineer（M0 WBS更新）
 
 ## 0. プロダクト概要
 - **名称**: MaiRecipe
@@ -41,13 +41,13 @@
 ## 3. WBS
 | ID | Phase | タスク | 担当 | 優先 | 状態 |
 |----|-------|--------|------|------|------|
-| M0-1 | M0 | Supabaseプロジェクト作成・URL/anon key発行 | Eiichi | 🔴 | 未着手 |
-| M0-2 | M0 | Anthropic APIキー発行 | Eiichi | 🔴 | 未着手 |
-| M0-3 | M0 | GitHubリポジトリ作成 | Eiichi | 🔴 | 未着手 |
-| M0-4 | M0 | Next.jsプロジェクト初期化・Supabaseクライアント・環境変数 | Engineer | 🔴 | 未着手 |
-| M0-5 | M0 | DBスキーマ v1 + RLS マイグレーション | Engineer | 🔴 | 未着手 |
-| M0-6 | M0 | メール登録/ログイン/ログアウト/パスワードリセット | Engineer | 🔴 | 未着手 |
-| M0-7 | M0 | Vercelデプロイ（Eiichiが連携、Engineerが設定） | Eiichi/Engineer | 🟡 | 未着手 |
+| M0-1 | M0 | Supabaseプロジェクト作成・URL/anon key発行 | Eiichi | 🔴 | 完了（Eiichi報告: .env.local 配置済み） |
+| M0-2 | M0 | Anthropic APIキー発行 | Eiichi | 🔴 | 完了（Eiichi報告: .env.local 配置済み） |
+| M0-3 | M0 | GitHubリポジトリ作成 | Eiichi | 🔴 | 完了 |
+| M0-4 | M0 | Next.jsプロジェクト初期化・Supabaseクライアント・環境変数 | Engineer | 🔴 | 完了 |
+| M0-5 | M0 | DBスキーマ v1 + RLS マイグレーション | Engineer | 🔴 | 完了（`db push` はEiichi作業） |
+| M0-6 | M0 | メール登録/ログイン/ログアウト/パスワードリセット | Engineer | 🔴 | 完了（E2EはEiichi環境で要実行） |
+| M0-7 | M0 | Vercelデプロイ（Eiichiが連携、Engineerが設定） | Eiichi/Engineer | 🟡 | Engineer側完了（Eiichi連携待ち） |
 | M1-1 | M1 | 画面設計（レシピ一覧/詳細/編集/献立/買い物） | Designer | 🟡 | 未着手 |
 | M1-2 | M1 | レシピCRUD UI + Storage画像アップロード | Engineer | 🔴 | 未着手 |
 | M1-3 | M1 | 材料マスタと名寄せロジック | Engineer | 🟡 | 未着手 |

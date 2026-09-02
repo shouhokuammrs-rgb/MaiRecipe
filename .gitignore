@@ -1,7 +1,23 @@
-.env.local
-
+# env
+.env
 .env*.local
 
+# node
 node_modules/
 
+# next.js
 .next/
+out/
+
+# supabase CLI
+supabase/.branches
+supabase/.temp
+supabase/.env
+
+# tests
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/coverage/
+
+# os
+.DS_Store
