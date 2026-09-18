@@ -15,8 +15,7 @@ model: sonnet
 ## 守ること
 
 - `CLAUDE.md` と `docs/spec.md` を先に読む。仕様に無いことは勝手に決めず、呼び出し元に返す
-- **Server Component が既定**。`"use client"` は state / effect / ブラウザ API が要るときだけ、
-  かつ葉に近いコンポーネントに限って付ける
+- **Server Component が既定**。`"use client"` は state / effect / ブラウザ API が要るときだけ、葉に近い側に付ける
 - Supabase は `apps/web/lib/supabase/` 経由。コンポーネントから直接クライアントを作らない
 - `SUPABASE_SERVICE_ROLE_KEY` と `ANTHROPIC_API_KEY` をクライアント側に出さない
 - UI は `apps/web/components/ui/`（shadcn/ui）と既存のトークンを優先。新しい色やサイズを足す前に既存を探す
@@ -42,8 +41,9 @@ model: sonnet
 ## テスト（eiichi-rules §6）
 
 - ロジックを含むもの（バリデーション、整形、状態遷移、`lib/` の関数）は Vitest を**先に**書く
-- 見た目・文言・アニメーションだけの変更はテスト不要
-- 迷ったら書く側に倒す
+- 見た目・文言・アニメーションだけの変更はテスト不要。迷ったら書く側に倒す
+- **認証・設定画面を触ったら `e2e/auth.spec.ts` / `profile-sync.spec.ts` を更新して実行する。**
+  Supabase に接続できない環境では「未実行」と明記して返す（Issue #3）。「たぶん通る」と書かない
 
 ## 完了前に必ず通す
 

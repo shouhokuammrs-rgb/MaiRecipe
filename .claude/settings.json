@@ -2,12 +2,21 @@
   "permissions": {
     "deny": [
       "Read(./**/.env)",
-      "Read(./**/.env.*)",
+      "Read(./**/.env.local)",
+      "Read(./**/.env.*.local)",
+      "Read(./**/.env.production)",
       "Read(./**/*.pem)",
       "Read(./**/*.key)",
+      "Read(//Users/**/.env)",
+      "Read(//Users/**/.env.local)",
+      "Read(//Users/**/.env.*.local)",
       "Read(//Users/**/.ssh/**)",
       "Read(//Users/**/.aws/**)",
-      "Read(//Users/**/.config/gh/**)"
+      "Read(//Users/**/.config/gh/**)",
+      "Read(//Users/**/.claude/settings.local.json)",
+      "Read(//Users/**/.claude/.credentials.json)",
+      "Read(//Users/**/.netrc)",
+      "Read(//Users/**/.npmrc)"
     ],
     "allow": [
       "Bash(ls)",

@@ -55,7 +55,8 @@ docs/             spec.md / decisions/ / meetings/ / archive/
 
 必要になったら作る場所（eiichi-rules §7）:
 `apps/web/lib/ai/`（M2 以降）、`supabase/functions/`（M2 以降）、
-`docs/materials/`（説明資料）、`docs/decisions-needed/`（Eiichi 判断待ちの資料）
+`docs/materials/`（説明資料）、`docs/decisions-needed/`（Eiichi 判断待ちの資料）、
+`docs/superpowers/specs/` と `plans/`（1機能ごとの設計・実装計画）
 
 ## 開発ルール（Superpowers に加えて）
 - feature ブランチ + PR のみ。main 直 push・force push 禁止。**マージは Eiichi**
@@ -104,6 +105,7 @@ ANTHROPIC_API_KEY=            # サーバーのみ
 - 差別化機能の提案
 
 ## 前提
-`eiichi-core` プラグイン（`pm` / `reviewer` エージェント、`eiichi-rules` スキル）が導入されていること。
-未導入だとこのファイルの指示の一部が機能しない。モデル割り当てと Superpowers の tier 対応は
-eiichi-rules §10 に従う（ここには複製しない）。
+`eiichi-core` プラグイン（`pm` / `reviewer` エージェント、`eiichi-rules` スキル）、
+`superpowers`、`frontend-design` が導入されていること。未導入だとこのファイルの指示の一部が機能しない。
+`vercel-react-best-practices` と `web-design-guidelines` はリポジトリ同梱なので導入不要。
+モデル割り当てと Superpowers の tier 対応は eiichi-rules §10 に従う（ここには複製しない）。
