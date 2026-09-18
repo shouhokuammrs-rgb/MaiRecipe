@@ -22,5 +22,8 @@ apps/web/coverage/
 # claude code（自動で書き換わる個人設定）
 .claude/settings.local.json
 
+# supabase 型生成の一時ファイル
+.db.types.tmp
+
 # os
 .DS_Store

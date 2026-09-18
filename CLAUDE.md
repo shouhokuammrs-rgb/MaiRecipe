@@ -39,33 +39,38 @@
 PR 前は最低限 `npm run lint && npm run typecheck && npm run test` を通す。
 
 ## ディレクトリ
+今あるもの:
 ```
 apps/web/
   app/            App Router。(auth)/ と (app)/ でグループ化
   components/     UI。ui/ は shadcn/ui
   lib/supabase/   client.ts / server.ts / middleware.ts / database.types.ts
-  lib/ai/         プロンプトとスキーマ
+  lib/auth/       ルート判定とバリデーション
   e2e/            Playwright
-supabase/
-  migrations/     timestamp_name.sql
-  functions/      Edge Functions（Deno）
-docs/             spec / decisions / meetings / materials / decisions-needed / archive
+supabase/migrations/   timestamp_name.sql
+docs/             spec.md / decisions/ / meetings/ / archive/
 .claude/agents/   frontend / backend
+.agents/skills/   同梱スキル（vercel-react-best-practices / web-design-guidelines）
 ```
+
+必要になったら作る場所（eiichi-rules §7）:
+`apps/web/lib/ai/`（M2 以降）、`supabase/functions/`（M2 以降）、
+`docs/materials/`（説明資料）、`docs/decisions-needed/`（Eiichi 判断待ちの資料）
 
 ## 開発ルール（Superpowers に加えて）
 - feature ブランチ + PR のみ。main 直 push・force push 禁止。**マージは Eiichi**
 - TDD: `lib/` / Server Actions / Route Handler / migration / バグ修正は必須。画面の見た目は例外
 - Server Component を優先。Server Actions を基本とする。`@supabase/ssr` でサーバー/クライアント両対応
 - Supabase はコンポーネントから直接呼ばず `lib/supabase/` 経由
-- `vercel-react-best-practices` スキルのルールに従う。PR 前に `web-design-guidelines` で a11y 監査
+- UI ガイダンスの優先順位: ①既存トークンと shadcn/ui の実物 → ②`vercel-react-best-practices`（実装作法）
+  → ③`web-design-guidelines`（PR 前の a11y 監査）→ ④`frontend-design`（方向性を新しく決めるときだけ）
 - モデル割り当ては eiichi-rules §10 に従う
 
 ## DB・セキュリティ規約
 - DB アクセスは必ず RLS 前提。`service_role` key は Edge Function / サーバーのみ。クライアントに API キーを置かない
 - ID は uuid。全テーブルに `created_at` / `updated_at`（トリガー更新）
 - ユーザー所有物は `owner_id` ではなく `group_id` で持つ（将来の共有対応。個人利用時は 1 人グループ）
-- 型は `npm run db:types` で生成する。手書きしない
+- 型は `npm run db:types` で生成する。手書きしない。生成に失敗したら既存ファイルは変更されない
 - 個人データ・`.env.local` はコミットしない
 
 ## UI 規約
@@ -98,7 +103,7 @@ ANTHROPIC_API_KEY=            # サーバーのみ
 - ネイティブアプリ
 - 差別化機能の提案
 
-## Superpowers tier 対応
-- cheap / mechanical → haiku
-- standard → sonnet
-- most-capable → opus
+## 前提
+`eiichi-core` プラグイン（`pm` / `reviewer` エージェント、`eiichi-rules` スキル）が導入されていること。
+未導入だとこのファイルの指示の一部が機能しない。モデル割り当てと Superpowers の tier 対応は
+eiichi-rules §10 に従う（ここには複製しない）。

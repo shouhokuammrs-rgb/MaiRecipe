@@ -1,12 +1,17 @@
 {
   "permissions": {
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(//Users/**/.ssh/**)",
+      "Read(//Users/**/.aws/**)",
+      "Read(//Users/**/.config/gh/**)"
+    ],
     "allow": [
       "Bash(ls)",
       "Bash(ls *)",
-      "Bash(cat *)",
-      "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(grep *)",
       "Bash(wc *)",
       "Bash(git status)",
       "Bash(git status *)",
@@ -15,7 +20,14 @@
       "Bash(git log)",
       "Bash(git log *)",
       "Bash(git branch)",
-      "Bash(git branch *)",
+      "Bash(git branch -v)",
+      "Bash(git branch -a)",
+      "Bash(git branch --list *)",
+      "Bash(git branch --show-current)",
+      "Bash(npm run lint)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run test)",
+      "Bash(npm run build)",
       "Bash(gh repo view *)",
       "Bash(gh pr view *)",
       "Bash(gh pr list *)",

@@ -12,6 +12,6 @@
     "e2e": "npm run e2e --prefix apps/web",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
-    "db:types": "supabase gen types typescript --linked --schema public > apps/web/lib/supabase/database.types.ts"
+    "db:types": "supabase gen types typescript --linked --schema public > .db.types.tmp; if [ -s .db.types.tmp ]; then mv .db.types.tmp apps/web/lib/supabase/database.types.ts; else rm -f .db.types.tmp; echo 'db:types: 型の生成に失敗しました。既存の型定義は変更していません。supabase link を確認してください。' >&2; exit 1; fi"
   }
 }

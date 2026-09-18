@@ -13,4 +13,4 @@
 | `engineering/handoffs/`（Engineer → PM 完了報告） | PR の説明文 |
 | `skills/mairecipe-pm/`（専属 PM スキル） | `pm` エージェント + `CLAUDE.md` |
 
-完了報告（handoff）には M0 のセットアップ手順が残っており、Issue #2 #3 #4 から参照している。
+完了報告（handoff）には M0 のセットアップ手順が残っており、Issue #2 と #4 から参照している。
