@@ -1,52 +1,85 @@
-# MaiRecipe — CLAUDE.md
+# MaiRecipe — Claude Code 共通設定（Next.js + Supabase）
+
+## まず読むもの
+- `eiichi-rules` スキル（eiichi-core プラグイン）— 人間への伝え方はすべてこれに従う
+- `docs/spec.md` — 仕様の正
+- `docs/decisions/` — 過去の決定。覆すなら新しい ADR
+- セッション開始時は `pm` サブエージェントに 3 点報告させる
 
 ## プロダクト
-レシピ保存・献立・買い物リストを一気通貫で管理するWebアプリ。レピッタ（repitta.com）の機能構成を踏襲。
-詳細は `docs/pm/mairecipe_project_state.md`（SSOT）を参照。
+- レシピ保存・献立・買い物リストを一気通貫で管理する Web アプリ
+- レピッタ（repitta.com）の機能構成を踏襲。**差別化機能を提案しない**（模倣が目的）
+- 目的は Eiichi の学習・制作。収益化は現時点の目標ではない
+- 採用可否の第一基準は「レピッタにある機能か」。なければ優先度を下げる
+- 迷ったらシンプルな方を選ぶ。学習目的なので過剰設計しない
 
-## 役割分担
-- **PM**: Claude（Web版Claude.ai）。指示書は `docs/engineering/instructions/`
-- **Engineer**: Claude Code（あなた）。完了報告は `docs/engineering/handoffs/YYYY-MM-DD_<topic>.md`
-- **Designer**: Web版Claude.ai。仕様は `docs/design/specs/`
-- **Eiichi**: 意思決定のみ。Eiichiに技術的な作業を頼まない（アカウント作成・キー発行を除く）
-
-## 作業ルール
-1. 作業開始時に `docs/engineering/instructions/` の最新未対応ファイルを読む
-2. 指示書の「受け入れ条件」を全て満たしてから handoff を書く
-3. 指示書にない仕様判断が必要なら、勝手に決めず handoff の「PM確認事項」に書く
-4. 完了時に `docs/pm/mairecipe_project_state.md` のWBS該当行を「完了」に更新してよい
-
-## 技術スタック（固定）
-- Next.js 15 (App Router) / TypeScript strict / Tailwind CSS / shadcn/ui
-- Supabase: Auth（メール+パスワードのみ）, Postgres, Storage, Edge Functions (Deno)
-- `@supabase/ssr` でサーバー/クライアント両対応。Server Actionsを基本とする
-- AI: Anthropic SDK。呼び出しはEdge FunctionまたはRoute Handler経由のみ。クライアントにAPIキーを置かない
-- 決済: Stripe（M5まで実装しない）
-- テスト: Vitest（ユニット）, Playwright（E2E）
+## 技術スタック
+- Next.js 15（App Router）+ React 19 + TypeScript strict
+- Supabase（Auth / Postgres / Storage / Edge Functions）。認証は **メール + パスワードのみ**
+- Tailwind CSS v4 + shadcn/ui
+- AI: Anthropic SDK。呼び出しは Edge Function か Route Handler 経由のみ
+- 決済: Stripe（M5 まで実装しない）
+- Vercel にデプロイ（Root Directory = `apps/web`）
+- テスト: Vitest（ロジック）+ Playwright（E2E）
 - Lint/Format: ESLint + Prettier
+
+## コマンド（リポジトリ直下で実行）
+| 目的 | コマンド |
+|---|---|
+| 開発サーバー | `npm run dev` |
+| ビルド | `npm run build` |
+| 型チェック | `npm run typecheck` |
+| Lint + フォーマット確認 | `npm run lint` |
+| ユニットテスト | `npm run test` |
+| E2E | `npm run e2e` |
+| DB マイグレーション適用 | `npm run db:push` |
+| DB リセット | `npm run db:reset` |
+| Supabase 型生成 | `npm run db:types` |
+
+PR 前は最低限 `npm run lint && npm run typecheck && npm run test` を通す。
 
 ## ディレクトリ
 ```
-apps/web/              Next.jsアプリ
-  app/                 ルート（(auth)/ (app)/ でグループ化）
-  components/          UIコンポーネント
-  lib/supabase/        client.ts / server.ts / middleware.ts
-  lib/ai/              プロンプトとスキーマ
+apps/web/
+  app/            App Router。(auth)/ と (app)/ でグループ化
+  components/     UI。ui/ は shadcn/ui
+  lib/supabase/   client.ts / server.ts / middleware.ts / database.types.ts
+  lib/ai/         プロンプトとスキーマ
+  e2e/            Playwright
 supabase/
-  migrations/          SQLマイグレーション（timestamp_name.sql）
-  functions/           Edge Functions
-docs/                  PM/Engineer/Designer共有ドキュメント
+  migrations/     timestamp_name.sql
+  functions/      Edge Functions（Deno）
+docs/             spec / decisions / meetings / materials / decisions-needed / archive
+.claude/agents/   frontend / backend
 ```
 
-## コーディング規約
-- DBアクセスは必ずRLS前提。service_role keyはEdge Function内のみ
-- 全テーブルに `created_at`, `updated_at`（トリガー更新）
-- IDはuuid。ユーザー所有物は `owner_id` ではなく `group_id` で持つ（将来の共有対応のため。個人利用時は1人グループ）
-- 型は `supabase gen types typescript` で生成し `lib/supabase/database.types.ts` に置く
-- 日本語UI。文言はハードコードでよい（i18n不要）
-- レスポンシブ必須（スマホ縦・PC）。PWA対応はM3以降に検討
+## 開発ルール（Superpowers に加えて）
+- feature ブランチ + PR のみ。main 直 push・force push 禁止。**マージは Eiichi**
+- TDD: `lib/` / Server Actions / Route Handler / migration / バグ修正は必須。画面の見た目は例外
+- Server Component を優先。Server Actions を基本とする。`@supabase/ssr` でサーバー/クライアント両対応
+- Supabase はコンポーネントから直接呼ばず `lib/supabase/` 経由
+- `vercel-react-best-practices` スキルのルールに従う。PR 前に `web-design-guidelines` で a11y 監査
+- モデル割り当ては eiichi-rules §10 に従う
 
-## 環境変数（apps/web/.env.local）
+## DB・セキュリティ規約
+- DB アクセスは必ず RLS 前提。`service_role` key は Edge Function / サーバーのみ。クライアントに API キーを置かない
+- ID は uuid。全テーブルに `created_at` / `updated_at`（トリガー更新）
+- ユーザー所有物は `owner_id` ではなく `group_id` で持つ（将来の共有対応。個人利用時は 1 人グループ）
+- 型は `npm run db:types` で生成する。手書きしない
+- 個人データ・`.env.local` はコミットしない
+
+## UI 規約
+- 日本語 UI。文言はハードコードでよい（i18n 不要）
+- レスポンシブ必須（スマホ縦・PC）。PWA 対応は M3 以降に検討
+- 小さな UI は `frontend-design` スキルに従うが、既存トークン・shadcn/ui コンポーネントを優先する
+
+## Eiichi 本人にしかできない作業（依頼の型は eiichi-rules §4）
+- Supabase の本番適用（`db push` / ダッシュボード設定）。SQL は Claude がローカル検証してから渡す
+- Vercel の環境変数・ドメイン設定
+- 外部サービスのアカウント作成・キー発行
+- PR のマージ
+
+## 環境変数（`apps/web/.env.local`）
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
@@ -54,7 +87,18 @@ SUPABASE_SERVICE_ROLE_KEY=   # サーバーのみ
 ANTHROPIC_API_KEY=            # サーバーのみ
 ```
 
+## 課題管理
+- タスク・バグ・要望・ユーザーの声 → **GitHub Issues**（ラベル: bug / feedback / idea / workflow / needs-eiichi / ready-for-agent）
+- フェーズ・リリース → **GitHub Milestones**
+- md の WBS は持たない。Notion 等にコピーを作らない
+- 会議の議事録 → `docs/meetings/`、意思決定 → `docs/decisions/`
+
 ## やらないこと
-- OAuthログイン（Google等）
+- OAuth ログイン（Google 等）
 - ネイティブアプリ
-- 差別化機能の提案（模倣が目的）
+- 差別化機能の提案
+
+## Superpowers tier 対応
+- cheap / mechanical → haiku
+- standard → sonnet
+- most-capable → opus
