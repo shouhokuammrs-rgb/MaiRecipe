@@ -6,12 +6,15 @@ import {
   durationLabel,
   extractRecipeFromJsonLd,
   isRecipeCandidateHost,
+  overlapNotice,
   parseDescriptionRecipe,
+  parseRecipeText,
   parseVideoUrl,
   pickRecipeUrls,
   recipeFromSections,
 } from "../../src/shared/importer";
 import {
+  DESCRIPTION_LOOSE,
   DESCRIPTION_WITH_LINKS,
   DESCRIPTION_WITH_RECIPE,
   JSONLD_WITH_COMMENTS,
@@ -318,5 +321,97 @@ describe("レビュー指摘の再現", () => {
     expect(
       cleanSourceUrl("https://a.example.com/" + "a".repeat(2100)),
     ).toBeNull();
+  });
+});
+
+describe("見出しの無い概要欄・貼り付けたテキスト（parseRecipeText）", () => {
+  it("罫線の区間から、全体の量・内訳・手順を読み、重なりを知らせる", () => {
+    expect(parseRecipeText(DESCRIPTION_LOOSE)).toEqual({
+      ingredients: [
+        { name: "ダミー魚", amount: "4尾（500g）" },
+        { name: "ダミー魚（塩焼き）", amount: "2尾" },
+        { name: "塩（塩焼き）", amount: "小さじ1/2" },
+        { name: "すだち（塩焼き）", amount: "適量" },
+        { name: "ダミー魚（混ぜご飯）", amount: "2尾" },
+        { name: "米（混ぜご飯）", amount: "2合" },
+        { name: "醤油（混ぜご飯）", amount: "大さじ2" },
+        { name: "酒（混ぜご飯）", amount: "大さじ1" },
+        { name: "しょうが（混ぜご飯）", amount: "1かけ" },
+      ],
+      steps: [
+        "魚に塩をふって10分おく",
+        "グリルで両面をこんがり焼く",
+        "身をほぐして炊いたご飯に混ぜる",
+      ],
+      overlaps: ["ダミー魚"],
+    });
+  });
+
+  it("内訳だけ（全体の量が無い）なら重なりは無く、同じ材料が別のまとまりにあってもよい", () => {
+    const r = parseRecipeText(
+      "＝タレ＝\n醤油：大さじ2\nみりん：大さじ2\n＝仕上げ＝\n醤油：少々\nごま　適量\n焼く\n絡める",
+    );
+    expect(r?.ingredients).toEqual([
+      { name: "醤油（タレ）", amount: "大さじ2" },
+      { name: "みりん（タレ）", amount: "大さじ2" },
+      { name: "醤油（仕上げ）", amount: "少々" },
+      { name: "ごま（仕上げ）", amount: "適量" },
+    ]);
+    expect(r?.steps).toEqual(["焼く", "絡める"]);
+    expect(r?.overlaps).toEqual([]);
+  });
+
+  it("まとまりの見出しが1つだけなら料理名とみなして付けない。■ も見出し", () => {
+    const r = parseRecipeText(
+      "■ダミー丼\nご飯 1杯\n卵 2個\n塩 ひとつまみ\nのせる",
+    );
+    expect(r?.ingredients).toEqual([
+      { name: "ご飯", amount: "1杯" },
+      { name: "卵", amount: "2個" },
+      { name: "塩", amount: "ひとつまみ" },
+    ]);
+    expect(r?.steps).toEqual(["のせる"]);
+  });
+
+  it("罫線が無ければ全体から。URL・ハッシュタグ・タイムスタンプは捨て、空行の後で手順は終わり", () => {
+    const r = parseRecipeText(
+      "今日はダミーのスープ\n\n玉ねぎ 1個\nにんじん　1本\nコンソメ：小さじ2\n水 400ml\n\n1. 切る\nhttps://example.com/x\n#スープ\n00:12 作る\n2. 煮る\n\nご視聴ありがとうございました",
+    );
+    expect(r?.ingredients.map((i) => i.name)).toEqual([
+      "玉ねぎ",
+      "にんじん",
+      "コンソメ",
+      "水",
+    ]);
+    expect(r?.steps).toEqual(["切る", "煮る"]);
+  });
+
+  it("「1つまみ」も分量として読む", () => {
+    const r = parseRecipeText(
+      "塩...1つまみ\n砂糖...小さじ1\n酢...大さじ1\n混ぜる",
+    );
+    expect(r?.ingredients[0]).toEqual({ name: "塩", amount: "1つまみ" });
+  });
+
+  it("材料らしい行が3行続かなければ null（ふつうの文章を材料にしない）", () => {
+    expect(
+      parseRecipeText("今日は 2回目の配信です\n明日は 3時から\nよろしく"),
+    ).toBeNull();
+    expect(parseRecipeText(DESCRIPTION_WITH_LINKS)).toBeNull();
+    expect(parseRecipeText("")).toBeNull();
+  });
+
+  it("【材料】【作り方】の区切りがあれば、今まで通りの読み方を先に使う", () => {
+    expect(parseRecipeText(DESCRIPTION_WITH_RECIPE)).toEqual({
+      ...parseDescriptionRecipe(DESCRIPTION_WITH_RECIPE),
+      overlaps: [],
+    });
+  });
+});
+
+describe("overlapNotice", () => {
+  it("重なりが無ければ null、あれば材料名を入れた注意", () => {
+    expect(overlapNotice([])).toBeNull();
+    expect(overlapNotice(["ダミー魚"])).toContain("ダミー魚");
   });
 });

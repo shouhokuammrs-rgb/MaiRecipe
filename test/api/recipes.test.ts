@@ -304,6 +304,16 @@ describe("グループをまたいだ漏れがないこと", () => {
     ).json()) as { results: unknown[] };
     expect(found.results).toEqual([]);
 
+    // 読めなかった URL の報告も、グループの外からは見えない
+    await api(alice, "/import/reports", {
+      method: "POST",
+      body: { url: "https://example.com/secret" },
+    });
+    const reports = (await (await api(bob, "/import/reports")).json()) as {
+      reports: unknown[];
+    };
+    expect(reports.reports).toEqual([]);
+
     // alice からは変わらず見える
     expect((await get(alice, id)).title).toBe(sampleRecipe.title);
   });

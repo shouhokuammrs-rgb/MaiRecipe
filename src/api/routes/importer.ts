@@ -8,7 +8,8 @@ import {
   guessCategory,
   guessGenre,
   isRecipeCandidateHost,
-  parseDescriptionRecipe,
+  overlapNotice,
+  parseRecipeText,
   parseVideoUrl,
   pickRecipeUrls,
   recipeFromSections,
@@ -25,6 +26,18 @@ import {
 } from "../platform/fetch-page";
 
 export const importer = new Hono<AppEnv>();
+
+// 読めなかった URL の報告（URL だけを保存。グループはセッションから）
+importer.get("/reports", async (c) =>
+  c.json({ reports: await c.var.repo.listImportReports() }),
+);
+
+importer.post("/reports", async (c) => {
+  const parsed = importSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return badRequest(c, parsed.error);
+  await c.var.repo.addImportReport(parsed.data.url, c.var.userId);
+  return c.json({ ok: true }, 201);
+});
 
 /** 概要欄のリンクを読むときの上限（3件合わせて12秒まで・1件ごとに短め・小さめ） */
 const LINKS_DEADLINE_MS = 12_000;
@@ -61,8 +74,8 @@ importer.post("/", async (c) => {
     const snip = await youtubeSnippet(c.env, video.id);
     if (snip) {
       const title = snip.title || "動画のレシピ";
-      // ① 概要欄に【材料】【作り方】の区切りがあれば、そこから
-      const fromDesc = parseDescriptionRecipe(snip.description);
+      // ① 概要欄の【材料】【作り方】の区切り、無ければ「名前...分量」の行の塊から
+      const fromDesc = parseRecipeText(snip.description);
       const recipe = fromDesc
         ? recipeFromSections({ title, ...fromDesc })
         : null;
@@ -77,6 +90,7 @@ importer.post("/", async (c) => {
             videoUrl: video.watchUrl,
           },
           message: "動画の概要欄から読み取りました（AI なし）。",
+          notice: overlapNotice(fromDesc?.overlaps ?? []),
         });
       }
       // ② 概要欄に貼られた URL を上から順に（最大3件）。転送先が SNS・動画なら読まない

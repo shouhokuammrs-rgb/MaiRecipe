@@ -613,6 +613,30 @@ export function forGroup(db: Db, groupId: string) {
         });
     },
 
+    /** 読めなかった URL を覚えておく。同じ URL は1件だけ */
+    async addImportReport(url: string, userId: string) {
+      await db
+        .insert(s.importReports)
+        .values({ id: newId(), groupId, url, createdBy: userId })
+        .onConflictDoNothing();
+    },
+
+    async listImportReports() {
+      const rows = await db
+        .select({
+          url: s.importReports.url,
+          createdAt: s.importReports.createdAt,
+        })
+        .from(s.importReports)
+        .where(eq(s.importReports.groupId, groupId))
+        .orderBy(desc(s.importReports.createdAt))
+        .limit(200);
+      return rows.map((r) => ({
+        url: r.url,
+        createdAt: r.createdAt.getTime(),
+      }));
+    },
+
     async clearBought() {
       await db
         .delete(s.shoppingMarks)

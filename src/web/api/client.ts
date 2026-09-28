@@ -102,6 +102,8 @@ export type ImportResult = {
   found: boolean;
   draft: ImportDraft;
   message: string;
+  /** 確かめてほしいこと（全体の量と内訳の重なりなど） */
+  notice?: string | null;
 };
 
 export type PlanEntry = {
@@ -181,6 +183,10 @@ export const apiClient = {
 
   importUrl: (url: string) =>
     call<ImportResult>("/import", { method: "POST", json: { url } }),
+  reportImport: (url: string) =>
+    call<{ ok: true }>("/import/reports", { method: "POST", json: { url } }),
+  importReports: () =>
+    call<{ reports: { url: string; createdAt: number }[] }>("/import/reports"),
 
   plans: (from: string, to: string) =>
     call<{ plans: PlanEntry[]; today: string }>(`/plans?from=${from}&to=${to}`),

@@ -257,3 +257,20 @@ export const shoppingMarks = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.groupId, t.key, t.kind] })],
 );
+
+// ---- 取り込みで読めなかった URL の報告（URL だけ。後で Issue にして読み取りを直す）
+export const importReports = sqliteTable(
+  "import_reports",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("import_reports_url_uq").on(t.groupId, t.url)],
+);
