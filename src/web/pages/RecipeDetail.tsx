@@ -457,6 +457,19 @@ function DetailView({ r }: { r: Detail }) {
             >
               {r.sourceUrl}
             </a>
+            {r.videoUrl && r.videoUrl !== r.sourceUrl && (
+              <>
+                <span className="mt-1 font-bold">動画</span>
+                <a
+                  href={r.videoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all text-accent underline"
+                >
+                  {r.videoUrl}
+                </a>
+              </>
+            )}
           </div>
         )}
 

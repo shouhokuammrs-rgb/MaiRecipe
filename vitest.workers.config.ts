@@ -23,6 +23,7 @@ export default defineConfig({
           BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-000",
           BETTER_AUTH_URL: "http://localhost",
           DEV_LOGIN: "1",
+          YOUTUBE_API_KEY: "test-youtube-key",
         },
       },
     }),

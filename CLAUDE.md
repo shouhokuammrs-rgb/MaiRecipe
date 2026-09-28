@@ -93,6 +93,7 @@ BETTER_AUTH_SECRET=
 BETTER_AUTH_URL=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+YOUTUBE_API_KEY=     # 任意。Eiichi 個人のキー（DEC-014）。使うのは src/api/platform/ だけ
 DEV_LOGIN=1   # ローカルだけ。本番には絶対に入れない
 ```
 

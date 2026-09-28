@@ -51,6 +51,10 @@ npm run e2e                                          # 画面の通しテスト�
    npx wrangler secret put BETTER_AUTH_SECRET     # openssl rand -base64 32 の出力
    ```
    `DEV_LOGIN` は本番に**入れない**。
+   YouTube の概要欄から材料と作り方を読みたいときだけ、YouTube Data API v3 のキーも入れる（無ければ動画は題名だけ。DEC-014）
+   ```bash
+   npx wrangler secret put YOUTUBE_API_KEY
+   ```
 6. **もう一度デプロイ**して、スマホで URL を開き Google でログイン → 共有メニューから「ホーム画面に追加」
    ```bash
    npm run deploy

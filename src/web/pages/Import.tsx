@@ -61,6 +61,12 @@ export function Import() {
                 {result.message}
                 <br />
                 出典：<span className="break-all">{d.sourceUrl}</span>
+                {d.videoUrl && d.videoUrl !== d.sourceUrl && (
+                  <>
+                    <br />
+                    動画：<span className="break-all">{d.videoUrl}</span>
+                  </>
+                )}
               </span>
             </div>
           }
