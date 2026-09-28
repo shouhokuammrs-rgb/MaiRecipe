@@ -78,6 +78,7 @@ describe("splitIngredientLine", () => {
     ["卵 Mサイズ", "卵", "Mサイズ"],
     ["メークイン じゃがいも 2〜3個", "メークイン じゃがいも", "2〜3個"],
     ["低脂肪 牛乳　1と1/2カップ", "低脂肪 牛乳", "1と1/2カップ"],
+    ["Lサイズ 卵 2～3個", "Lサイズ 卵", "2～3個"],
   ])("%s", (line, name, amount) => {
     expect(splitIngredientLine(line)).toEqual({ name, amount });
   });

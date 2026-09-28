@@ -312,12 +312,19 @@ export function classifyHeading(raw: string): HeadingKind {
 // 「材料」「作り方」の後に続いてよいのは、閉じ括弧・区切り・（2人分）・2人分 だけ。
 // 「材料から探す」「原材料名」「材料3つで簡単！」「作り方は動画で」は見出しにしない
 const SECTION_TAIL =
-  "(?:\\s*$|\\s*[】\\]］>＞》〉)）:：]|\\s*[（(【[［<＜]|\\s*[\\d０-９]+\\s*(?:人分|人前|個分|枚分|本分|皿分|杯分|食分))";
+  "(?:\\s*$|\\s*[】\\]］>＞》〉)）:：・/／]|\\s*[（(【[［<＜]|\\s*作りやすい|\\s*[\\d０-９]+(?:\\s*[〜~～\\-－]\\s*[\\d０-９]+)?\\s*(?:人分|人前|個分|枚分|本分|皿分|杯分|食分))";
 const INGREDIENTS_HEAD = new RegExp(`^材料${SECTION_TAIL}`);
 const STEPS_HEAD = new RegExp(
   `^(?:作り方|つくり方|作りかた|手順)${SECTION_TAIL}`,
 );
 const OPEN_MARK = /^[【[［<＜《〈(（■□●○◆◇▼▽★☆・\s]+/u;
+
+/** 手順・材料の後に来る「ポイント」「コツ」などの欄。ここで読むのをやめる */
+export function isNoteHeading(raw: string): boolean {
+  return /ポイント|コツ|メモ|動画|関連|おすすめ|レビュー|栄養|アドバイス|保存|注意|よくある/.test(
+    text(raw),
+  );
+}
 
 function sectionKind(line: string): "ingredients" | "steps" | null {
   const inner = line.replace(OPEN_MARK, "");

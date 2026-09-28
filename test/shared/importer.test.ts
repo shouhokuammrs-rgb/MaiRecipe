@@ -246,6 +246,13 @@ describe("レビュー指摘の再現", () => {
     ["【材料】", "ingredients"],
     ["材料 2人分", "ingredients"],
     ["＜作り方＞", "steps"],
+    ["材料 2〜3人分", "ingredients"],
+    ["材料（2～3人分）", "ingredients"],
+    ["材料・調味料", "ingredients"],
+    ["材料/2人分", "ingredients"],
+    ["【材料・2人分】", "ingredients"],
+    ["材料 作りやすい分量", "ingredients"],
+    ["作り方・手順", "steps"],
   ] as const)("見出し %s → %s", (t, kind) => {
     expect(classifyHeading(t)).toBe(kind);
   });

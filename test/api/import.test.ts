@@ -250,6 +250,44 @@ describe("POST /api/import（見出しの誤判定・読みすぎ）", () => {
     expect(body.draft.steps).toEqual(["焼く弱火で", "盛る"]);
   });
 
+  it.each([
+    [
+      "手順の後の h3 ポイントの一覧は拾わない",
+      "<h1>ダミー</h1><h2>材料</h2><ul><li>卵 2個</li></ul><h2>作り方</h2><ol><li>焼く</li></ol><h3>ポイント</h3><ul><li>焦げやすいので注意</li></ul>",
+      [{ name: "卵", amount: "2個" }],
+      ["焼く"],
+    ],
+    [
+      "1件ずつ別の dl に入った材料・手順を全部読む",
+      '<h2>材料</h2><dl class="ing"><dt>鶏</dt><dd>1枚</dd></dl><dl class="ing"><dt>塩</dt><dd>少々</dd></dl><ul class="tips"><li>メモ</li></ul><h2>作り方</h2><dl class="step"><dd>切る</dd></dl><dl class="step"><dd>焼く</dd></dl>',
+      [
+        { name: "鶏", amount: "1枚" },
+        { name: "塩", amount: "少々" },
+      ],
+      ["切る", "焼く"],
+    ],
+    [
+      "class 付きの枠で包んだ見出しでも、小見出し（タレ）の後を読む",
+      '<div class="c-heading"><h2>材料</h2></div><ul><li>鶏 1枚</li></ul><h4>タレ</h4><ul><li>しょうゆ 大さじ1</li></ul><h2>作り方</h2><ol><li>焼く</li></ol>',
+      [
+        { name: "鶏", amount: "1枚" },
+        { name: "しょうゆ", amount: "大さじ1" },
+      ],
+      ["焼く"],
+    ],
+    [
+      "section の中の header・aside の見出しは読む",
+      '<section><header><h2>材料</h2></header><ul><li>卵 1個</li></ul></section><aside class="recipe-steps"><h2>作り方</h2><ol><li>焼く</li></ol></aside><footer><ul><li>会社情報</li></ul></footer>',
+      [{ name: "卵", amount: "1個" }],
+      ["焼く"],
+    ],
+  ])("%s", async (_name, page, ingredients, steps) => {
+    mockFetch(() => html(page));
+    const body = await importDraft("https://layout.example.com/r/1");
+    expect(body.draft.ingredients).toEqual(ingredients);
+    expect(body.draft.steps).toEqual(steps);
+  });
+
   it("原材料名だけの商品ページは読み取れない扱い", async () => {
     mockFetch(() => html(PRODUCT_HTML));
     const body = await importDraft("https://shop.example.com/item/1");

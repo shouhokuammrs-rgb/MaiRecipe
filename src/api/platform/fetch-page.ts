@@ -4,6 +4,7 @@
 // （件数と文字数に上限あり。見出しの判定と整形は src/shared/importer.ts）。
 import {
   classifyHeading,
+  isNoteHeading,
   type HeadingKind,
   type RawIngredient,
 } from "../../shared/importer";
@@ -202,7 +203,12 @@ export async function scanPage(
   const steps: string[] = [];
   let mode: HeadingKind = "other";
   let modeLevel: number | null = null;
-  let paused: { mode: HeadingKind; level: number | null } | null = null;
+  /** 一覧が閉じて一旦止めたときの状態。list は閉じた一覧の tag と class（同じ形の一覧が続けば再開する） */
+  let paused: {
+    mode: HeadingKind;
+    level: number | null;
+    list: string;
+  } | null = null;
   let listOpen = false;
   let chromeDepth = 0;
   const openHeadings: { text: string }[] = [];
@@ -216,6 +222,8 @@ export async function scanPage(
     ingredients.length >= MAX_INGREDIENTS && steps.length >= MAX_STEPS;
 
   const startMode = (kind: HeadingKind, level: number | null) => {
+    // <div class="c-heading"><h2>材料</h2></div>：外側の class の枠で h2 の level を消さない
+    if (level === null && (mode === kind || paused?.mode === kind)) return;
     mode = kind;
     modeLevel = level;
     paused = null;
@@ -240,14 +248,25 @@ export async function scanPage(
     if (kind !== "other") return startMode(kind, level);
     // class で当たっただけの要素（h タグでない）では止めない
     if (level === null) return;
+    // 「ポイント」「コツ」などの欄に入ったら、深さに関係なくそこで止める（説明文を取り込まない。DEC-011）
+    if (isNoteHeading(raw)) {
+      mode = "other";
+      paused = null;
+      return;
+    }
     if (mode !== "other") {
       if (modeLevel !== null && level > modeLevel) return; // 材料の中の小見出し
       mode = "other";
       paused = null;
       return;
     }
-    if (paused && paused.level !== null && level > paused.level) {
-      // 一覧の後の小見出し（タレ など）：同じ種類で再開する
+    if (
+      paused &&
+      paused.mode === "ingredients" &&
+      paused.level !== null &&
+      level > paused.level
+    ) {
+      // 材料の一覧の後の小見出し（タレ など）：材料として再開する。手順は再開しない
       mode = paused.mode;
       modeLevel = paused.level;
       return;
@@ -330,7 +349,8 @@ export async function scanPage(
         if (inTitle && title.length < 200) title += t.text;
       },
     })
-    .on("header, nav, footer, aside", {
+    // ページの枠（body 直下のヘッダー・フッターとメニュー）だけ読まない。section の中の header や aside は読む
+    .on("body > header, body > footer, nav", {
       element(el) {
         chromeDepth++;
         if (
@@ -367,13 +387,26 @@ export async function scanPage(
             innerLists--;
           return;
         }
-        if (mode === "other" || listOpen || chromeDepth > 0) return;
+        if (listOpen || chromeDepth > 0) return;
+        const shape = `${el.tagName.toLowerCase()}.${el.getAttribute("class") ?? ""}`;
+        // 1件ずつ別の一覧（<dl class="ing"> が並ぶ）：止めた直後に同じ形の一覧が来たら再開する
+        if (mode === "other" && paused && paused.list === shape) {
+          mode = paused.mode;
+          modeLevel = paused.level;
+        }
+        if (mode === "other") return;
         const listMode = mode;
         if (
           !onEnd(el, () => {
             listOpen = false;
+            // 閉じタグを省いた最後の項目が残っていれば、ここで確定させる
+            if (item) {
+              onItemEnd(item.tag, item.text);
+              item = null;
+              itemDepth = 0;
+            }
             if (mode === listMode) {
-              paused = { mode, level: modeLevel };
+              paused = { mode, level: modeLevel, list: shape };
               mode = "other";
             }
           })

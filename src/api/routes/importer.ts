@@ -85,7 +85,10 @@ importer.post("/", async (c) => {
         if (Date.now() > deadline) break;
         let page: PageScan;
         try {
-          page = await scanPage(link, LINK_SCAN);
+          page = await scanPage(link, {
+            ...LINK_SCAN,
+            timeoutMs: Math.min(LINK_SCAN.timeoutMs, deadline - Date.now()),
+          });
         } catch {
           continue;
         }
@@ -94,12 +97,14 @@ importer.post("/", async (c) => {
         // 見出しから読んだときは、材料と手順の両方が取れたページだけ（商品ページなどを避ける）
         if (via === "sections" && (!r.ingredients.length || !r.steps.length))
           continue;
+        const sourceUrl = cleanSourceUrl(page.url) ?? cleanSourceUrl(link);
+        if (!sourceUrl) continue; // 長すぎて保存できない URL
         return c.json({
           kind: "video",
           found: true,
           draft: {
             ...r,
-            sourceUrl: cleanSourceUrl(page.url) ?? cleanSourceUrl(link) ?? link,
+            sourceUrl,
             videoUrl: video.watchUrl,
           },
           message:
