@@ -5,3 +5,5 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 # ローカルだけ：Google を使わずにメールで試せるログインを出す。本番には絶対に入れない
 DEV_LOGIN=1
+# 任意：YouTube の概要欄から材料・手順を読む（無ければ動画は題名だけ）。Eiichi の個人の鍵。DEC-014
+YOUTUBE_API_KEY=
