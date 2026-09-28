@@ -620,7 +620,20 @@ export function forGroup(db: Db, groupId: string) {
         .select({ n: count() })
         .from(s.importReports)
         .where(eq(s.importReports.groupId, groupId));
-      if ((row?.n ?? 0) >= LIMITS.importReportsMax) return false;
+      if ((row?.n ?? 0) >= LIMITS.importReportsMax) {
+        // 報告済みの URL なら、送り直しは何もしないだけ
+        const same = await db
+          .select({ id: s.importReports.id })
+          .from(s.importReports)
+          .where(
+            and(
+              eq(s.importReports.groupId, groupId),
+              eq(s.importReports.url, url),
+            ),
+          )
+          .limit(1);
+        return same.length > 0;
+      }
       await db
         .insert(s.importReports)
         .values({ id: newId(), groupId, url, createdBy: userId })

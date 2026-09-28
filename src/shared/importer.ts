@@ -610,14 +610,19 @@ function finishLoose(
     }
     // 罫線の区間の外では、リンクの行で手順は終わり（その先はお知らせ・SNS）
     if (!ruled && isUrlLine(line) && steps.length) break;
-    if (isJunkLine(line) || groupLabel(line) !== null) continue;
+    if (isJunkLine(line)) continue;
+    // 手順が始まった後の【ポイント】■お知らせ、ポイント・コツの見出しで読むのをやめる。
+    // 手順の前にある ■トッピング のようなまとまりの見出しは読み飛ばす
+    if (descMarker(line) === "other" && (steps.length || isNoteHeading(line)))
+      break;
+    if (groupLabel(line) !== null) continue;
     // 「レシピはこちら↓」のような、リンクの見出しの行は手順にしない
-    if (descMarker(line) === "other") break;
     const body = line.replace(DESC_BULLET, "");
     const s = stripStepNumber(body, true);
     const hasNumber = s !== body.trim();
-    const next = rest.slice(k + 1).find(Boolean);
-    if (!hasNumber && (/[↓⬇👇▼:：]$/u.test(line) || isUrlLine(next))) continue;
+    // 「レシピはこちら↓」や、すぐ次の行がリンクの「Instagram」は、リンクの見出しなので手順にしない
+    if (!hasNumber && (/[↓⬇👇▼:：]$/u.test(line) || isUrlLine(rest[k + 1])))
+      continue;
     // 罫線の区間の外では、手順の後の空行で終わり（あいさつ・お知らせを読まない）。
     // 番号つきの手順が続いているときだけ、空行の後も読む
     if (!ruled && afterBlank && steps.length && !(numbered && hasNumber)) break;

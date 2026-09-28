@@ -488,3 +488,19 @@ describe("見出しの無い読み取り：レビュー指摘の再現", () => {
     });
   });
 });
+
+describe("見出しの無い読み取り：再レビュー指摘の再現", () => {
+  it("番号なしの最後の手順の後に、空行をはさんでリンクがあっても消さない", () => {
+    const r = parseRecipeText(
+      "卵 2個\n塩 少々\n牛乳 大さじ2\n溶く\n焼く\n\nInstagram\nhttps://example.com/ig",
+    );
+    expect(r?.steps).toEqual(["溶く", "焼く"]);
+  });
+
+  it("手順の後の【ポイント】で読むのをやめる", () => {
+    const r = parseRecipeText(
+      "卵 2個\n塩 少々\n牛乳 大さじ2\n溶く\n焼く\n【ポイント】\n強火にしない",
+    );
+    expect(r?.steps).toEqual(["溶く", "焼く"]);
+  });
+});

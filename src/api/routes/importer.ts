@@ -15,6 +15,7 @@ import {
   recipeFromSections,
   type ImportedRecipe,
 } from "../../shared/importer";
+import { LIMITS } from "../../shared/constants";
 import { importSchema } from "../../shared/recipe";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
@@ -39,8 +40,7 @@ importer.post("/reports", async (c) => {
   if (!ok)
     return c.json(
       {
-        error:
-          "報告がいっぱいです。設定画面の一覧を Issue にしてから、また報告してください。",
+        error: `報告は${LIMITS.importReportsMax}件までです。これ以上は報告できません。`,
       },
       429,
     );

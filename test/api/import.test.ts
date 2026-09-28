@@ -434,6 +434,12 @@ describe("読めなかった URL の報告", () => {
       body: { url: "https://example.com/r/over" },
     });
     expect(over.status).toBe(429);
+    // 報告済みの URL を送り直すのは、上限でもエラーにしない
+    const again = await api(me, "/import/reports", {
+      method: "POST",
+      body: { url: "https://example.com/r/0" },
+    });
+    expect(again.status).toBe(201);
   });
 
   it("URL でなければ 400、ログインしていなければ 401", async () => {
