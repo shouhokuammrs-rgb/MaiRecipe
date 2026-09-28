@@ -12,6 +12,7 @@ import {
   Loading,
   PageTitle,
 } from "@/components/common";
+import { InviteBanner } from "@/components/InviteBanner";
 import { CATEGORIES, GENRES } from "../../shared/constants";
 
 export function Recipes() {
@@ -46,6 +47,10 @@ export function Recipes() {
           </span>
         )}
       </PageTitle>
+
+      <div className="px-5">
+        <InviteBanner />
+      </div>
 
       <div className="flex flex-col gap-3 px-5 pb-2">
         <div className="flex gap-2">

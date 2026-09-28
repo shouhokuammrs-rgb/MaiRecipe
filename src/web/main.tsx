@@ -6,6 +6,7 @@ import { AppLayout } from "./components/AppLayout";
 import "./index.css";
 import { Find } from "./pages/Find";
 import { Import } from "./pages/Import";
+import { JoinGroup } from "./pages/JoinGroup";
 import { Login } from "./pages/Login";
 import { Plan } from "./pages/Plan";
 import { RecipeDetail } from "./pages/RecipeDetail";
@@ -30,6 +31,7 @@ const router = createBrowserRouter([
       { path: "plan", element: <Plan /> },
       { path: "shopping", element: <Shopping /> },
       { path: "settings", element: <Settings /> },
+      { path: "invites/:id", element: <JoinGroup /> },
     ],
   },
 ]);
