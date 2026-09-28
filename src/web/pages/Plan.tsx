@@ -46,6 +46,10 @@ export function Plan() {
   const add = useMutation({
     mutationFn: (p: { date: string; meal: Meal; recipeId: string }) =>
       apiClient.addPlan(p.date, p.meal, p.recipeId),
+    onMutate: () => {
+      remove.reset();
+      move.reset();
+    },
     onSuccess: () => {
       setPicker(null);
       if (adding) setParams({}, { replace: true });
@@ -54,13 +58,22 @@ export function Plan() {
   });
   const remove = useMutation({
     mutationFn: (id: string) => apiClient.deletePlanItem(id),
+    onMutate: () => {
+      add.reset();
+      move.reset();
+    },
     onSuccess: refresh,
   });
   const move = useMutation({
     mutationFn: (p: { id: string; direction: "up" | "down" }) =>
       apiClient.movePlanItem(p.id, p.direction),
+    onMutate: () => {
+      add.reset();
+      remove.reset();
+    },
     onSuccess: refresh,
   });
+  // 次の操作を始めたら（上の各 onMutate で）前のエラーは消えるので、常に高々1つだけ立つ
   const actionError = add.error ?? remove.error ?? move.error;
 
   // API が 日付 → 朝昼晩 → 枠の中の順 で返すので、その順のまま枠ごとに分ける
@@ -147,7 +160,9 @@ export function Plan() {
             return (
               <section
                 key={d}
-                aria-label={isToday ? "今日" : `${l.md}（${l.dow}）`}
+                aria-label={
+                  isToday ? `今日 ${l.md}（${l.dow}）` : `${l.md}（${l.dow}）`
+                }
                 className={cn(
                   "flex flex-col gap-2 rounded-2xl border border-line-soft bg-card p-3",
                   past && "opacity-45",
@@ -279,6 +294,7 @@ export function Plan() {
       {picker && (
         <RecipePicker
           label={`${labelDate(picker.date).md}（${labelDate(picker.date).dow}）${MEAL_LABELS[picker.meal]}`}
+          error={add.error?.message ?? null}
           onClose={() => setPicker(null)}
           onPick={(id) => add.mutate({ ...picker, recipeId: id })}
         />
@@ -289,10 +305,12 @@ export function Plan() {
 
 function RecipePicker({
   label,
+  error,
   onClose,
   onPick,
 }: {
   label: string;
+  error?: string | null;
   onClose: () => void;
   onPick: (id: string) => void;
 }) {
@@ -322,6 +340,11 @@ function RecipePicker({
             閉じる
           </button>
         </div>
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        )}
         <label className="relative block">
           <span className="sr-only">レシピ名で絞り込む</span>
           <Search className="absolute top-3 left-3 size-4 text-sub" />

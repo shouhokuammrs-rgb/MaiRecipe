@@ -100,8 +100,9 @@ export function membershipFor(db: Db, user: SessionUser) {
           and exists (select 1 from group_members m where m.group_id = ${mine} and m.user_id = ${user.id})
           and not exists (select 1 from group_members m where m.user_id = ${user.id} and m.group_id <> ${mine}))`;
 
-      // batch に渡す1つ1つを名前つきの変数にしてから並べる。結果もこの名前で分割代入して取り出す
-      // ので、並びを入れ替えると（変数名を書き忘れない限り）結果の取り違えが起きにくい。
+      // batch に渡す1つ1つを名前つきの変数にしてから並べる。結果は名前ではなく「並び順
+      // （位置）」で分割代入して取り出す（下の return を参照）。batch の並びを変えたら、
+      // 結果を取り出す分割代入の位置もあわせて直す。
       const insertMember = db.insert(s.groupMembers).values({
         groupId: guardedGroupId,
         userId: user.id,

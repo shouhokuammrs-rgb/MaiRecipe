@@ -1481,24 +1481,57 @@ git commit -m "docs: 献立は1枠に複数品（並び順つき）に更新"
 この計画の範囲は PR まで。`npm run db:migrate:remote` と `npm run deploy` は Eiichi の OK が出てから、次の手順をそのまま渡す。
 ③マイグレーションから⑤デプロイまでの間、古いコードの「枠を上書き」（`on conflict (group_id, date, meal)`）は索引が無くなるので失敗する。③と⑤の間は空けない。
 
+まず、GitHub で #40（招待）→ #37（この変更）の順にマージ済みであることを確かめる。`npm run deploy` は今の作業ツリーをそのまま公開するので、始める前に手元を最新の main にする。
+
 ```bash
-# ① 移行前の件数を控える
+git switch main && git pull
+```
+
+① 移行前の件数を控える。
+
+```bash
 npx wrangler d1 execute mairecipe --remote --command "select count(*) as n from meal_plans"
+```
 
-# ② バックアップ（どちらか。両方でもよい）
-npx wrangler d1 export mairecipe --remote --output=backup-meal-plans-$(date +%Y%m%d-%H%M).sql
-npx wrangler d1 time-travel info mairecipe    # 表示された bookmark（今の時刻）を控える
+② バックアップを取る。出力先はリポジトリの外（デスクトップ）にする。2行目で表示された bookmark（今の時刻のもの）は別にメモしておく。
 
-# ③ マイグレーション（0003 だけが当たることを表示で確かめてから y）
+```bash
+npx wrangler d1 export mairecipe --remote --output=$HOME/Desktop/backup-mairecipe-$(date +%Y%m%d-%H%M).sql
+npx wrangler d1 time-travel info mairecipe
+```
+
+③ マイグレーションを当てる。実行すると適用前に一覧が表示されるので、そこに 0002（招待）と 0003（献立の並び順）の2つだけが出ることを確かめてから y を押す。それ以外の番号が出た、または2つ以外の数が出たら y を押さずに止めて、Claude に知らせる（main には本来 0000〜0003 の4つしかなく、0002 は #40、0003 は今回の変更でできたもの）。
+
+```bash
 npm run db:migrate:remote
+```
 
-# ④ 件数が①と同じこと、position がすべて 0 のこと
+④ 件数が①と同じで、position がすべて 0 で、未適用のマイグレーションが無いことを確かめる。
+
+```bash
 npx wrangler d1 execute mairecipe --remote --command "select count(*) as n, max(position) as max_position from meal_plans"
+npx wrangler d1 migrations list mairecipe --remote
+```
 
-# ⑤ すぐデプロイ
+⑤ すぐデプロイする。
+
+```bash
 npm run deploy
 ```
 
-- ④で件数が違ったら、デプロイせずに止めて Claude に知らせる。戻すときは `npx wrangler d1 time-travel restore mairecipe --bookmark=<②で控えた bookmark>`
+- ④で件数や position が違ったら、デプロイせずに止めて Claude に知らせる。戻すときは次のコマンドを使う（`<bookmark>` を②で控えた値に置き換える）。
+
+```bash
+npx wrangler d1 time-travel restore mairecipe --bookmark=<bookmark>
+```
+
 - 反映後の確認：スマホで献立を開き、今日の夜に2品足す → 1品外す → 買い物リストに残った品の材料が出る。PWA が古い画面のままなら一度閉じて開き直す
+
+デプロイ後に戻したいとき：`npx wrangler rollback` はコードだけを前のバージョンに戻す。マイグレーション済みの新しい DB（position 列がある）の上で古いコードが動くことになり、品を足す操作（`on conflict (group_id, date, meal)` を使う insert）だけ失敗する。データは消えない。DB まで戻したいときは、rollback のあとに time-travel restore を使う（`<bookmark>` は②で控えた値）。移行後に足した献立は消える。
+
+```bash
+npx wrangler rollback
+npx wrangler d1 time-travel restore mairecipe --bookmark=<bookmark>
+```
+
 - バックアップの `.sql` はコミットしない
