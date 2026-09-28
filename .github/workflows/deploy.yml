@@ -1,0 +1,97 @@
+# main にマージされたら、テスト → 本番 D1 のマイグレーション → デプロイ まで自動で行う。
+# 鍵は GitHub の Secrets にだけ置く（リポジトリ・チャットには書かない）。
+#   CLOUDFLARE_API_TOKEN  … Cloudflare の API トークン（Workers Scripts:Edit と D1:Edit）
+#   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET … Google ログインの鍵（入れたらログインが使えるようになる）
+# BETTER_AUTH_SECRET は、まだ無ければ初回にここで作って Worker に登録する。
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: 4b59d0ad7c190f86ae3a8fb4a6df50eb
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  WORKER_NAME: mairecipe
+  D1_NAME: mairecipe
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: チェック（lint / 型 / テスト）
+        run: npm run lint && npm run typecheck && npm run test
+
+      - name: 鍵があるか確かめる
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::GitHub の Secrets に CLOUDFLARE_API_TOKEN がありません（README の手順）"
+            exit 1
+          fi
+
+      - name: 本番 D1 を用意する（無ければ作る）して wrangler.jsonc に入れる
+        run: |
+          ID=$(npx wrangler d1 list --json | node -e "const l=JSON.parse(require('fs').readFileSync(0,'utf8'));const d=l.find(x=>x.name===process.env.D1_NAME);process.stdout.write(d?d.uuid:'')")
+          if [ -z "$ID" ]; then
+            npx wrangler d1 create "$D1_NAME" --location apac
+            ID=$(npx wrangler d1 list --json | node -e "const l=JSON.parse(require('fs').readFileSync(0,'utf8'));process.stdout.write(l.find(x=>x.name===process.env.D1_NAME).uuid)")
+          fi
+          echo "D1: $D1_NAME ($ID)"
+          sed -i "s/REPLACE_WITH_REAL_D1_DATABASE_ID/$ID/" wrangler.jsonc
+
+      - name: 本番 D1 にマイグレーションを適用
+        run: npx wrangler d1 migrations apply "$D1_NAME" --remote
+
+      - name: デプロイ
+        run: npm run build && npx wrangler deploy
+
+      - name: Worker の秘密の値を登録
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          SUB=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0,'utf8')).result.subdomain)")
+          URL="https://$WORKER_NAME.$SUB.workers.dev"
+          echo "本番 URL: $URL"
+          echo "Google のリダイレクト URI: $URL/api/auth/callback/google"
+          EXISTING=$(npx wrangler secret list --name "$WORKER_NAME" --format json 2>/dev/null || echo "[]")
+          has() { echo "$EXISTING" | grep -q "\"$1\""; }
+          printf '%s' "$URL" | npx wrangler secret put BETTER_AUTH_URL --name "$WORKER_NAME"
+          if ! has BETTER_AUTH_SECRET; then
+            openssl rand -base64 32 | tr -d '\n' | npx wrangler secret put BETTER_AUTH_SECRET --name "$WORKER_NAME"
+          fi
+          if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+            printf '%s' "$GOOGLE_CLIENT_ID" | npx wrangler secret put GOOGLE_CLIENT_ID --name "$WORKER_NAME"
+            printf '%s' "$GOOGLE_CLIENT_SECRET" | npx wrangler secret put GOOGLE_CLIENT_SECRET --name "$WORKER_NAME"
+          else
+            echo "::warning::GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET がまだ無いので、ログインはまだ使えません"
+          fi
+
+      - name: 動いているか確かめる
+        run: |
+          SUB=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0,'utf8')).result.subdomain)")
+          sleep 5
+          curl -fsS "https://$WORKER_NAME.$SUB.workers.dev/api/health"
+          echo
+          curl -fsS "https://$WORKER_NAME.$SUB.workers.dev/api/config"
