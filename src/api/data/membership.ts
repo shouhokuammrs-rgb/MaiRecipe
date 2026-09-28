@@ -7,6 +7,22 @@ import type { SessionUser } from "../app-env";
 import { Conflict, NotFound, type Db } from "./index";
 import * as s from "./schema";
 
+/**
+ * batch の失敗が「参加の INSERT が NOT NULL／UNIQUE 制約で弾かれた」ことによるものか
+ * （＝招待の取り消し・人数変化・二重受諾などの競合）を判定する。D1 が返す実際のエラー文
+ * （例: `D1_ERROR: NOT NULL constraint failed: group_members.group_id: SQLITE_CONSTRAINT
+ * (extended: SQLITE_CONSTRAINT_NOTNULL)`）の文字列だけを対象にし、関係ない外部キー違反や
+ * コードのバグはここで握りつぶさない（handleError の 500 に任せる）。
+ */
+export function isJoinRaceError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes("group_members") &&
+    (message.includes("NOT NULL constraint failed") ||
+      message.includes("UNIQUE constraint failed"))
+  );
+}
+
 export function membershipFor(db: Db, user: SessionUser) {
   const email = user.emailVerified ? normalizeEmail(user.email) : null;
 
@@ -185,12 +201,7 @@ export function membershipFor(db: Db, user: SessionUser) {
         // group_members への参加 INSERT が NOT NULL／一意制約で失敗したときだけ、競合として
         // 404/409 に変換する。それ以外（コードのバグ・D1 の一時的な不調など）はそのまま投げ、
         // handleError の 500 に任せる（レースを装って本当のバグを隠さない）。
-        const message = err instanceof Error ? err.message : String(err);
-        const isRaceOnJoin =
-          message.includes("group_members") &&
-          (message.includes("NOT NULL constraint failed") ||
-            message.includes("UNIQUE constraint failed"));
-        if (!isRaceOnJoin) throw err;
+        if (!isJoinRaceError(err)) throw err;
 
         // 条件が崩れていた（招待が取り消された／人数が変わった／同時に別の招待を受けたなど）。
         // 何も変わっていないので、招待がまだ有効かどうかで案内を分ける。
