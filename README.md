@@ -25,38 +25,27 @@ npm run lint && npm run typecheck && npm run test   # PR 前に通す
 npm run e2e                                          # 画面の通しテスト（dev サーバーを自動で起動）
 ```
 
-## 本番に公開する（Eiichi の作業・初回だけ）
+## 本番に公開する（GitHub Actions で自動）
 
-1. **Cloudflare にログイン**（無料アカウント。カード登録は不要）
-   ```bash
-   npx wrangler login
-   ```
-2. **本番の D1 を作る**。表示された `database_id` を `wrangler.jsonc` の `REPLACE_WITH_REAL_D1_DATABASE_ID` に貼る
-   ```bash
-   npx wrangler d1 create mairecipe
-   ```
-3. **一度デプロイして URL を知る**（`https://mairecipe.<アカウント名>.workers.dev` のような URL が出る）
-   ```bash
-   npm run db:migrate:remote
-   npm run deploy
-   ```
-4. **Google ログインの鍵を作る**（Google Cloud Console → API とサービス → 認証情報 → OAuth クライアント ID → ウェブアプリケーション）
-   - 承認済みの JavaScript 生成元: `https://mairecipe.<アカウント名>.workers.dev`
-   - 承認済みのリダイレクト URI: `https://mairecipe.<アカウント名>.workers.dev/api/auth/callback/google`
-5. **秘密の値を登録**（1つずつ聞かれるので貼る）
-   ```bash
-   npx wrangler secret put GOOGLE_CLIENT_ID
-   npx wrangler secret put GOOGLE_CLIENT_SECRET
-   npx wrangler secret put BETTER_AUTH_URL        # 手順3の URL（末尾の / なし）
-   npx wrangler secret put BETTER_AUTH_SECRET     # openssl rand -base64 32 の出力
-   ```
-   `DEV_LOGIN` は本番に**入れない**。
-6. **もう一度デプロイ**して、スマホで URL を開き Google でログイン → 共有メニューから「ホーム画面に追加」
-   ```bash
-   npm run deploy
-   ```
+`main` にマージされると `.github/workflows/deploy.yml` が
+**テスト → 本番 D1 の用意（無ければ作る）→ マイグレーション → デプロイ → 秘密の値の登録 → 動作確認** まで自動で行う。
+手で動かすときは GitHub の Actions タブ → deploy → Run workflow。
 
-2回目以降は `npm run db:migrate:remote`（マイグレーションが増えたときだけ）と `npm run deploy` だけ。
+### 初回だけ Eiichi がやること（鍵は GitHub の Secrets にだけ置く。チャットやファイルには書かない）
+
+GitHub のリポジトリ → Settings → Secrets and variables → Actions → New repository secret で、次の3つを登録する。
+
+| 名前 | 中身 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare の API トークン（My Profile → API Tokens。権限は Workers Scripts:Edit と D1:Edit、対象はこのアカウントだけ） |
+| `GOOGLE_CLIENT_ID` | Google Cloud Console の OAuth クライアント ID（ウェブアプリケーション） |
+| `GOOGLE_CLIENT_SECRET` | 同じクライアントのシークレット |
+
+Google の OAuth クライアントには次を設定する（`<サブドメイン>` は Actions のログの「本番 URL」に出る）。
+- 承認済みの JavaScript 生成元: `https://mairecipe.<サブドメイン>.workers.dev`
+- 承認済みのリダイレクト URI: `https://mairecipe.<サブドメイン>.workers.dev/api/auth/callback/google`
+
+`BETTER_AUTH_SECRET` と `BETTER_AUTH_URL` はワークフローが自動で登録する。`DEV_LOGIN` は本番に**入れない**。
 
 ## Claude Code で作業する場合
 
