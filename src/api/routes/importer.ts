@@ -3,9 +3,11 @@
 // YouTube は概要欄の【材料】【作り方】から、無ければ概要欄に貼られたレシピページから読む。AI は使わない。
 import { Hono } from "hono";
 import {
+  cleanSourceUrl,
   extractRecipeFromJsonLd,
   guessCategory,
   guessGenre,
+  isRecipeCandidateHost,
   parseDescriptionRecipe,
   parseVideoUrl,
   pickRecipeUrls,
@@ -23,6 +25,15 @@ import {
 } from "../platform/fetch-page";
 
 export const importer = new Hono<AppEnv>();
+
+/** 概要欄のリンクを読むときの上限（3件合わせて12秒まで・1件ごとに短め・小さめ） */
+const LINKS_DEADLINE_MS = 12_000;
+const LINK_SCAN = {
+  allowHost: isRecipeCandidateHost,
+  timeoutMs: 5000,
+  maxRedirects: 3,
+  maxBytes: 800_000,
+};
 
 const NOT_FOUND_MESSAGE =
   "このページからは材料と作り方を読み取れませんでした。出典を残したまま、手で入れられます。";
@@ -68,20 +79,29 @@ importer.post("/", async (c) => {
           message: "動画の概要欄から読み取りました（AI なし）。",
         });
       }
-      // ② 概要欄に貼られた URL を上から順に（最大3件）
+      // ② 概要欄に貼られた URL を上から順に（最大3件）。転送先が SNS・動画なら読まない
+      const deadline = Date.now() + LINKS_DEADLINE_MS;
       for (const link of pickRecipeUrls(snip.description, 3)) {
+        if (Date.now() > deadline) break;
         let page: PageScan;
         try {
-          page = await scanPage(link);
+          page = await scanPage(link, LINK_SCAN);
         } catch {
           continue;
         }
-        const { recipe: r } = readPage(page);
+        const { recipe: r, via } = readPage(page);
         if (!r) continue;
+        // 見出しから読んだときは、材料と手順の両方が取れたページだけ（商品ページなどを避ける）
+        if (via === "sections" && (!r.ingredients.length || !r.steps.length))
+          continue;
         return c.json({
           kind: "video",
           found: true,
-          draft: { ...r, sourceUrl: page.url, videoUrl: video.watchUrl },
+          draft: {
+            ...r,
+            sourceUrl: cleanSourceUrl(page.url) ?? cleanSourceUrl(link) ?? link,
+            videoUrl: video.watchUrl,
+          },
           message:
             "動画の概要欄にあるレシピのページから読み取りました（AI なし）。",
         });

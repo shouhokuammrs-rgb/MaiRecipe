@@ -76,6 +76,8 @@ describe("splitIngredientLine", () => {
     ["鶏もも肉 1枚 (300g)", "鶏もも肉", "1枚 (300g)"],
     // 分量らしいところが無ければ、今まで通り最初の区切りで
     ["卵 Mサイズ", "卵", "Mサイズ"],
+    ["メークイン じゃがいも 2〜3個", "メークイン じゃがいも", "2〜3個"],
+    ["低脂肪 牛乳　1と1/2カップ", "低脂肪 牛乳", "1と1/2カップ"],
   ])("%s", (line, name, amount) => {
     expect(splitIngredientLine(line)).toEqual({ name, amount });
   });

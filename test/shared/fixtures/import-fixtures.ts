@@ -109,3 +109,47 @@ https://third.example.net/x
 https://fourth.example.net/y
 
 #パスタ`;
+
+/**
+ * 見出しの誤判定・読みすぎを確かめるページ。
+ * - ヘッダーのメニューに class=gnav-title「材料から探す」と、その後の li
+ * - li の中に class=step-head の番号
+ * - 材料の途中に h4 の小見出し（タレ）
+ * - 作り方の後に見出しの無いコツ欄とフッター
+ */
+export const TRICKY_HTML = `<!DOCTYPE html><html><head><title>ダミーの照り焼き | サイト</title></head><body>
+<div class="gnav"><p class="gnav-title">材料から探す</p><ul><li>野菜</li><li>肉</li></ul></div>
+<h1>ダミーの照り焼き</h1>
+<h2>材料 <span>2人分</span></h2>
+<ul class="ingredients">
+  <li>鶏もも肉 1枚</li>
+  <li>片栗粉 大さじ1</li>
+</ul>
+<h4>タレ</h4>
+<ul class="ingredients">
+  <li>しょうゆ 大さじ2</li>
+</ul>
+<h2>作り方</h2>
+<ol>
+  <li><span class="step-head">1</span><p>鶏肉に粉をまぶす。</p></li>
+  <li><span class="step-head">2</span><p>2、3分焼く。</p></li>
+</ol>
+<div class="tips"><ul><li>コツの説明文は取り込まない。</li></ul></div>
+<footer><ul><li>会社情報</li></ul></footer>
+</body></html>`;
+
+/** 表で材料が書かれたページ（見出し行 th は材料にしない）と、閉じタグを省いた li */
+export const TABLE_HTML = `<!DOCTYPE html><html><head><title>ダミーの煮物</title></head><body>
+<h2>材料（4人分）</h2>
+<table><thead><tr><th>材料</th><th>分量</th></tr></thead>
+<tbody><tr><td>大根</td><td>1/2本</td></tr><tr><th>だし</th><td>400ml</td></tr></tbody></table>
+<h2>作り方</h2>
+<ol><li>大根を切る。<li>だしで煮る。</ol>
+<p>おわり</p>
+</body></html>`;
+
+/** 材料の見出しが無い商品ページ（原材料名）。概要欄のリンク先でありがち */
+export const PRODUCT_HTML = `<!DOCTYPE html><html><head><title>ダミー商品</title></head><body>
+<h2>原材料名</h2><table><tr><td>小麦粉</td><td>国内製造</td></tr></table>
+<h2>レビュー</h2><ul><li>おいしい</li></ul>
+</body></html>`;

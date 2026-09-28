@@ -62,12 +62,27 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number) {
   }
 }
 
-/** リダイレクトは自分でたどり、行き先ごとに assertPublicHttpUrl を通す */
+export type ScanOptions = {
+  /** 行き先（転送先も毎回）のホストを読んでよいか。false ならそこで失敗にする */
+  allowHost?: (host: string) => boolean;
+  timeoutMs?: number;
+  maxRedirects?: number;
+  maxBytes?: number;
+};
+
+/** リダイレクトは自分でたどり、行き先ごとに assertPublicHttpUrl（と allowHost）を通す */
 async function fetchPublic(
   url: string,
+  opts: ScanOptions,
 ): Promise<{ res: Response; url: string }> {
-  let current = assertPublicHttpUrl(url);
-  for (let i = 0; i <= MAX_REDIRECTS; i++) {
+  const check = (raw: string) => {
+    const u = assertPublicHttpUrl(raw);
+    if (opts.allowHost && !opts.allowHost(u.hostname))
+      throw new FetchPageError("この URL は取り込めません");
+    return u;
+  };
+  let current = check(url);
+  for (let i = 0; i <= (opts.maxRedirects ?? MAX_REDIRECTS); i++) {
     let res: Response;
     try {
       res = await fetchWithTimeout(
@@ -81,7 +96,7 @@ async function fetchPublic(
             "accept-language": "ja,en;q=0.8",
           },
         },
-        TIMEOUT_MS,
+        opts.timeoutMs ?? TIMEOUT_MS,
       );
     } catch {
       throw new FetchPageError("ページを取得できませんでした");
@@ -90,7 +105,7 @@ async function fetchPublic(
       const loc = res.headers.get("location");
       await res.body?.cancel();
       if (!loc) throw new FetchPageError("ページを取得できませんでした");
-      current = assertPublicHttpUrl(new URL(loc, current).toString());
+      current = check(new URL(loc, current).toString());
       continue;
     }
     return { res, url: current.toString() };
@@ -149,8 +164,12 @@ const NOT_HEADING_TAGS = new Set([
   "base",
 ]);
 
-export async function scanPage(url: string): Promise<PageScan> {
-  const { res, url: finalUrl } = await fetchPublic(url);
+export async function scanPage(
+  url: string,
+  opts: ScanOptions = {},
+): Promise<PageScan> {
+  const maxBytes = opts.maxBytes ?? MAX_BYTES;
+  const { res, url: finalUrl } = await fetchPublic(url, opts);
   if (!res.ok) {
     await res.body?.cancel();
     throw new FetchPageError(`ページを取得できませんでした（${res.status}）`);
@@ -161,7 +180,7 @@ export async function scanPage(url: string): Promise<PageScan> {
     throw new FetchPageError("レシピのページではないようです");
   }
   const len = Number(res.headers.get("content-length") ?? 0);
-  if (len > MAX_BYTES) {
+  if (len > maxBytes) {
     await res.body?.cancel();
     throw new FetchPageError("ページが大きすぎます");
   }
@@ -169,28 +188,80 @@ export async function scanPage(url: string): Promise<PageScan> {
   const jsonLd: string[] = [];
   let jsonChars = 0;
   let current: string | null = null;
+  let truncated = false;
   let foundRecipe = false;
   let title = "";
   let ogTitle = "";
   let inTitle = false;
 
-  // 予備の読み取り。開いている見出しごとに文字をためて、閉じたときに材料・手順・その他を決める
+  // ---- 予備の読み取り ----
+  // 「材料」「作り方」の見出しが閉じたら、その後の最初の一覧（ol/ul/dl/table）の項目を拾う。
+  // 一覧が閉じたら一旦止め、それより深い h タグの小見出し（タレ など）が来たら同じ種類で再開する。
+  // header/nav/footer/aside の中と、項目の中で閉じた見出し（li の中の番号など）は見出しとして扱わない。
   const ingredients: RawIngredient[] = [];
   const steps: string[] = [];
   let mode: HeadingKind = "other";
+  let modeLevel: number | null = null;
+  let paused: { mode: HeadingKind; level: number | null } | null = null;
+  let listOpen = false;
+  let chromeDepth = 0;
   const openHeadings: { text: string }[] = [];
   let item: { tag: string; text: string } | null = null;
   let itemDepth = 0;
+  /** 項目の中で開いている一覧の数（入れ子の li と、閉じタグを省いた li を見分ける） */
+  let innerLists = 0;
   let pendingName: string | null = null;
-  let rowCells: string[] = [];
+  let rowCells: { tag: string; text: string }[] = [];
   const full = () =>
     ingredients.length >= MAX_INGREDIENTS && steps.length >= MAX_STEPS;
+
+  const startMode = (kind: HeadingKind, level: number | null) => {
+    mode = kind;
+    modeLevel = level;
+    paused = null;
+    pendingName = null;
+  };
+
+  const onHeadingEnd = (raw: string, level: number | null) => {
+    if (chromeDepth > 0) return;
+    if (itemDepth > 0) {
+      // li の中の <span class="step-head">1</span> のような番号は、項目の文字から外す
+      const num = raw.trim();
+      if (
+        item &&
+        /^\d{1,2}$/.test(num) &&
+        item.text.trimStart().startsWith(num)
+      )
+        item.text = item.text.trimStart().slice(num.length);
+      return;
+    }
+    const kind = classifyHeading(raw);
+    if (kind === "ignore") return;
+    if (kind !== "other") return startMode(kind, level);
+    // class で当たっただけの要素（h タグでない）では止めない
+    if (level === null) return;
+    if (mode !== "other") {
+      if (modeLevel !== null && level > modeLevel) return; // 材料の中の小見出し
+      mode = "other";
+      paused = null;
+      return;
+    }
+    if (paused && paused.level !== null && level > paused.level) {
+      // 一覧の後の小見出し（タレ など）：同じ種類で再開する
+      mode = paused.mode;
+      modeLevel = paused.level;
+      return;
+    }
+    paused = null;
+  };
 
   const onItemEnd = (tag: string, raw: string) => {
     const t = raw.trim();
     if (mode === "ingredients" && ingredients.length < MAX_INGREDIENTS) {
-      if (tag === "dt") pendingName = t;
-      else if (tag === "dd") {
+      if (tag === "dt") {
+        if (pendingName) ingredients.push({ name: pendingName, amount: "" });
+        pendingName = t;
+      } else if (tag === "dd") {
         ingredients.push(
           pendingName !== null
             ? { name: pendingName, amount: t }
@@ -198,9 +269,24 @@ export async function scanPage(url: string): Promise<PageScan> {
         );
         pendingName = null;
       } else if (tag === "li") ingredients.push({ name: t, amount: "" });
-      else rowCells.push(t);
+      else rowCells.push({ tag, text: t });
     } else if (mode === "steps" && steps.length < MAX_STEPS) {
       if (tag === "li" || tag === "dd" || tag === "td") steps.push(t);
+    }
+  };
+
+  const sameRow = (a: string, b: string) =>
+    a === b ||
+    ((a === "dt" || a === "dd") && (b === "dt" || b === "dd")) ||
+    ((a === "th" || a === "td") && (b === "th" || b === "td"));
+
+  /** onEndTag を付けられない要素（閉じタグの無い要素）では false */
+  const onEnd = (el: Element, fn: () => void): boolean => {
+    try {
+      el.onEndTag(fn);
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -208,8 +294,10 @@ export async function scanPage(url: string): Promise<PageScan> {
     .on('script[type="application/ld+json"]', {
       element(el) {
         current = "";
-        el.onEndTag(() => {
-          if (current !== null) {
+        truncated = false;
+        onEnd(el, () => {
+          // 上限で途中まで切れたものは JSON として読めないので捨てる
+          if (current !== null && !truncated) {
             jsonLd.push(current);
             if (/"Recipe"/.test(current)) foundRecipe = true;
           }
@@ -218,7 +306,10 @@ export async function scanPage(url: string): Promise<PageScan> {
       },
       text(t) {
         if (current === null) return;
-        if (jsonChars + t.text.length > MAX_JSONLD_CHARS) return;
+        if (jsonChars + t.text.length > MAX_JSONLD_CHARS) {
+          truncated = true;
+          return;
+        }
         jsonChars += t.text.length;
         current += t.text;
       },
@@ -231,7 +322,7 @@ export async function scanPage(url: string): Promise<PageScan> {
     .on("title", {
       element(el) {
         inTitle = true;
-        el.onEndTag(() => {
+        onEnd(el, () => {
           inTitle = false;
         });
       },
@@ -239,50 +330,105 @@ export async function scanPage(url: string): Promise<PageScan> {
         if (inTitle && title.length < 200) title += t.text;
       },
     })
+    .on("header, nav, footer, aside", {
+      element(el) {
+        chromeDepth++;
+        if (
+          !onEnd(el, () => {
+            chromeDepth--;
+          })
+        )
+          chromeDepth--;
+      },
+    })
     .on(HEADINGS, {
       element(el) {
-        if (NOT_HEADING_TAGS.has(el.tagName.toLowerCase())) return;
+        const tag = el.tagName.toLowerCase();
+        if (NOT_HEADING_TAGS.has(tag)) return;
+        const level = /^h[1-6]$/.test(tag) ? Number(tag[1]) : null;
         const h = { text: "" };
-        openHeadings.push(h);
-        el.onEndTag(() => {
-          openHeadings.splice(openHeadings.lastIndexOf(h), 1);
-          const kind = classifyHeading(h.text);
-          if (kind === "ignore") return;
-          mode = kind;
-          pendingName = null;
+        const ok = onEnd(el, () => {
+          const i = openHeadings.lastIndexOf(h);
+          if (i >= 0) openHeadings.splice(i, 1);
+          onHeadingEnd(h.text, level);
         });
+        if (ok) openHeadings.push(h);
+      },
+    })
+    .on("ol, ul, dl, table", {
+      element(el) {
+        if (itemDepth > 0) {
+          innerLists++;
+          if (
+            !onEnd(el, () => {
+              innerLists = Math.max(0, innerLists - 1);
+            })
+          )
+            innerLists--;
+          return;
+        }
+        if (mode === "other" || listOpen || chromeDepth > 0) return;
+        const listMode = mode;
+        if (
+          !onEnd(el, () => {
+            listOpen = false;
+            if (mode === listMode) {
+              paused = { mode, level: modeLevel };
+              mode = "other";
+            }
+          })
+        )
+          return;
+        listOpen = true;
       },
     })
     .on("li, dt, dd, th, td", {
       element(el) {
-        if (mode === "other" || full()) return;
-        itemDepth++;
+        if (mode === "other" || chromeDepth > 0 || full()) return;
         const tag = el.tagName.toLowerCase();
+        // 閉じタグを省いた <li>a<li>b / <dt>名<dd>量：前の項目がまだ開いていれば、ここで確定させる
+        if (item && innerLists === 0 && sameRow(item.tag, tag)) {
+          onItemEnd(item.tag, item.text);
+          item = null;
+          itemDepth = 0;
+        }
+        itemDepth++;
         // 入れ子の li は外側の1つとして読む
         if (itemDepth === 1) item = { tag, text: "" };
-        el.onEndTag(() => {
+        if (
+          !onEnd(el, () => {
+            itemDepth = Math.max(0, itemDepth - 1);
+            if (itemDepth === 0 && item) {
+              onItemEnd(item.tag, item.text);
+              item = null;
+            }
+          })
+        )
           itemDepth--;
-          if (itemDepth === 0 && item) {
-            onItemEnd(item.tag, item.text);
-            item = null;
-          }
-        });
       },
     })
     .on("tr", {
       element(el) {
-        if (mode !== "ingredients") return;
+        if (mode !== "ingredients" || chromeDepth > 0) return;
         rowCells = [];
-        el.onEndTag(() => {
-          const [name, amount] = rowCells;
-          if (name && ingredients.length < MAX_INGREDIENTS)
-            ingredients.push({ name, amount: amount ?? "" });
+        onEnd(el, () => {
+          // th だけの行（「材料」「分量」の見出し行）は飛ばす
+          if (
+            rowCells.some((c) => c.tag === "td") &&
+            rowCells[0]?.text &&
+            ingredients.length < MAX_INGREDIENTS
+          )
+            ingredients.push({
+              name: rowCells[0].text,
+              amount: rowCells[1]?.text ?? "",
+            });
           rowCells = [];
         });
       },
     })
     .onDocument({
       text(t) {
+        if (!item && openHeadings.length === 0) return;
         for (const h of openHeadings)
           if (h.text.length < MAX_HEADING_CHARS) h.text += t.text;
         if (item && item.text.length < MAX_ITEM_CHARS) item.text += t.text;
@@ -296,7 +442,7 @@ export async function scanPage(url: string): Promise<PageScan> {
       const { done, value } = await reader.read();
       if (done) break;
       total += value?.byteLength ?? 0;
-      if (foundRecipe || total > MAX_BYTES) {
+      if (foundRecipe || total > maxBytes) {
         await reader.cancel();
         break;
       }
@@ -323,9 +469,13 @@ export async function youtubeSnippet(
   const u = new URL("https://www.googleapis.com/youtube/v3/videos");
   u.searchParams.set("part", "snippet");
   u.searchParams.set("id", videoId);
-  u.searchParams.set("key", key);
   try {
-    const res = await fetchWithTimeout(u.toString(), {}, 4000);
+    // 鍵は URL に載せない（ログ・トレースに URL が残っても鍵が出ないように）
+    const res = await fetchWithTimeout(
+      u.toString(),
+      { headers: { "x-goog-api-key": key } },
+      4000,
+    );
     if (!res.ok) {
       await res.body?.cancel();
       return null;

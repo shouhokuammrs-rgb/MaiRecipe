@@ -4,7 +4,8 @@
 // 元の文章・写真はコピーしない（材料と手順は事実として扱う。docs/decisions/DEC-011）。
 import type { Category, Genre } from "./constants";
 import type { Ingredient } from "./recipe";
-import { splitIngredientLine } from "./recipe";
+import { LIMITS } from "./constants";
+import { splitIngredientLine, startsWithAmount } from "./recipe";
 
 export type ImportedRecipe = {
   title: string;
@@ -193,6 +194,11 @@ function parseJsonLoose(raw: string): Json | undefined {
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i];
     if (inString) {
+      // 文字列の中の生の改行・タブ（JSON では不正）は空白にする
+      if (ch === "\n" || ch === "\r" || ch === "\t") {
+        out += " ";
+        continue;
+      }
       out += ch;
       if (ch === "\\") {
         out += raw[i + 1] ?? "";
@@ -300,9 +306,24 @@ export type HeadingKind = "ingredients" | "steps" | "other" | "ignore";
 export function classifyHeading(raw: string): HeadingKind {
   const s = text(raw).replace(/\s+/g, "");
   if (!s || s.length > 30) return "ignore";
-  if (/材料/.test(s)) return "ingredients";
-  if (/作り方|つくり方|作りかた|手順/.test(s)) return "steps";
-  return "other";
+  return sectionKind(s) ?? "other";
+}
+
+// 「材料」「作り方」の後に続いてよいのは、閉じ括弧・区切り・（2人分）・2人分 だけ。
+// 「材料から探す」「原材料名」「材料3つで簡単！」「作り方は動画で」は見出しにしない
+const SECTION_TAIL =
+  "(?:\\s*$|\\s*[】\\]］>＞》〉)）:：]|\\s*[（(【[［<＜]|\\s*[\\d０-９]+\\s*(?:人分|人前|個分|枚分|本分|皿分|杯分|食分))";
+const INGREDIENTS_HEAD = new RegExp(`^材料${SECTION_TAIL}`);
+const STEPS_HEAD = new RegExp(
+  `^(?:作り方|つくり方|作りかた|手順)${SECTION_TAIL}`,
+);
+const OPEN_MARK = /^[【[［<＜《〈(（■□●○◆◇▼▽★☆・\s]+/u;
+
+function sectionKind(line: string): "ingredients" | "steps" | null {
+  const inner = line.replace(OPEN_MARK, "");
+  if (INGREDIENTS_HEAD.test(inner)) return "ingredients";
+  if (STEPS_HEAD.test(inner)) return "steps";
+  return null;
 }
 
 /**
@@ -311,11 +332,13 @@ export function classifyHeading(raw: string): HeadingKind {
  * 空白の続かない ①② は外さない。概要欄（loose）は「①鶏肉を切る」も番号として外す
  */
 function stripStepNumber(s: string, loose = false): string {
+  // 「2、3分焼く」の「2、」は番号ではないので、「、」はページ側では番号の区切りにしない
   const circled = loose ? "[①-⑳]" : "[①-⑳](?=\\s)";
+  const punct = loose ? "[.)．）:：、]" : "[.)．）:：]";
   return s
     .replace(
       new RegExp(
-        `^(?:\\d{1,2}\\s*[.)．）:：、]|${circled}|[(（]\\d{1,2}[)）]|step\\s*\\d{1,2}[.:：]?)\\s*`,
+        `^(?:\\d{1,2}\\s*${punct}|${circled}|[(（]\\d{1,2}[)）]|step\\s*\\d{1,2}[.:：]?)\\s*`,
         "i",
       ),
       "",
@@ -359,14 +382,15 @@ export function recipeFromSections(input: {
 // ---- YouTube の概要欄 ----
 
 const DESC_BULLET = /^[・･\-－*＊●○◆◇■□▼▽★☆✅>＞]+\s*/u;
-const URL_RE = /https?:\/\/[^\s"'<>（）「」]+/g;
+// URL に使える ASCII の文字だけ（後ろに続く全角の文字・句読点・括弧は含めない）
+const URL_RE = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&*+,;=%]+/g;
 
 /** 概要欄の1行が区切り（【材料】など）なら、その種類を返す */
 function descMarker(line: string): HeadingKind | null {
-  const inner = line.replace(/^[【[［<＜《〈(（■□●○◆◇▼▽★☆・\s]+/u, "").trim();
-  if (!inner || line.length > 24) return null;
-  if (/^材料/.test(inner)) return "ingredients";
-  if (/^(?:作り方|つくり方|作りかた|手順)/.test(inner)) return "steps";
+  if (line.length > 24) return null;
+  const kind = sectionKind(line);
+  if (kind) return kind;
+  const inner = line.replace(OPEN_MARK, "").trim();
   // 【ポイント】■お知らせ のような別の区切り。＜タレ＞（A）のような短いまとまりの名前は区切りにしない
   if (/^[【[［■□▼▽◆◇]/.test(line) && inner.replace(/[】\]］]/g, "").length > 3)
     return "other";
@@ -400,11 +424,18 @@ export function parseDescriptionRecipe(
       mode = null;
       continue;
     }
+    const bulleted = DESC_BULLET.test(line);
     if (mode === "ingredients") {
       const body = line.replace(DESC_BULLET, "");
       // ＜タレ＞（A）のような、まとまりの名前だけの行は飛ばす
-      if (/^[<＜(（【[［].{0,6}[>＞)）】\]］]$/u.test(body)) continue;
-      if (body) ingredients.push(splitIngredientLine(body));
+      if (/^[<＜(（【[［].{0,6}[>＞)）】\]］]$/u.test(body)) {
+        afterBlank = false;
+        continue;
+      }
+      const ing = splitIngredientLine(body);
+      // 空行の後は、箇条書きか分量のある行だけ材料の続きとみなす（あいさつ・BGM の行で終わる）
+      if (afterBlank && !bulleted && !startsWithAmount(ing.amount)) mode = null;
+      else if (body) ingredients.push(ing);
     } else if (mode === "steps") {
       const body = line.replace(DESC_BULLET, "");
       const stripped = stripStepNumber(body, true);
@@ -417,7 +448,8 @@ export function parseDescriptionRecipe(
         if (afterBlank) mode = null;
         else if (steps.length) steps[steps.length - 1] += stripped;
         else steps.push(stripped);
-      } else steps.push(stripped);
+      } else if (afterBlank && !bulleted) mode = null;
+      else steps.push(stripped);
     }
     afterBlank = false;
   }
@@ -427,7 +459,26 @@ export function parseDescriptionRecipe(
 
 /** レシピのページではない（SNS・動画・ショートリンクのまとめなど）ので試さないホスト */
 const NOT_RECIPE_HOSTS =
-  /(^|\.)(youtube\.com|youtu\.be|instagram\.com|twitter\.com|x\.com|tiktok\.com|facebook\.com|threads\.net|line\.me|lin\.ee|lit\.link|linktr\.ee|amzn\.to|amazon\.co\.jp|amazon\.com|a\.r10\.to)$/i;
+  /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|instagram\.com|twitter\.com|x\.com|tiktok\.com|facebook\.com|threads\.net|line\.me|lin\.ee|lit\.link|linktr\.ee|amzn\.to|amzn\.asia|a\.co|amazon\.co\.jp|amazon\.com|a\.r10\.to|item\.rakuten\.co\.jp|hb\.afl\.rakuten\.co\.jp|books\.rakuten\.co\.jp)$/i;
+
+/** 概要欄のリンクとして読みに行ってよいホストか（転送先でも毎回確かめる） */
+export function isRecipeCandidateHost(host: string): boolean {
+  return !NOT_RECIPE_HOSTS.test(host);
+}
+
+/** 出典として残す URL。utm_* などの追跡用の値を外す。長すぎれば null */
+export function cleanSourceUrl(raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  for (const k of [...u.searchParams.keys()])
+    if (/^utm_|^(?:fbclid|gclid)$/i.test(k)) u.searchParams.delete(k);
+  const s = u.toString();
+  return s.length > LIMITS.urlMax ? null : s;
+}
 
 /** 概要欄から、レシピのページかもしれない URL を上から最大 max 件 */
 export function pickRecipeUrls(description: string, max = 3): string[] {
@@ -435,11 +486,11 @@ export function pickRecipeUrls(description: string, max = 3): string[] {
   for (const m of description.matchAll(URL_RE)) {
     let u: URL;
     try {
-      u = new URL(m[0]);
+      u = new URL(m[0].replace(/[.,;:!?']+$/, ""));
     } catch {
       continue;
     }
-    if (NOT_RECIPE_HOSTS.test(u.hostname)) continue;
+    if (!isRecipeCandidateHost(u.hostname)) continue;
     const s = u.toString();
     if (out.includes(s)) continue;
     out.push(s);

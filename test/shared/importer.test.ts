@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   classifyHeading,
   cleanPageTitle,
+  cleanSourceUrl,
   durationLabel,
   extractRecipeFromJsonLd,
+  isRecipeCandidateHost,
   parseDescriptionRecipe,
   parseVideoUrl,
   pickRecipeUrls,
@@ -231,5 +233,83 @@ describe("pickRecipeUrls", () => {
   });
   it("URL が無ければ空", () => {
     expect(pickRecipeUrls("材料はありません")).toEqual([]);
+  });
+});
+
+describe("レビュー指摘の再現", () => {
+  it.each([
+    ["材料から探す", "other"],
+    ["原材料名", "other"],
+    ["材料別レシピ", "other"],
+    ["作り方動画", "other"],
+    ["作り方は動画をチェック", "other"],
+    ["【材料】", "ingredients"],
+    ["材料 2人分", "ingredients"],
+    ["＜作り方＞", "steps"],
+  ] as const)("見出し %s → %s", (t, kind) => {
+    expect(classifyHeading(t)).toBe(kind);
+  });
+
+  it("JSON-LD の文字列に生の改行・タブがあっても読む", () => {
+    // "\n" "\t" は JSON のエスケープではなく、文字列の中の生の改行・タブ
+    const r = extractRecipeFromJsonLd([
+      '{"@type":"Recipe","name":"ダミー\n汁","recipeIngredient":["味噌\t大さじ2"]}',
+    ]);
+    expect(r?.title).toBe("ダミー 汁");
+    expect(r?.ingredients).toEqual([{ name: "味噌", amount: "大さじ2" }]);
+  });
+
+  it("ページの手順「2、3分焼く。」の頭は番号として外さない", () => {
+    const r = recipeFromSections({
+      title: "x",
+      ingredients: [],
+      steps: ["2、3分焼く。"],
+    });
+    expect(r?.steps).toEqual(["2、3分焼く。"]);
+  });
+
+  it("概要欄のふつうの文（材料3つで簡単！）は区切りにしない", () => {
+    expect(
+      parseDescriptionRecipe(
+        "材料3つで簡単！\nおいしい\n作り方は動画をチェック\n見てね",
+      ),
+    ).toBeNull();
+  });
+
+  it("番号なしの手順・材料は、空行の後が箇条書きでなければ終わり", () => {
+    expect(
+      parseDescriptionRecipe(
+        "【材料】\n卵 2個\n\nBGM：ダミー\n【作り方】\n・溶く\n・焼く\n\nいつもご視聴ありがとうございます",
+      ),
+    ).toEqual({
+      ingredients: [{ name: "卵", amount: "2個" }],
+      steps: ["溶く", "焼く"],
+    });
+  });
+
+  it("URL の後ろの全角の文字・句読点は URL に含めない。amzn.asia は飛ばす", () => {
+    expect(
+      pickRecipeUrls(
+        "https://amzn.asia/d/xyz\nレシピ→https://a.example.com/r/1。詳しくは\n(https://b.example.com/r/2)",
+      ),
+    ).toEqual(["https://a.example.com/r/1", "https://b.example.com/r/2"]);
+  });
+
+  it("レシピ候補のホスト", () => {
+    expect(isRecipeCandidateHost("www.youtube.com")).toBe(false);
+    expect(isRecipeCandidateHost("item.rakuten.co.jp")).toBe(false);
+    expect(isRecipeCandidateHost("recipe.rakuten.co.jp")).toBe(true);
+    expect(isRecipeCandidateHost("bit.ly")).toBe(true);
+  });
+
+  it("出典の URL から utm_* を外す。長すぎれば null", () => {
+    expect(
+      cleanSourceUrl(
+        "https://a.example.com/r/1?utm_source=yt&id=3&utm_medium=x",
+      ),
+    ).toBe("https://a.example.com/r/1?id=3");
+    expect(
+      cleanSourceUrl("https://a.example.com/" + "a".repeat(2100)),
+    ).toBeNull();
   });
 });
