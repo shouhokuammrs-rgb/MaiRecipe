@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  DESCRIPTION_LOOSE,
   DESCRIPTION_WITH_LINKS,
   DESCRIPTION_WITH_RECIPE,
   NIPPN_LIKE_HTML,
@@ -148,6 +149,53 @@ describe("POST /api/import（YouTube）", () => {
     expect(keyHeaders).toEqual(["test-youtube-key"]);
     // 鍵は返事に出さない
     expect(text).not.toContain("test-youtube-key");
+  });
+
+  it("見出しの無い概要欄（罫線の区間・名前...分量）も読み、全体と内訳の重なりを知らせる", async () => {
+    mockFetch((u) =>
+      u.hostname === "www.googleapis.com"
+        ? snippet(DESCRIPTION_LOOSE)
+        : undefined,
+    );
+    const res = await api(cookie, "/import", {
+      method: "POST",
+      body: { url: video },
+    });
+    const body = (await res.json()) as {
+      found: boolean;
+      notice: string;
+      draft: { ingredients: { name: string }[]; steps: string[] };
+    };
+    expect(body.found).toBe(true);
+    expect(body.draft.ingredients[0]).toEqual({
+      name: "ダミー魚",
+      amount: "4尾（500g）",
+    });
+    expect(body.draft.steps).toHaveLength(3);
+    expect(body.notice).toContain("「ダミー魚」は全体の量と内訳の両方");
+    // 概要欄から読めたので、例の本のリンクは読みに行かない
+    expect(calls.some((c) => c.includes("example.com/book"))).toBe(false);
+  });
+
+  it("概要欄が商品の並び（手順なし）とリンクだけなら、ゆるい読み取りをせずリンク先を読む", async () => {
+    mockFetch((u) => {
+      if (u.hostname === "www.googleapis.com")
+        return snippet(
+          "▼使った調味料\n・ダミー醤油 1本\n・ダミー味噌 1個\n・ダミーみりん 1本\n\nレシピはこちら\nhttps://other.example.org/r/9",
+        );
+      if (u.hostname === "other.example.org") return html(NIPPN_LIKE_HTML);
+      return undefined;
+    });
+    const res = await api(cookie, "/import", {
+      method: "POST",
+      body: { url: video },
+    });
+    const body = (await res.json()) as {
+      found: boolean;
+      draft: Record<string, unknown>;
+    };
+    expect(body.found).toBe(true);
+    expect(body.draft.sourceUrl).toBe("https://other.example.org/r/9");
   });
 
   it("概要欄に材料が無ければ、貼ってある URL を順に読み、取れたページを出典にする", async () => {
@@ -346,5 +394,63 @@ describe("POST /api/import（YouTube の概要欄の URL）", () => {
     mockFetch(() => undefined);
     expect(await youtubeSnippet({}, "abcDEF12345")).toBeNull();
     expect(calls).toEqual([]);
+  });
+});
+
+describe("読めなかった URL の報告", () => {
+  it("URL だけを保存し、同じ URL は1件にまとめて一覧できる", async () => {
+    const me = await signUp("報告");
+    for (const url of [
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/a",
+    ]) {
+      const r = await api(me, "/import/reports", {
+        method: "POST",
+        body: { url },
+      });
+      expect(r.status).toBe(201);
+    }
+    const list = (await (await api(me, "/import/reports")).json()) as {
+      reports: { url: string; createdAt: number }[];
+    };
+    expect(list.reports.map((r) => r.url).sort()).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+  });
+
+  it("1グループ200件まで。超えたら 429", async () => {
+    const me = await signUp("上限");
+    for (let k = 0; k < 200; k++) {
+      const r = await api(me, "/import/reports", {
+        method: "POST",
+        body: { url: `https://example.com/r/${k}` },
+      });
+      expect(r.status).toBe(201);
+    }
+    const over = await api(me, "/import/reports", {
+      method: "POST",
+      body: { url: "https://example.com/r/over" },
+    });
+    expect(over.status).toBe(429);
+    // 報告済みの URL を送り直すのは、上限でもエラーにしない
+    const again = await api(me, "/import/reports", {
+      method: "POST",
+      body: { url: "https://example.com/r/0" },
+    });
+    expect(again.status).toBe(201);
+  });
+
+  it("URL でなければ 400、ログインしていなければ 401", async () => {
+    expect(
+      (
+        await api(cookie, "/import/reports", {
+          method: "POST",
+          body: { url: "javascript:alert(1)" },
+        })
+      ).status,
+    ).toBe(400);
+    expect((await api(null, "/import/reports")).status).toBe(401);
   });
 });

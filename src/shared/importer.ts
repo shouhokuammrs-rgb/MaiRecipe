@@ -5,6 +5,7 @@
 import type { Category, Genre } from "./constants";
 import type { Ingredient } from "./recipe";
 import { LIMITS } from "./constants";
+import { canonicalName } from "./ingredients";
 import { splitIngredientLine, startsWithAmount } from "./recipe";
 
 export type ImportedRecipe = {
@@ -462,6 +463,211 @@ export function parseDescriptionRecipe(
   }
   if (!seenMarker || (!ingredients.length && !steps.length)) return null;
   return { ingredients: ingredients.slice(0, 60), steps: steps.slice(0, 40) };
+}
+
+// ---- 見出しの無い概要欄・貼り付けたテキスト ----
+
+export type ParsedText = {
+  ingredients: RawIngredient[];
+  steps: string[];
+  /** 全体の量と内訳の両方に入っている材料（買い物で二重に数えないよう知らせる） */
+  overlaps: string[];
+};
+
+// 「ーーーー」「====」「----」のような罫線だけの行
+const RULER = /^[ー―－\-=＝_＿─━~〜～*＊・]{4,}$/u;
+const TIMESTAMP = /^\d{1,2}:\d{2}(?::\d{2})?(?:\s|$)/;
+// ＝塩焼き＝ 【混ぜご飯】 ■タレ ＜タレ＞ [タレ]
+const GROUP_HEAD =
+  /^(?:[＝=]{1,5}\s*(.{1,20}?)\s*[＝=]{1,5}|【(.{1,20})】|[■□◆◇]\s*(.{1,20})|[<＜](.{1,20})[>＞]|[[［](.{1,20})[\]］])$/u;
+/** 材料・まとまりの見出しとして読む行の長さの上限（長い行は正規表現にかけない） */
+const LOOSE_LINE_MAX = 80;
+/** 見出しの頭の記号の半角・全角をそろえる */
+const STYLE_OF: Record<string, string> = { "=": "＝", "[": "［", "<": "＜" };
+
+function isJunkLine(line: string): boolean {
+  return /^#/.test(line) || /https?:\/\//.test(line) || TIMESTAMP.test(line);
+}
+
+/** 材料の1行（名前…分量／名前：分量／名前 分量）なら名前と分量。違えば null */
+function looseIngredient(line: string): RawIngredient | null {
+  const body = line
+    .replace(DESC_BULLET, "")
+    .replace(/(?:\.{2,}|…+|‥+|・{2,})/g, " ")
+    .trim();
+  const ing = splitIngredientLine(body);
+  if (!ing.amount || !startsWithAmount(ing.amount)) return null;
+  if (ing.name.length > 30 || /[。、！!？?]/.test(ing.name)) return null;
+  return ing;
+}
+
+function groupLabel(line: string): string | null {
+  if (line.length > 30) return null;
+  const m = line.match(GROUP_HEAD);
+  if (!m) return null;
+  const label = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "").trim();
+  return label || null;
+}
+
+/** style は見出しの頭の記号（＝ 【 ■ など）。全体の量か内訳かの見分けに使う */
+type Group = { label: string | null; style: string; items: RawIngredient[] };
+
+type Block = { groups: Group[]; count: number; end: number; stop: number };
+
+/** start から材料の塊を読む。stop は読むのをやめた行（次に探し始める行） */
+function readBlock(lines: string[], start: number): Block {
+  const groups: Group[] = [];
+  let count = 0;
+  let end = start;
+  let pendingLabel: string | null = null;
+  let pendingStyle = "";
+  let i = start;
+  for (; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!line) {
+      if (count) end = i + 1;
+      continue;
+    }
+    if (line.length > LOOSE_LINE_MAX || isJunkLine(line)) break;
+    const ing = looseIngredient(line);
+    if (ing) {
+      const last = groups[groups.length - 1];
+      if (pendingLabel !== null || !last)
+        groups.push({ label: pendingLabel, style: pendingStyle, items: [ing] });
+      else last.items.push(ing);
+      pendingLabel = null;
+      count++;
+      end = i + 1;
+      continue;
+    }
+    const label = groupLabel(line);
+    if (label !== null && !isNoteHeading(label)) {
+      // 「材料」「作り方」のような区切りの見出しは、まとまりの名前にしない
+      pendingLabel = sectionKind(label) ? "" : label;
+      pendingStyle = STYLE_OF[line[0]!] ?? line[0]!;
+      continue;
+    }
+    break;
+  }
+  return { groups, count, end, stop: i };
+}
+
+/** lines から、材料らしい行が3行以上あり、後に手順がある塊を探して、材料と手順に分ける */
+function parseLooseLines(lines: string[], ruled: boolean): ParsedText | null {
+  let start = 0;
+  while (start < lines.length) {
+    const b = readBlock(lines, start);
+    if (b.count >= 3) {
+      const r = finishLoose(b.groups, lines.slice(b.end), ruled);
+      // 手順の無い塊（商品の並びなど）はレシピとみなさない
+      if (r.steps.length) return r;
+    }
+    // 途中から読み直しても同じ行で止まるので、止まった行の次から探す
+    start = Math.max(b.stop, start) + 1;
+  }
+  return null;
+}
+
+function finishLoose(
+  groups: Group[],
+  rest: string[],
+  ruled: boolean,
+): ParsedText {
+  // 最初のまとまりが「全体の量」なのは、その材料が全部後のまとまりにも出てきて、
+  // 見出しが無いか後のまとまりと違う形の見出し（【料理名】の後に ＝塩焼き＝…）のときだけ
+  const names = (g: Group) =>
+    new Set(g.items.map((i) => canonicalName(i.name)));
+  const first = groups[0]!;
+  const tail = groups.slice(1);
+  const later = new Set(tail.flatMap((g) => [...names(g)]));
+  const firstNames = [...names(first)];
+  const isOverall =
+    tail.length > 0 &&
+    firstNames.every((n) => later.has(n)) &&
+    (!first.label || tail.every((g) => g.label && g.style !== first.style));
+  const overlaps = isOverall ? firstNames : [];
+  const labeled = groups.filter((g) => g.label).length;
+  const ingredients: RawIngredient[] = [];
+  groups.forEach((g, idx) => {
+    // 塊の頭の見出しが1つだけなら料理名とみなして付けない。途中の見出し（【タレ】など）は付ける
+    const keepLabel =
+      g.label && (labeled >= 2 || idx > 0) && !(idx === 0 && isOverall);
+    for (const i of g.items)
+      ingredients.push(
+        keepLabel ? { name: `${i.name}（${g.label}）`, amount: i.amount } : i,
+      );
+  });
+
+  const steps: string[] = [];
+  let afterBlank = false;
+  let numbered = false;
+  const isUrlLine = (l: string | undefined) => !!l && /https?:\/\//.test(l);
+  for (let k = 0; k < rest.length; k++) {
+    const line = rest[k]!;
+    if (!line) {
+      afterBlank = true;
+      continue;
+    }
+    // 罫線の区間の外では、リンクの行で手順は終わり（その先はお知らせ・SNS）
+    if (!ruled && isUrlLine(line) && steps.length) break;
+    if (isJunkLine(line)) continue;
+    // 手順が始まった後の【ポイント】■お知らせ、ポイント・コツの見出しで読むのをやめる。
+    // 手順の前にある ■トッピング のようなまとまりの見出しは読み飛ばす
+    if (descMarker(line) === "other" && (steps.length || isNoteHeading(line)))
+      break;
+    if (groupLabel(line) !== null) continue;
+    // 「レシピはこちら↓」のような、リンクの見出しの行は手順にしない
+    const body = line.replace(DESC_BULLET, "");
+    const s = stripStepNumber(body, true);
+    const hasNumber = s !== body.trim();
+    // 「レシピはこちら↓」や、すぐ次の行がリンクの「Instagram」は、リンクの見出しなので手順にしない
+    if (!hasNumber && (/[↓⬇👇▼:：]$/u.test(line) || isUrlLine(rest[k + 1])))
+      continue;
+    // 罫線の区間の外では、手順の後の空行で終わり（あいさつ・お知らせを読まない）。
+    // 番号つきの手順が続いているときだけ、空行の後も読む
+    if (!ruled && afterBlank && steps.length && !(numbered && hasNumber)) break;
+    if (hasNumber) numbered = true;
+    afterBlank = false;
+    if (s) steps.push(s);
+  }
+  return {
+    ingredients: ingredients.slice(0, 60),
+    steps: steps.slice(0, 40),
+    overlaps,
+  };
+}
+
+/** 見出しの無い文章から材料と手順を読む。罫線で囲まれた区間があればそこを先に */
+export function parseLooseRecipe(input: string): ParsedText | null {
+  const lines = input
+    .split(/\r?\n/)
+    .slice(0, 400)
+    .map((l) => l.trim());
+  const rulers = lines.flatMap((l, i) => (RULER.test(l) ? [i] : []));
+  for (let k = 0; k + 1 < rulers.length; k++) {
+    const r = parseLooseLines(lines.slice(rulers[k]! + 1, rulers[k + 1]), true);
+    if (r) return r;
+  }
+  return parseLooseLines(
+    lines.filter((l) => !RULER.test(l)),
+    false,
+  );
+}
+
+/**
+ * 概要欄・貼り付けたテキストから材料と手順を読む。
+ * 【材料】【作り方】の区切りがあればそれを、無ければ見出しの無い形として読む
+ */
+export function parseRecipeText(input: string): ParsedText | null {
+  const sectioned = parseDescriptionRecipe(input);
+  if (sectioned) return { ...sectioned, overlaps: [] };
+  return parseLooseRecipe(input);
+}
+
+/** 全体の量と内訳が重なっているときの注意。無ければ null */
+export function overlapNotice(overlaps: string[]): string | null {
+  if (!overlaps.length) return null;
+  return `「${overlaps.join("」「")}」は全体の量と内訳の両方に入っています。買い物リストで二重に数えないよう、どちらかを消してから保存してください。`;
 }
 
 /** レシピのページではない（SNS・動画・ショートリンクのまとめなど）ので試さないホスト */

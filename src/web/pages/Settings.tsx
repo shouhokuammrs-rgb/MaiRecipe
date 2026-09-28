@@ -1,6 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { PageTitle, SecondaryButton } from "@/components/common";
+import { apiClient } from "@/api/client";
+import {
+  ErrorState,
+  Loading,
+  PageTitle,
+  SecondaryButton,
+} from "@/components/common";
 import { authClient } from "@/lib/auth-client";
 
 export function Settings() {
@@ -43,6 +49,8 @@ export function Settings() {
           </div>
         </section>
 
+        <ImportReports />
+
         <section className="flex flex-col gap-1.5">
           <h2 className="text-[13px] font-bold text-sub">いっしょに使う人</h2>
           <div className="rounded-2xl border border-dashed border-field bg-card p-3.5 text-sm leading-7 text-[#4a433c]">
@@ -55,5 +63,51 @@ export function Settings() {
         </SecondaryButton>
       </div>
     </>
+  );
+}
+
+/** 取り込みで「読めなかった URL を報告」したもの。後で読み取りを直すための控え */
+function ImportReports() {
+  const q = useQuery({
+    queryKey: ["import-reports"],
+    queryFn: apiClient.importReports,
+  });
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h2 className="text-[13px] font-bold text-sub">
+        読めなかった URL の報告
+      </h2>
+      {q.isPending ? (
+        <Loading />
+      ) : q.isError ? (
+        <ErrorState error={q.error} retry={() => void q.refetch()} />
+      ) : q.data.reports.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-field bg-card p-3.5 text-sm leading-7 text-sub">
+          まだありません。取り込みで読めなかったときに「読めなかった URL
+          を報告」を押すと、ここに残ります。
+        </div>
+      ) : (
+        <ul className="rounded-2xl border border-line-soft bg-card text-sm">
+          {q.data.reports.map((r) => (
+            <li
+              key={r.url}
+              className="flex flex-col gap-0.5 border-b border-[#f3eee7] p-3.5 last:border-b-0"
+            >
+              <a
+                href={r.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="flex min-h-11 items-center break-all text-accent underline"
+              >
+                {r.url}
+              </a>
+              <span className="text-xs text-sub">
+                {new Date(r.createdAt).toLocaleDateString("ja-JP")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

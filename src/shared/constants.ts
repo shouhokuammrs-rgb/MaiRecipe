@@ -56,4 +56,6 @@ export const LIMITS = {
   memoMax: 1000,
   urlMax: 2000,
   imageMaxBytes: 1_000_000,
+  /** 読めなかった URL の報告（1グループあたり） */
+  importReportsMax: 200,
 } as const;

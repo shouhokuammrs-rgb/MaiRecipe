@@ -14,6 +14,7 @@
     "vitest.config.ts",
     "vitest.shared.config.ts",
     "scripts/**/*",
-    "e2e/**/*"
+    "e2e/**/*",
+    "test/shared/fixtures/**/*"
   ]
 }

@@ -2,9 +2,10 @@
 // group_id は使わない）、すべての読み書きを forGroup(db, groupId) 経由にする。
 // D1 には RLS が無いので、ここで必ず group_id を条件に入れる（docs/spec.md §6）。
 // D1 は1つのクエリに渡せる値が100個までなので、id の IN リストは使わず group_id で絞る。
-import { and, asc, desc, eq, gte, lte, max, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, lte, max, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { Ingredient } from "../../shared/recipe";
+import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
 import * as s from "./schema";
 
@@ -611,6 +612,49 @@ export function forGroup(db: Db, groupId: string) {
           ],
           set: { value, updatedAt: new Date() },
         });
+    },
+
+    /** 読めなかった URL を覚えておく。同じ URL は1件だけ。上限を超えたら false */
+    async addImportReport(url: string, userId: string): Promise<boolean> {
+      const [row] = await db
+        .select({ n: count() })
+        .from(s.importReports)
+        .where(eq(s.importReports.groupId, groupId));
+      if ((row?.n ?? 0) >= LIMITS.importReportsMax) {
+        // 報告済みの URL なら、送り直しは何もしないだけ
+        const same = await db
+          .select({ id: s.importReports.id })
+          .from(s.importReports)
+          .where(
+            and(
+              eq(s.importReports.groupId, groupId),
+              eq(s.importReports.url, url),
+            ),
+          )
+          .limit(1);
+        return same.length > 0;
+      }
+      await db
+        .insert(s.importReports)
+        .values({ id: newId(), groupId, url, createdBy: userId })
+        .onConflictDoNothing();
+      return true;
+    },
+
+    async listImportReports() {
+      const rows = await db
+        .select({
+          url: s.importReports.url,
+          createdAt: s.importReports.createdAt,
+        })
+        .from(s.importReports)
+        .where(eq(s.importReports.groupId, groupId))
+        .orderBy(desc(s.importReports.createdAt))
+        .limit(200);
+      return rows.map((r) => ({
+        url: r.url,
+        createdAt: r.createdAt.getTime(),
+      }));
     },
 
     async clearBought() {
