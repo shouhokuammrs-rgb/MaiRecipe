@@ -181,7 +181,9 @@ function GroupSection() {
                 key={i.id}
                 className="flex min-h-11 items-center justify-between gap-2 border-b border-[#f3eee7] p-3.5 last:border-b-0"
               >
-                <span className="truncate text-sub">招待中：{i.email}</span>
+                <span className="min-w-0 break-all text-sub">
+                  招待中：{i.email}
+                </span>
                 <button
                   type="button"
                   disabled={cancelInvite.isPending}
