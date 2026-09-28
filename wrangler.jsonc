@@ -17,7 +17,7 @@
       "database_name": "mairecipe",
       // 本番の D1 を作ったら、発行された database_id に置き換える（README の手順）。
       // ローカル開発・テストはこの値に関わらずローカル D1 が自動で作られる。
-      "database_id": "REPLACE_WITH_REAL_D1_DATABASE_ID",
+      "database_id": "2675c83b-c03b-4a76-9779-df449163a031",
       "migrations_dir": "drizzle",
     },
   ],
