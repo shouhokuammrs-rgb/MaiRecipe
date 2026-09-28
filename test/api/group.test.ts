@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { todayJst } from "../../src/shared/dates";
 import {
   api,
   groupMembershipCount,
@@ -325,13 +326,21 @@ describe("招待への参加", () => {
         ).json()) as { plans: unknown[] }
       ).plans,
     ).toEqual([]);
-    expect(
-      (
-        (await (await api(c.cookie, "/shopping?days=7")).json()) as {
-          items: unknown[];
-        }
-      ).items,
-    ).toEqual([]);
+    // /shopping は「今日から」の献立で計算するので、2030年の献立だけでは A 自身の買い物リストも
+    // 空になってしまい、C が空でも何も証明しない。今日の枠に献立を1つ入れてから確かめる
+    await plan(a.cookie, todayJst(), aRecipe);
+    const aShopping = (await (
+      await api(a.cookie, "/shopping?days=7")
+    ).json()) as {
+      items: unknown[];
+    };
+    expect(aShopping.items.length).toBeGreaterThan(0); // 下見：この枠が本当に買い物リストに反映される
+    const cShopping = (await (
+      await api(c.cookie, "/shopping?days=7")
+    ).json()) as {
+      items: unknown[];
+    };
+    expect(cShopping.items).toEqual([]);
   });
 
   it("取り消し済みの招待は参加できない（404）", async () => {
