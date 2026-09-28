@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addDays, todayJst } from "../../src/shared/dates";
-import { api, sampleRecipe, signUp } from "./helpers";
+import { api, insertPlanRaw, sampleRecipe, signUp, signUpAs } from "./helpers";
 
 type ShopItem = {
   key: string;
@@ -17,31 +17,120 @@ async function create(cookie: string, body: object): Promise<string> {
   return ((await res.json()) as { id: string }).id;
 }
 
+type PlanRow = {
+  id: string;
+  date: string;
+  meal: string;
+  position: number;
+  recipeId: string;
+  title: string;
+};
+
+async function plansOf(cookie: string, from: string, to = from) {
+  const res = await api(cookie, `/plans?from=${from}&to=${to}`);
+  return ((await res.json()) as { plans: PlanRow[] }).plans;
+}
+
+const put = (cookie: string, date: string, meal: string, recipeId: string) =>
+  api(cookie, "/plans", { method: "PUT", body: { date, meal, recipeId } });
+
 describe("献立と買い物リスト", () => {
-  it("献立に入れると一覧に出て、同じ枠は置き換わり、外せる", async () => {
+  it("1つの枠に何品でも足せて、足した順に返る。同じレシピは2回足しても1品のまま", async () => {
     const me = await signUp();
     const a = await create(me, sampleRecipe);
     const b = await create(me, { ...sampleRecipe, title: "豚汁" });
     const day = "2030-01-07";
-    await api(me, "/plans", {
-      method: "PUT",
-      body: { date: day, meal: "dinner", recipeId: a },
+    expect((await put(me, day, "dinner", a)).status).toBe(204);
+    expect((await put(me, day, "dinner", b)).status).toBe(204);
+    expect((await put(me, day, "dinner", a)).status).toBe(204); // 何もしない
+    const list = await plansOf(me, day);
+    expect(list.map((p) => [p.title, p.position])).toEqual([
+      ["鶏むね肉の甘酢炒め", 0],
+      ["豚汁", 1],
+    ]);
+    expect(new Set(list.map((p) => p.id)).size).toBe(2);
+    // 同じレシピを足し直しても、位置はずれない（3品目は position 2）
+    const c = await create(me, {
+      ...sampleRecipe,
+      title: "ほうれん草のおひたし",
     });
-    await api(me, "/plans", {
-      method: "PUT",
-      body: { date: day, meal: "dinner", recipeId: b },
-    });
-    let list = (await (
-      await api(me, `/plans?from=${day}&to=${day}`)
-    ).json()) as { plans: { title: string }[] };
-    expect(list.plans.map((p) => p.title)).toEqual(["豚汁"]);
+    await put(me, day, "dinner", c);
+    expect((await plansOf(me, day)).map((p) => p.position)).toEqual([0, 1, 2]);
+  });
+
+  it("並びは 日付 → 朝昼晩 → 枠の中の順", async () => {
+    const me = await signUp();
+    const a = await create(me, { ...sampleRecipe, title: "A" });
+    const b = await create(me, { ...sampleRecipe, title: "B" });
+    const d1 = "2030-02-01";
+    const d2 = "2030-02-02";
+    await put(me, d2, "breakfast", a);
+    await put(me, d1, "dinner", b);
+    await put(me, d1, "breakfast", a);
+    await put(me, d1, "dinner", a);
+    await put(me, d1, "lunch", b);
+    expect(
+      (await plansOf(me, d1, d2)).map((p) => `${p.date}:${p.meal}:${p.title}`),
+    ).toEqual([
+      `${d1}:breakfast:A`,
+      `${d1}:lunch:B`,
+      `${d1}:dinner:B`,
+      `${d1}:dinner:A`,
+      `${d2}:breakfast:A`,
+    ]);
+  });
+
+  it("移行前の形（position を書かない）の行は position 0 の1品として読め、2品目を後ろに足せる", async () => {
+    const me = await signUpAs("移行前");
+    const a = await create(me.cookie, { ...sampleRecipe, title: "昔の献立" });
+    const b = await create(me.cookie, { ...sampleRecipe, title: "足した品" });
+    const day = "2030-03-01";
+    await insertPlanRaw(me.email, { date: day, meal: "dinner", recipeId: a });
+    expect(
+      (await plansOf(me.cookie, day)).map((p) => [p.title, p.position]),
+    ).toEqual([["昔の献立", 0]]);
+    await put(me.cookie, day, "dinner", b);
+    expect(
+      (await plansOf(me.cookie, day)).map((p) => [p.title, p.position]),
+    ).toEqual([
+      ["昔の献立", 0],
+      ["足した品", 1],
+    ]);
+  });
+
+  it("枠を丸ごと空にする DELETE /plans/:date/:meal は残っている（古い画面のため）", async () => {
+    const me = await signUp();
+    const a = await create(me, sampleRecipe);
+    const b = await create(me, { ...sampleRecipe, title: "豚汁" });
+    const day = "2030-01-08";
+    await put(me, day, "dinner", a);
+    await put(me, day, "dinner", b);
+    await put(me, day, "lunch", a);
     expect(
       (await api(me, `/plans/${day}/dinner`, { method: "DELETE" })).status,
     ).toBe(204);
-    list = (await (await api(me, `/plans?from=${day}&to=${day}`)).json()) as {
-      plans: { title: string }[];
+    expect((await plansOf(me, day)).map((p) => p.meal)).toEqual(["lunch"]);
+  });
+
+  it("買い物リストは、1つの枠の全品の材料を合算する", async () => {
+    const me = await signUp();
+    const today = todayJst();
+    const a = await create(me, sampleRecipe); // 鶏むね肉・たまねぎ・酢・砂糖
+    const b = await create(me, {
+      ...sampleRecipe,
+      title: "大根の味噌汁",
+      ingredients: [{ name: "大根", amount: "1/4本" }],
+    });
+    await put(me, today, "dinner", a);
+    await put(me, today, "dinner", b);
+    const res = (await (await api(me, "/shopping?days=1")).json()) as {
+      items: ShopItem[];
+      recipeCount: number;
     };
-    expect(list.plans).toEqual([]);
+    expect(res.recipeCount).toBe(2);
+    const names = res.items.map((i) => i.name);
+    expect(names).toContain("鶏むね肉");
+    expect(names).toContain("大根");
   });
 
   it("買い物リストは今日から期間内だけ・最新版の材料・名寄せして合計・調味料は家にある扱い", async () => {

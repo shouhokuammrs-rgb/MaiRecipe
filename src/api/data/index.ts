@@ -512,12 +512,14 @@ export function forGroup(db: Db, groupId: string) {
       }));
     },
 
-    // ---- 献立
+    // ---- 献立（1つの枠に並び順つきで複数の品）
     async listPlans(from: string, to: string) {
       return db
         .select({
+          id: s.mealPlans.id,
           date: s.mealPlans.date,
           meal: s.mealPlans.meal,
+          position: s.mealPlans.position,
           recipeId: s.mealPlans.recipeId,
           title: s.recipes.title,
           category: s.recipes.category,
@@ -534,10 +536,19 @@ export function forGroup(db: Db, groupId: string) {
             lte(s.mealPlans.date, to),
           ),
         )
-        .orderBy(asc(s.mealPlans.date));
+        .orderBy(
+          asc(s.mealPlans.date),
+          sql`case ${s.mealPlans.meal} when 'breakfast' then 0 when 'lunch' then 1 else 2 end`,
+          asc(s.mealPlans.position),
+          asc(s.mealPlans.id),
+        );
     },
 
-    async setPlan(
+    /**
+     * 枠の最後に1品足す。同じ枠に同じレシピがあれば何もしない。
+     * position は「その枠の最大 + 1」を INSERT の中のサブクエリで決める（Worker で数えない）。
+     */
+    async addPlan(
       date: string,
       meal: "breakfast" | "lunch" | "dinner",
       recipeId: string,
@@ -545,11 +556,16 @@ export function forGroup(db: Db, groupId: string) {
       await recipeRow(recipeId);
       await db
         .insert(s.mealPlans)
-        .values({ id: newId(), groupId, date, meal, recipeId })
-        .onConflictDoUpdate({
-          target: [s.mealPlans.groupId, s.mealPlans.date, s.mealPlans.meal],
-          set: { recipeId },
-        });
+        .values({
+          id: newId(),
+          groupId,
+          date,
+          meal,
+          recipeId,
+          position: sql`(select coalesce(max(p.position) + 1, 0) from meal_plans p
+            where p.group_id = ${groupId} and p.date = ${date} and p.meal = ${meal})`,
+        })
+        .onConflictDoNothing();
     },
 
     async deletePlan(date: string, meal: "breakfast" | "lunch" | "dinner") {

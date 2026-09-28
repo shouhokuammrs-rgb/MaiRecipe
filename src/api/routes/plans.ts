@@ -20,13 +20,14 @@ plans.get("/", async (c) => {
   });
 });
 
+/** 枠の最後に1品足す（同じレシピが既にあれば何もしない）。古い画面から呼ばれても品が増えるだけ */
 plans.put("/", async (c) => {
   const parsed = mealPlanSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);
   const { date, meal, recipeId } = parsed.data;
   if (date < todayJst())
     return c.json({ error: "過ぎた日の献立は変えられません" }, 400);
-  await c.var.repo.setPlan(date, meal, recipeId);
+  await c.var.repo.addPlan(date, meal, recipeId);
   return c.body(null, 204);
 });
 
