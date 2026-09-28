@@ -13,6 +13,7 @@ import {
   pickRecipeUrls,
   recipeFromSections,
 } from "../../src/shared/importer";
+import { splitIngredientLine } from "../../src/shared/recipe";
 import {
   DESCRIPTION_LOOSE,
   DESCRIPTION_WITH_LINKS,
@@ -373,9 +374,9 @@ describe("見出しの無い概要欄・貼り付けたテキスト（parseRecip
     expect(r?.steps).toEqual(["のせる"]);
   });
 
-  it("罫線が無ければ全体から。URL・ハッシュタグ・タイムスタンプは捨て、空行の後で手順は終わり", () => {
+  it("罫線が無ければ全体から。ハッシュタグ・タイムスタンプは捨て、リンクの行で手順は終わり", () => {
     const r = parseRecipeText(
-      "今日はダミーのスープ\n\n玉ねぎ 1個\nにんじん　1本\nコンソメ：小さじ2\n水 400ml\n\n1. 切る\nhttps://example.com/x\n#スープ\n00:12 作る\n2. 煮る\n\nご視聴ありがとうございました",
+      "今日はダミーのスープ\n\n玉ねぎ 1個\nにんじん　1本\nコンソメ：小さじ2\n水 400ml\n\n1. 切る\n#スープ\n00:12 作る\n2. 煮る\nhttps://example.com/x\n3. リンクの後は読まない\n\nご視聴ありがとうございました",
     );
     expect(r?.ingredients.map((i) => i.name)).toEqual([
       "玉ねぎ",
@@ -413,5 +414,77 @@ describe("overlapNotice", () => {
   it("重なりが無ければ null、あれば材料名を入れた注意", () => {
     expect(overlapNotice([])).toBeNull();
     expect(overlapNotice(["ダミー魚"])).toContain("ダミー魚");
+  });
+});
+
+describe("見出しの無い読み取り：レビュー指摘の再現", () => {
+  it("見出しの無い本体の後に【タレ】があり、醤油が両方にあっても重なりにしない", () => {
+    const r = parseRecipeText(
+      "鶏肉 300g\n醤油 大さじ1\n酒 大さじ1\n【タレ】\n醤油 大さじ2\n砂糖 大さじ1\n焼く\n絡める",
+    );
+    expect(r?.overlaps).toEqual([]);
+    expect(r?.ingredients.map((i) => i.name)).toEqual([
+      "鶏肉",
+      "醤油",
+      "酒",
+      "醤油（タレ）",
+      "砂糖（タレ）",
+    ]);
+  });
+
+  it("＝ が大量に並んだ行や長い行でも、すぐに返る", () => {
+    const evil = [
+      "=".repeat(4000) + "x",
+      "塩" + " ".repeat(4000) + "…x",
+      "1".repeat(4000),
+      "卵 1個\n塩 少々\n砂糖 小さじ1\n混ぜる",
+    ].join("\n");
+    const t = performance.now();
+    parseRecipeText(evil);
+    expect(performance.now() - t).toBeLessThan(50);
+  });
+
+  it("空行と見出しが大量にあっても、すぐに返る", () => {
+    const text = [
+      ...Array(200).fill(""),
+      "卵 1個",
+      ...Array(190).fill("＝タレ＝"),
+    ].join("\n");
+    const t = performance.now();
+    expect(parseRecipeText(text)).toBeNull();
+    expect(performance.now() - t).toBeLessThan(50);
+  });
+
+  it("手順が無い（商品の並びだけ）なら読まない。URL の行で材料は終わる", () => {
+    expect(
+      parseRecipeText(
+        "▼使った調味料\n・ダミー醤油 1本\n・ダミー味噌 1個\n・ダミーみりん 1本 https://amzn.to/x\n",
+      ),
+    ).toBeNull();
+  });
+
+  it("罫線の外でも、番号つきの手順は空行をはさんで続く", () => {
+    const r = parseRecipeText(
+      "卵 2個\n塩 少々\n牛乳 大さじ2\n\n1. 溶く\n\n2. 焼く\n\n3. 盛る\n\nご視聴ありがとうございました",
+    );
+    expect(r?.steps).toEqual(["溶く", "焼く", "盛る"]);
+  });
+
+  it("材料の後ろにあるまとまりの見出しは手順に入れない", () => {
+    const r = parseRecipeText(
+      "卵 2個\n塩 少々\n牛乳 大さじ2\n■トッピング\n混ぜる\n焼く",
+    );
+    expect(r?.steps).toEqual(["混ぜる", "焼く"]);
+  });
+
+  it("空白の無い「塩1つまみ」「胡椒適宜」も分ける", () => {
+    expect(splitIngredientLine("塩1つまみ")).toEqual({
+      name: "塩",
+      amount: "1つまみ",
+    });
+    expect(splitIngredientLine("胡椒適宜")).toEqual({
+      name: "胡椒",
+      amount: "適宜",
+    });
   });
 });

@@ -35,7 +35,15 @@ importer.get("/reports", async (c) =>
 importer.post("/reports", async (c) => {
   const parsed = importSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);
-  await c.var.repo.addImportReport(parsed.data.url, c.var.userId);
+  const ok = await c.var.repo.addImportReport(parsed.data.url, c.var.userId);
+  if (!ok)
+    return c.json(
+      {
+        error:
+          "報告がいっぱいです。設定画面の一覧を Issue にしてから、また報告してください。",
+      },
+      429,
+    );
   return c.json({ ok: true }, 201);
 });
 

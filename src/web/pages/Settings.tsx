@@ -97,7 +97,7 @@ function ImportReports() {
                 href={r.url}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="break-all text-accent underline"
+                className="flex min-h-11 items-center break-all text-accent underline"
               >
                 {r.url}
               </a>

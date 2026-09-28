@@ -177,6 +177,27 @@ describe("POST /api/import（YouTube）", () => {
     expect(calls.some((c) => c.includes("example.com/book"))).toBe(false);
   });
 
+  it("概要欄が商品の並び（手順なし）とリンクだけなら、ゆるい読み取りをせずリンク先を読む", async () => {
+    mockFetch((u) => {
+      if (u.hostname === "www.googleapis.com")
+        return snippet(
+          "▼使った調味料\n・ダミー醤油 1本\n・ダミー味噌 1個\n・ダミーみりん 1本\n\nレシピはこちら\nhttps://other.example.org/r/9",
+        );
+      if (u.hostname === "other.example.org") return html(NIPPN_LIKE_HTML);
+      return undefined;
+    });
+    const res = await api(cookie, "/import", {
+      method: "POST",
+      body: { url: video },
+    });
+    const body = (await res.json()) as {
+      found: boolean;
+      draft: Record<string, unknown>;
+    };
+    expect(body.found).toBe(true);
+    expect(body.draft.sourceUrl).toBe("https://other.example.org/r/9");
+  });
+
   it("概要欄に材料が無ければ、貼ってある URL を順に読み、取れたページを出典にする", async () => {
     mockFetch((u) => {
       if (u.hostname === "www.googleapis.com")
@@ -397,6 +418,22 @@ describe("読めなかった URL の報告", () => {
       "https://example.com/a",
       "https://example.com/b",
     ]);
+  });
+
+  it("1グループ200件まで。超えたら 429", async () => {
+    const me = await signUp("上限");
+    for (let k = 0; k < 200; k++) {
+      const r = await api(me, "/import/reports", {
+        method: "POST",
+        body: { url: `https://example.com/r/${k}` },
+      });
+      expect(r.status).toBe(201);
+    }
+    const over = await api(me, "/import/reports", {
+      method: "POST",
+      body: { url: "https://example.com/r/over" },
+    });
+    expect(over.status).toBe(429);
   });
 
   it("URL でなければ 400、ログインしていなければ 401", async () => {

@@ -145,7 +145,7 @@ export function splitIngredientLine(line: string): Ingredient {
     return { name: bySpace[1].trim(), amount: bySpace[2].trim() };
   }
   const tail = s.match(
-    /^(.+?)((?:大さじ|小さじ)[\d０-９./／と]+|[\d０-９./／と]+\s*(?:g|kg|ml|cc|L|個|本|枚|切れ|片|かけ|束|袋|パック|缶|丁|カップ|合|杯|株|房|尾|玉|さじ)|少々|適量|ひとつまみ|少量)$/,
+    /^(.+?)((?:大さじ|小さじ)[\d０-９./／と]+|[\d０-９./／と]+\s*(?:g|kg|ml|cc|L|個|本|枚|切れ|片|かけ|束|袋|パック|缶|丁|カップ|合|杯|株|房|尾|玉|さじ|つまみ)|少々|適量|適宜|ひとつまみ|少量)$/,
   );
   if (tail && tail[1] && tail[2])
     return { name: tail[1].trim(), amount: tail[2].trim() };

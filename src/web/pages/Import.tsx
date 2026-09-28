@@ -85,7 +85,7 @@ export function Import() {
           right={
             <button
               type="button"
-              className="h-10 px-3 text-sm text-sub"
+              className="h-11 px-3 text-sm text-sub"
               onClick={() => {
                 setResult(null);
                 report.reset();
@@ -258,6 +258,10 @@ export function Import() {
             className="flex flex-col gap-4"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!/^https?:\/\//i.test(url.trim())) {
+                setTextError("出典は http(s) の URL を入れてください。");
+                return;
+              }
               const r = readPastedText(text, url.trim(), fallbackTitle);
               if (r) setResult(r);
               else
