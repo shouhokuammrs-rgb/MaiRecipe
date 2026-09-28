@@ -19,3 +19,14 @@ group.delete("/invites/:id", async (c) => {
   await c.var.repo.cancelInvite(c.req.param("id"));
   return c.body(null, 204);
 });
+
+// 自分宛ての招待（グループをまたぐので c.var.membership 経由。forGroup ではない）
+export const invites = new Hono<AppEnv>();
+
+invites.get("/", async (c) =>
+  c.json({ invites: await c.var.membership.invites() }),
+);
+
+invites.post("/:id/accept", async (c) =>
+  c.json(await c.var.membership.accept(c.req.param("id"))),
+);

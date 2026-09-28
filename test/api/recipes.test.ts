@@ -314,6 +314,35 @@ describe("グループをまたいだ漏れがないこと", () => {
     };
     expect(reports.reports).toEqual([]);
 
+    // グループの中身（メンバー・招待）も、他のグループからは見えない
+    await api(alice, "/group/invites", {
+      method: "POST",
+      body: { email: "secret@example.test" },
+    });
+    const g = (await (await api(bob, "/group")).json()) as {
+      invites: unknown[];
+      members: unknown[];
+    };
+    expect(g.invites).toEqual([]);
+    expect(g.members).toHaveLength(1);
+
+    // bob は alice の招待を取り消せない。自分宛ての招待も無い
+    const aliceInvites = (await (await api(alice, "/group")).json()) as {
+      invites: { id: string }[];
+    };
+    const secretInviteId = aliceInvites.invites[0]!.id;
+    expect(
+      (
+        await api(bob, `/group/invites/${secretInviteId}`, {
+          method: "DELETE",
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      ((await (await api(bob, "/invites")).json()) as { invites: unknown[] })
+        .invites,
+    ).toEqual([]);
+
     // alice からは変わらず見える
     expect((await get(alice, id)).title).toBe(sampleRecipe.title);
   });

@@ -1,4 +1,5 @@
 import type { GroupRepo } from "./data";
+import type { membershipFor } from "./data/membership";
 
 export type AppBindings = {
   DB: D1Database;
@@ -20,5 +21,10 @@ export type SessionUser = {
 
 export type AppEnv = {
   Bindings: AppBindings;
-  Variables: { userId: string; user: SessionUser; repo: GroupRepo };
+  Variables: {
+    userId: string;
+    user: SessionUser;
+    repo: GroupRepo;
+    membership: ReturnType<typeof membershipFor>;
+  };
 };

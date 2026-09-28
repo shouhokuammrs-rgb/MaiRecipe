@@ -689,7 +689,12 @@ export function forGroup(db: Db, groupId: string) {
           .from(s.groupMembers)
           .innerJoin(s.user, eq(s.user.id, s.groupMembers.userId))
           .where(eq(s.groupMembers.groupId, groupId))
-          .orderBy(asc(s.groupMembers.createdAt)),
+          // created_at は秒までしか無いので、同じ秒に増えたメンバー同士は順序が定まらない。
+          // owner（招待した人）を先頭に固定してから created_at で並べる。
+          .orderBy(
+            sql`case when ${s.groupMembers.role} = 'owner' then 0 else 1 end`,
+            asc(s.groupMembers.createdAt),
+          ),
         db
           .select({ id: s.groupInvites.id, email: s.groupInvites.email })
           .from(s.groupInvites)
