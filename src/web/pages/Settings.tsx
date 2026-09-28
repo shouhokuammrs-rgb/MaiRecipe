@@ -140,6 +140,10 @@ function GroupSection() {
       setConfirmCancelId(null);
       await qc.invalidateQueries({ queryKey: ["group"] });
     },
+    onError: async () => {
+      setConfirmCancelId(null);
+      await qc.invalidateQueries({ queryKey: ["group"] });
+    },
   });
 
   const askCancel = (id: string) => {
@@ -214,11 +218,13 @@ function GroupSection() {
             }}
           >
             <label className="flex flex-col gap-1.5 text-[13px] font-bold">
-              招待する
+              招待する人のメールアドレス
               <input
                 id="invite-email"
+                name="email"
                 type="email"
                 required
+                autoComplete="off"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="partner@example.com"

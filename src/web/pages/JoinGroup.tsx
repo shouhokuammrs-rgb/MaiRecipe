@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { planSlotLabel } from "../../shared/group";
 import { ApiError, apiClient } from "@/api/client";
@@ -17,6 +17,13 @@ export function JoinGroup() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
+  const revertTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (revertTimer.current) clearTimeout(revertTimer.current);
+    };
+  }, []);
 
   const q = useQuery({
     queryKey: ["my-invites"],
@@ -29,7 +36,21 @@ export function JoinGroup() {
     onSuccess: () => {
       qc.clear();
     },
+    onError: () => {
+      if (revertTimer.current) clearTimeout(revertTimer.current);
+      setConfirming(false);
+    },
   });
+
+  const askConfirm = () => {
+    if (revertTimer.current) clearTimeout(revertTimer.current);
+    if (confirming) {
+      accept.mutate();
+      return;
+    }
+    setConfirming(true);
+    revertTimer.current = setTimeout(() => setConfirming(false), 3000);
+  };
 
   if (accept.isSuccess && accept.data) {
     const { movedRecipes, keptPlans } = accept.data;
@@ -80,17 +101,12 @@ export function JoinGroup() {
           <>
             <p className="text-sm leading-7 text-[#4a433c]">
               参加すると、あなたのレシピ・献立・買い物リストは{" "}
-              {invite.invitedBy}{" "}
+              {invite.invitedBy || invite.groupName}{" "}
               さんのグループに移り、同じものを一緒に使います。同じ日・同じ食事の献立がすでにあるときは、
-              {invite.invitedBy} さんの献立を残します。
+              {invite.invitedBy || invite.groupName}{" "}
+              さんの献立を残します。参加したあとで抜けることは、今はできません。
             </p>
-            <PrimaryButton
-              disabled={accept.isPending}
-              onClick={() => {
-                if (confirming) accept.mutate();
-                else setConfirming(true);
-              }}
-            >
+            <PrimaryButton disabled={accept.isPending} onClick={askConfirm}>
               {accept.isPending
                 ? "参加中…"
                 : confirming
