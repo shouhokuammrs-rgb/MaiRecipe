@@ -163,6 +163,18 @@ describe("招待への参加", () => {
       method: "POST",
       body: { url: B_ONLY_URL }, // ぶつからない
     });
+    // B が自分のレシピに版を1つ積んでおく（参加で recipe_versions も一緒に移ることを確かめる）
+    expect(
+      (
+        await api(b.cookie, `/recipes/${bRecipe}/versions`, {
+          method: "POST",
+          body: {
+            ...recipe("Bのサラダ"),
+            ingredients: [{ name: "卵", amount: "2個" }],
+          },
+        })
+      ).status,
+    ).toBe(201);
 
     await invite(a.cookie, ` ${b.email.toUpperCase()} `);
     const inviteId = (await info(a.cookie)).invites[0]!.id;
@@ -200,6 +212,15 @@ describe("招待への参加", () => {
     expect(await rawShoppingMark(a.email, "共通の印", "home")).toBe(true);
     expect(await rawShoppingMark(b.email, "共通の印", "home")).toBe(false);
     expect(await rawShoppingMark(b.email, "Bだけの印", "bought")).toBe(true);
+    // 参加前：B から A の献立は見えず、B の /group はまだ自分1人だけ
+    expect(
+      (
+        (await (
+          await api(b.cookie, "/plans?from=2030-10-01&to=2030-10-31")
+        ).json()) as { plans: { title: string }[] }
+      ).plans.map((p) => p.title),
+    ).toEqual(["Bのサラダ", "Bのサラダ"]);
+    expect((await info(b.cookie)).members.map((m) => m.name)).toEqual(["B"]);
 
     // 招待されていない C は、確認済みでも参加できない
     await verifyEmail(c.email);
@@ -228,14 +249,27 @@ describe("招待への参加", () => {
       "2030-10-04:Bのサラダ",
     ]);
 
-    // A から B が持ち込んだメモ・写真が見える
+    // A から B が持ち込んだメモ・写真・版が見える
     const bRecipeFromA = (await (
       await api(a.cookie, `/recipes/${bRecipe}`)
-    ).json()) as { recipe: { memos: { text: string }[]; hasImage: boolean } };
+    ).json()) as {
+      recipe: {
+        memos: { text: string }[];
+        hasImage: boolean;
+        versions: {
+          seq: number;
+          ingredients: { name: string; amount: string }[];
+        }[];
+      };
+    };
     expect(bRecipeFromA.recipe.memos.map((m) => m.text)).toContain(
       "多めに作る",
     );
     expect(bRecipeFromA.recipe.hasImage).toBe(true);
+    expect(bRecipeFromA.recipe.versions.map((v) => v.seq)).toEqual([1, 2]);
+    expect(bRecipeFromA.recipe.versions[1]!.ingredients).toEqual([
+      { name: "卵", amount: "2個" },
+    ]);
     const img = await api(a.cookie, `/recipes/${bRecipe}/image`);
     expect(img.status).toBe(200);
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(photoBytes);
@@ -282,6 +316,21 @@ describe("招待への参加", () => {
           reports: unknown[];
         }
       ).reports,
+    ).toEqual([]);
+    // 参加後も、C からは献立・買い物のどちらも空
+    expect(
+      (
+        (await (
+          await api(c.cookie, "/plans?from=2030-10-01&to=2030-10-31")
+        ).json()) as { plans: unknown[] }
+      ).plans,
+    ).toEqual([]);
+    expect(
+      (
+        (await (await api(c.cookie, "/shopping?days=7")).json()) as {
+          items: unknown[];
+        }
+      ).items,
     ).toEqual([]);
   });
 
