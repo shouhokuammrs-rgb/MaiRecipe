@@ -1,29 +1,18 @@
-# env
-.env
-.env*.local
-
-# node
 node_modules/
-
-# next.js
-.next/
 out/
-
-# supabase CLI
-supabase/.branches
-supabase/.temp
-supabase/.env
-
-# tests
-apps/web/test-results/
-apps/web/playwright-report/
-apps/web/coverage/
-
-# claude code（自動で書き換わる個人設定）
-.claude/settings.local.json
-
-# supabase 型生成の一時ファイル
-.db.types.tmp
-
-# os
+coverage/
+playwright-report/
+test-results/
+.wrangler/
+dist/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.local
+.env.*.local
 .DS_Store
+
+# claude code（自動で書き換わる個人設定・作業場所）
+.claude/settings.local.json
+.claude/worktrees/

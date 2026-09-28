@@ -1,0 +1,7 @@
+# ローカル開発用（.dev.vars にコピーして使う。コミットしない）
+BETTER_AUTH_SECRET=local-dev-secret-change-me-32chars-min
+BETTER_AUTH_URL=http://localhost:5173
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# ローカルだけ：Google を使わずにメールで試せるログインを出す。本番には絶対に入れない
+DEV_LOGIN=1

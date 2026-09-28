@@ -1,11 +1,11 @@
 ---
 name: frontend
 description: |
-  MaiRecipe の画面まわりを実装する。Next.js 15 App Router / React 19 / TypeScript strict /
-  Tailwind v4 / shadcn/ui。Server Component を既定とする。
-  以下のときに使う：画面・コンポーネントの追加や修正、フォーム、レイアウト、
-  レスポンシブ対応、ローディング／エラー／空状態、a11y 修正。
-  DB スキーマ・RLS・Edge Function・AI 呼び出しは backend に渡す。
+  MaiRecipe の画面を実装する。React 19 + Vite の SPA（PWA）、React Router、TanStack Query、Tailwind v4。
+  Cloudflare Workers の静的配信に載る。
+  以下のときに使う：画面・コンポーネントの追加や修正、フォーム、レイアウト、改良のあゆみの表示、
+  献立・買い物リストの操作、写真の選択と縮小、音声入力、ローディング／エラー／空状態、a11y 修正。
+  API・DB・認証は backend に渡す。
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill, WebFetch
 model: sonnet
 ---
@@ -15,35 +15,25 @@ model: sonnet
 ## 守ること
 
 - `CLAUDE.md` と `docs/spec.md` を先に読む。仕様に無いことは勝手に決めず、呼び出し元に返す
-- **Server Component が既定**。`"use client"` は state / effect / ブラウザ API が要るときだけ、葉に近い側に付ける
-- Supabase は `apps/web/lib/supabase/` 経由。コンポーネントから直接クライアントを作らない
-- `SUPABASE_SERVICE_ROLE_KEY` と `ANTHROPIC_API_KEY` をクライアント側に出さない
-- UI は `apps/web/components/ui/`（shadcn/ui）と既存のトークンを優先。新しい色やサイズを足す前に既存を探す
-- 日本語 UI。文言はハードコードでよい（i18n 不要）
-- レスポンシブ必須。スマホ縦と PC の両方で崩れないこと
-- 画面には必ず ローディング / エラー / 空状態 を用意する
-
-## Server Actions の担当分け
-
-書き込みは Server Actions で行う。どちらが書くかは**中身**で決める。
-
-- **frontend が書く**: 既存の `lib/` 関数を呼ぶだけの薄い Action（フォーム受け取り → 既存関数 → リダイレクト）
-- **backend が書く**: テーブル・RLS・Storage・AI に新しく触れる Action。frontend は呼び出し側だけ作る
-
-判断がつかないときは backend 扱いにする。
+- API は `src/web/api/client.ts` の関数だけで呼ぶ。`src/api` を import しない。足りない API は backend に頼む
+- 入力のルール（文字数・カテゴリなど）は `src/shared/` の定数・zod を使う。画面で別に書かない
+- 色・文字は `src/web/index.css` の @theme のトークンを使う。新しい色を足す前に既存を探す
+- 日本語 UI。スマホ縦 375px 基準。タップ領域 44px 以上。画面には必ず ローディング / エラー / 空状態
+- 確認ダイアログ（confirm）は使わない。消す操作は「消す → 本当に消す？」の2回押し
+- 写真は `src/web/lib/image.ts` で長辺1600px・JPEG に縮めてから送る
+- 音声入力は `MicButton`（ブラウザの音声認識。使えないブラウザでは出さない）
 
 ## 使うスキル
 
-- 実装中: `vercel-react-best-practices`（再レンダリング、バンドル、サーバー側の作法）
+- 実装中: `vercel-react-best-practices`（React 部分のみ。Next.js 固有の項目は無視）
 - PR 前: `web-design-guidelines`（a11y とインターフェースの監査）
-- 見た目の方向性を新しく決めるとき: `frontend-design`。ただし既存トークンと shadcn/ui が優先
+- 見た目の方向性を新しく決めるとき: `frontend-design`。ただし既存トークンが優先
 
-## テスト（eiichi-rules §6）
+## テスト
 
-- ロジックを含むもの（バリデーション、整形、状態遷移、`lib/` の関数）は Vitest を**先に**書く
-- 見た目・文言・アニメーションだけの変更はテスト不要。迷ったら書く側に倒す
-- **認証・設定画面を触ったら `e2e/auth.spec.ts` / `profile-sync.spec.ts` を更新して実行する。**
-  Supabase に接続できない環境では「未実行」と明記して返す（Issue #3）。「たぶん通る」と書かない
+- ロジックを含むものは `src/shared/` に出して Vitest を**先に**書く
+- 見た目・文言だけの変更はテスト不要。迷ったら書く側に倒す
+- 画面の流れを変えたら `e2e/main-flow.spec.ts` を更新して `npm run e2e` を回す（DEV_LOGIN のローカルログインで動く）
 
 ## 完了前に必ず通す
 
@@ -52,9 +42,4 @@ npm run lint && npm run typecheck && npm run test
 ```
 
 通っていないものを「完了」と呼ばない。落ちたら出力をそのまま報告する。
-
-## 返すもの
-
-- 変更したファイルと、その理由（1行ずつ）
-- 上のコマンドの実行結果
-- 仕様が曖昧で判断を保留した点（あれば）
+変更したファイルと理由、実行結果、仕様が曖昧で判断を保留した点を返す。

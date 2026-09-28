@@ -1,111 +1,107 @@
-# MaiRecipe — Claude Code 共通設定（Next.js + Supabase）
+# MaiRecipe — Claude Code 共通設定（Cloudflare Workers 無料プラン + D1）
 
 ## まず読むもの
 - `eiichi-rules` スキル（eiichi-core プラグイン）— 人間への伝え方はすべてこれに従う
 - `docs/spec.md` — 仕様の正
-- `docs/decisions/` — 過去の決定。覆すなら新しい ADR
+- `docs/decisions/` — 過去の決定。覆すなら新しい ADR（DEC-008〜013 が今の構成と方針）
 - セッション開始時は `pm` サブエージェントに 3 点報告させる
 
 ## プロダクト
-- レシピ保存・献立・買い物リストを一気通貫で管理する Web アプリ
-- レピッタ（repitta.com）の機能構成を踏襲。**差別化機能を提案しない**（模倣が目的）
-- 目的は Eiichi の学習・制作。収益化は現時点の目標ではない
-- 採用可否の第一基準は「レピッタにある機能か」。なければ優先度を下げる
-- 迷ったらシンプルな方を選ぶ。学習目的なので過剰設計しない
+- 見つけたレシピを取り込み、自分好みに改良して、献立と買い物までつなげる PWA
+- 基本の流れ：探して取り込む → 改良する（版を積む）→ 献立 → 買い物（DEC-010）
+- 自分と一緒に使う人が使いたい機能は足してよい。将来はレシピ SNS。今は SNS を作らない
+- **AI が無くても全部使えること**。AI は押した時だけ・既定オフ・答えは出典あり / なしを分ける（DEC-012）
+- 取り込みは材料と手順だけ。元の文章・写真はコピーしない。出典は消せない（DEC-011）
+- 迷ったらシンプルな方を選ぶ
 
-## 技術スタック
-- Next.js 15（App Router）+ React 19 + TypeScript strict
-- Supabase（Auth / Postgres / Storage / Edge Functions）。認証は **メール + パスワードのみ**
-- Tailwind CSS v4 + shadcn/ui
-- AI: Anthropic SDK。呼び出しは Edge Function か Route Handler 経由のみ
-- 決済: Stripe（M5 まで実装しない）
-- Vercel にデプロイ（Root Directory = `apps/web`）
-- テスト: Vitest（ロジック）+ Playwright（E2E）
-- Lint/Format: ESLint + Prettier
+## 技術スタック（DEC-008）
+- Cloudflare Workers **無料プラン**1つ。`/api/*` は Hono、それ以外は Workers Static Assets で PWA を配信
+- 画面: React 19 + Vite（`@cloudflare/vite-plugin`）+ React Router + TanStack Query + Tailwind v4 + `vite-plugin-pwa`
+- DB: D1 + Drizzle ORM。写真も当面 D1（`recipe_images`、1枚 1MB 以下）
+- 認証: Better Auth の Google ログインのみ（DEC-009）。`DEV_LOGIN=1` のときだけローカル用のメールログイン
+- 入力検証: zod（`src/shared/recipe.ts` を API と画面で共有）
+- テスト: Vitest（`test/shared` は Node、`test/api` は `@cloudflare/vitest-pool-workers` でローカル D1）、Playwright（`e2e/`）
 
 ## コマンド（リポジトリ直下で実行）
 | 目的 | コマンド |
 |---|---|
-| 開発サーバー | `npm run dev` |
+| 開発サーバー（画面 + API + ローカル D1） | `npm run dev`（先に `.dev.vars` を作る。README） |
 | ビルド | `npm run build` |
 | 型チェック | `npm run typecheck` |
-| Lint + フォーマット確認 | `npm run lint` |
-| ユニットテスト | `npm run test` |
+| Lint + フォーマット確認 | `npm run lint`（直すのは `npm run format`） |
+| ユニット・API テスト | `npm run test` |
 | E2E | `npm run e2e` |
-| DB マイグレーション適用 | `npm run db:push` |
-| DB リセット | `npm run db:reset` |
-| Supabase 型生成 | `npm run db:types` |
+| マイグレーション生成 | `npm run db:generate` |
+| ローカル D1 に適用 | `npm run db:migrate:local` |
+| 本番 D1 に適用 | `npm run db:migrate:remote`（Eiichi の確認後のみ） |
+| Workers の型生成 | `npm run cf-typegen` |
+| デプロイ | `npm run deploy`（Eiichi の確認後のみ） |
 
 PR 前は最低限 `npm run lint && npm run typecheck && npm run test` を通す。
 
 ## ディレクトリ
-今あるもの:
 ```
-apps/web/
-  app/            App Router。(auth)/ と (app)/ でグループ化
-  components/     UI。ui/ は shadcn/ui
-  lib/supabase/   client.ts / server.ts / middleware.ts / database.types.ts
-  lib/auth/       ルート判定とバリデーション
-  e2e/            Playwright
-supabase/migrations/   timestamp_name.sql
-docs/             spec.md / decisions/ / meetings/ / archive/
-.claude/agents/   frontend / backend
-.agents/skills/   同梱スキル（vercel-react-best-practices / web-design-guidelines）
+src/web/          画面。API は src/web/api/client.ts 経由でだけ呼ぶ
+  pages/          画面ごと（Recipes / RecipeDetail / RecipeEdit / Import / Find / Plan / Shopping / Settings / Login）
+  components/     共通部品（RecipeEditor・MicButton・VideoEmbed など）
+src/api/          API（Hono）。src/web を import しない
+  routes/         エンドポイント。DB を直接触らない（ESLint で禁止）
+  data/           forGroup(db, groupId) — DB に触れる唯一の場所。schema.ts もここ
+  auth/           Better Auth の設定と、セッション → グループの解決（requireUser）
+  platform/       Cloudflare 専用の部品（取り込みのページ取得・HTMLRewriter）
+src/shared/       画面と API で共有する純粋な関数・定数・zod（Cloudflare に依存しない）
+drizzle/          マイグレーション SQL
+test/shared, test/api, e2e/
+docs/             spec / decisions / meetings / archive
 ```
-
-必要になったら作る場所（eiichi-rules §7）:
-`apps/web/lib/ai/`（M2 以降）、`supabase/functions/`（M2 以降）、
-`docs/materials/`（説明資料）、`docs/decisions-needed/`（Eiichi 判断待ちの資料）、
-`docs/superpowers/specs/` と `plans/`（1機能ごとの設計・実装計画）
 
 ## 開発ルール（Superpowers に加えて）
 - feature ブランチ + PR のみ。main 直 push・force push 禁止。**マージは Eiichi**
-- TDD: `lib/` / Server Actions / Route Handler / migration / バグ修正は必須。画面の見た目は例外
-- Server Component を優先。Server Actions を基本とする。`@supabase/ssr` でサーバー/クライアント両対応
-- Supabase はコンポーネントから直接呼ばず `lib/supabase/` 経由
-- UI ガイダンスの優先順位: ①既存トークンと shadcn/ui の実物 → ②`vercel-react-best-practices`（実装作法）
+- TDD: `src/shared/` / `src/api/` / マイグレーション / バグ修正は必須。画面の見た目は例外
+- **グループの判定はセッションからだけ**。クライアントから来た group_id を使わない。DB は `forGroup` 経由でだけ触る。
+  新しいテーブル・API を足したら `test/api` の「グループをまたいだ漏れがないこと」に項目を足す。これを崩す変更はレビューで Critical
+- UI ガイダンスの優先順位: ①既存のトークン（`src/web/index.css` の @theme）→ ②`vercel-react-best-practices`（React 部分のみ）
   → ③`web-design-guidelines`（PR 前の a11y 監査）→ ④`frontend-design`（方向性を新しく決めるときだけ）
 - モデル割り当ては eiichi-rules §10 に従う
 
-## DB・セキュリティ規約
-- DB アクセスは必ず RLS 前提。`service_role` key は Edge Function / サーバーのみ。クライアントに API キーを置かない
-- ID は uuid。全テーブルに `created_at` / `updated_at`（トリガー更新）
-- ユーザー所有物は `owner_id` ではなく `group_id` で持つ（将来の共有対応。個人利用時は 1 人グループ）
-- 型は `npm run db:types` で生成する。手書きしない。生成に失敗したら既存ファイルは変更されない
-- 個人データ・`.env.local` はコミットしない
+## 無料プランの規約（DEC-008）
+- Worker の1回の処理は CPU 10ms まで。**重い処理を API に置かない**：画像の縮小・パスワード処理・大きな HTML の正規表現処理はしない
+- 写真は画面で長辺1600px・JPEG に縮めてから送る。API は受け取って保存するだけ
+- 上限に当たったら黙って直さず、Eiichi に「有料プランにするか、処理を端末に移すか」を推奨つきで聞く
+
+## 移行しやすさの規約
+- Cloudflare 固有の API を触ってよいのは `src/api/platform/`・`src/api/data/`・`src/api/auth/` だけ
+- SQL は普通の書き方にする。SQLite 独自関数を検索条件・集計に使わない
+- 画面は API を HTTP で呼ぶだけ
 
 ## UI 規約
-- 日本語 UI。文言はハードコードでよい（i18n 不要）
-- レスポンシブ必須（スマホ縦・PC）。PWA 対応は M3 以降に検討
-- 小さな UI は `frontend-design` スキルに従うが、既存トークン・shadcn/ui コンポーネントを優先する
+- 日本語 UI。文言はハードコードでよい
+- スマホ縦 375px 基準。タップ領域 44px 以上。画面には必ず ローディング / エラー / 空状態
+- 確認ダイアログ（confirm）は使わない。消す操作は「消す → 本当に消す？」の2回押し
+- 色・文字はトークン（paper / ink / sub / accent / herb / memo …）を使う
 
 ## Eiichi 本人にしかできない作業（依頼の型は eiichi-rules §4）
-- Supabase の本番適用（`db push` / ダッシュボード設定）。SQL は Claude がローカル検証してから渡す
-- Vercel の環境変数・ドメイン設定
-- 外部サービスのアカウント作成・キー発行
+- Cloudflare アカウント（無料・カード登録なし）と `wrangler login`、本番 D1 の作成
+- Google Cloud での OAuth クライアント作成と `wrangler secret put`
+- 本番 D1 へのマイグレーション適用とデプロイの最終 OK（Claude はローカルで検証してから、コピペできる手順で渡す）
 - PR のマージ
 
-## 環境変数（`apps/web/.env.local`）
+## 秘密情報
+ローカルは `.dev.vars`（コミットしない。ひな形は `.dev.vars.example`）、本番は `wrangler secret put`。
 ```
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=   # サーバーのみ
-ANTHROPIC_API_KEY=            # サーバーのみ
+BETTER_AUTH_SECRET=
+BETTER_AUTH_URL=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+DEV_LOGIN=1   # ローカルだけ。本番には絶対に入れない
 ```
 
 ## 課題管理
-- タスク・バグ・要望・ユーザーの声 → **GitHub Issues**（ラベル: bug / feedback / idea / workflow / needs-eiichi / ready-for-agent）
-- フェーズ・リリース → **GitHub Milestones**
-- md の WBS は持たない。Notion 等にコピーを作らない
-- 会議の議事録 → `docs/meetings/`、意思決定 → `docs/decisions/`
-
-## やらないこと
-- OAuth ログイン（Google 等）
-- ネイティブアプリ
-- 差別化機能の提案
+- タスク・バグ・要望 → **GitHub Issues**（ラベル: bug / feedback / idea / workflow / needs-eiichi / ready-for-agent）
+- フェーズ → **GitHub Milestones**（M0 基盤 / M1 レシピ管理 / M2 取り込みと検索 / M3 献立と買い物 / M4 AI オプション / M5 共有と課金）
+- md の WBS は持たない。会議 → `docs/meetings/`、意思決定 → `docs/decisions/`
 
 ## 前提
-`eiichi-core` プラグイン（`pm` / `reviewer` エージェント、`eiichi-rules` スキル）、
-`superpowers`、`frontend-design` が導入されていること。未導入だとこのファイルの指示の一部が機能しない。
-`vercel-react-best-practices` と `web-design-guidelines` はリポジトリ同梱なので導入不要。
-モデル割り当てと Superpowers の tier 対応は eiichi-rules §10 に従う（ここには複製しない）。
+`eiichi-core`（`pm` / `reviewer` / `eiichi-rules`）、`superpowers`、`frontend-design` のプラグインが導入されていること。
+`vercel-react-best-practices` と `web-design-guidelines` はリポジトリ同梱（`.agents/skills/`）。
+reviewer の観点に Supabase 前提の部分があるので、MaiRecipe では RLS の代わりに「forGroup 経由・セッションからの判定・漏れのテスト」の3点を確認させる。
