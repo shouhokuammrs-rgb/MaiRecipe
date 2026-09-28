@@ -16,6 +16,7 @@ import {
 import { splitIngredientLine } from "../../src/shared/recipe";
 import {
   DESCRIPTION_LOOSE,
+  DESCRIPTION_LOOSE_REAL_SHAPE,
   DESCRIPTION_WITH_LINKS,
   DESCRIPTION_WITH_RECIPE,
   JSONLD_WITH_COMMENTS,
@@ -502,5 +503,37 @@ describe("見出しの無い読み取り：再レビュー指摘の再現", () =
       "卵 2個\n塩 少々\n牛乳 大さじ2\n溶く\n焼く\n【ポイント】\n強火にしない",
     );
     expect(r?.steps).toEqual(["溶く", "焼く"]);
+  });
+});
+
+describe("見出しの無い読み取り：本番で読めなかった形", () => {
+  it("注記の行を飛ばし、先頭の【料理名】は付けず、4尾＝2尾＋2尾を重なりとして知らせる", () => {
+    expect(parseRecipeText(DESCRIPTION_LOOSE_REAL_SHAPE)).toEqual({
+      ingredients: [
+        { name: "ダミー魚", amount: "4尾（500g）" },
+        { name: "塩", amount: "5g強" },
+        { name: "砂糖", amount: "2つまみ（2g）" },
+        { name: "油", amount: "大さじ1" },
+        { name: "ダミー魚（塩焼き）", amount: "2尾" },
+        { name: "すだち（塩焼き）", amount: "2切れ" },
+        { name: "ダミー魚（混ぜご飯）", amount: "2尾" },
+        { name: "ご飯（混ぜご飯）", amount: "400g" },
+        { name: "ごま（混ぜご飯）", amount: "3つまみ" },
+      ],
+      steps: [
+        "魚に塩と砂糖をふって10分おく",
+        "水気をふく",
+        "油で2尾を両面焼く",
+        "残りも焼いて骨を取り、ご飯と混ぜる",
+      ],
+      overlaps: ["ダミー魚"],
+    });
+  });
+
+  it("量が合わなければ（4尾と1尾＋1尾）重なりにしない", () => {
+    const r = parseRecipeText(
+      "【ダミー】\n魚 4尾\n塩 少々\n油 大さじ1\n＝A＝\n魚 1尾\n＝B＝\n魚 1尾\n焼く",
+    );
+    expect(r?.overlaps).toEqual([]);
   });
 });
