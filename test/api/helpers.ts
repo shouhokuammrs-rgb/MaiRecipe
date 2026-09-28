@@ -1,21 +1,34 @@
+import { env } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 
 const ORIGIN = "http://localhost";
 let n = 0;
 
-/** DEV_LOGIN のメール登録でユーザーを作り、Cookie ヘッダーを返す */
-export async function signUp(name = "テスト"): Promise<string> {
+/** 名前とメールを指定して登録する（メールは省略可）。Cookie と小文字のメールを返す */
+export async function signUpAs(name = "テスト", email?: string) {
   n += 1;
-  const email = `user${Date.now()}-${n}@example.test`;
+  const addr = email ?? `user${Date.now()}-${n}@example.test`;
   const res = await exports.default.fetch(`${ORIGIN}/api/auth/sign-up/email`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: ORIGIN },
-    body: JSON.stringify({ email, password: "password-1234", name }),
+    body: JSON.stringify({ email: addr, password: "password-1234", name }),
   });
   if (res.status !== 200)
     throw new Error(`sign-up failed: ${res.status} ${await res.text()}`);
   const cookies = res.headers.getSetCookie().map((c) => c.split(";")[0]);
-  return cookies.join("; ");
+  return { cookie: cookies.join("; "), email: addr.toLowerCase() };
+}
+
+/** DEV_LOGIN のメール登録でユーザーを作り、Cookie ヘッダーを返す */
+export async function signUp(name = "テスト"): Promise<string> {
+  return (await signUpAs(name)).cookie;
+}
+
+/** テストだけで使う：Google で確認済みの状態にする（本番のコードには抜け道を作らない） */
+export async function verifyEmail(email: string): Promise<void> {
+  await env.DB.prepare("update user set email_verified = 1 where email = ?")
+    .bind(email)
+    .run();
 }
 
 export async function api(

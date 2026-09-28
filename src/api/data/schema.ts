@@ -258,6 +258,27 @@ export const shoppingMarks = sqliteTable(
   (t) => [primaryKey({ columns: [t.groupId, t.key, t.kind] })],
 );
 
+// ---- 招待（相手の Google のメールアドレス宛て。参加・取り消しで行を消す）
+export const groupInvites = sqliteTable(
+  "group_invites",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    /** 小文字・前後の空白なしにそろえたアドレス */
+    email: text("email").notNull(),
+    invitedBy: text("invited_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("group_invites_email_uq").on(t.groupId, t.email),
+    index("group_invites_email_idx").on(t.email),
+  ],
+);
+
 // ---- 取り込みで読めなかった URL の報告（URL だけ。後で Issue にして読み取りを直す）
 export const importReports = sqliteTable(
   "import_reports",

@@ -7,6 +7,8 @@ import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { Ingredient } from "../../shared/recipe";
 import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
+import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
+import type { SessionUser } from "../app-env";
 import * as s from "./schema";
 
 export type Db = DrizzleD1Database<typeof s>;
@@ -93,6 +95,8 @@ export type RecipeFields = {
 
 export class NotFound extends Error {}
 export class Forbidden extends Error {}
+export class BadInput extends Error {}
+export class Conflict extends Error {}
 
 type VersionDb = typeof s.recipeVersions.$inferSelect;
 const toVersion = (v: VersionDb): VersionRow => ({
@@ -666,6 +670,79 @@ export function forGroup(db: Db, groupId: string) {
             eq(s.shoppingMarks.kind, "bought"),
           ),
         );
+    },
+
+    // ---- いっしょに使う人（グループのメンバーと招待）
+    async groupInfo(userId: string) {
+      const [g, members, invites] = await Promise.all([
+        db
+          .select({ name: s.groups.name })
+          .from(s.groups)
+          .where(eq(s.groups.id, groupId))
+          .limit(1),
+        db
+          .select({
+            id: s.user.id,
+            name: s.user.name,
+            role: s.groupMembers.role,
+          })
+          .from(s.groupMembers)
+          .innerJoin(s.user, eq(s.user.id, s.groupMembers.userId))
+          .where(eq(s.groupMembers.groupId, groupId))
+          .orderBy(asc(s.groupMembers.createdAt)),
+        db
+          .select({ id: s.groupInvites.id, email: s.groupInvites.email })
+          .from(s.groupInvites)
+          .where(eq(s.groupInvites.groupId, groupId))
+          .orderBy(asc(s.groupInvites.createdAt)),
+      ]);
+      return {
+        name: g[0]?.name ?? "",
+        members: members.map((m) => ({
+          name: m.name,
+          isMe: m.id === userId,
+          role: m.role,
+        })),
+        invites,
+      };
+    },
+
+    /** email は正規化済み。同じ相手への招待は何もしない */
+    async addInvite(email: string, me: SessionUser) {
+      if (email === normalizeEmail(me.email))
+        throw new BadInput("自分は招待できません");
+      const [members, invites] = await Promise.all([
+        db
+          .select({ email: s.user.email })
+          .from(s.groupMembers)
+          .innerJoin(s.user, eq(s.user.id, s.groupMembers.userId))
+          .where(eq(s.groupMembers.groupId, groupId)),
+        db
+          .select({ email: s.groupInvites.email })
+          .from(s.groupInvites)
+          .where(eq(s.groupInvites.groupId, groupId)),
+      ]);
+      if (members.some((m) => normalizeEmail(m.email) === email))
+        throw new Conflict("この人はもうメンバーです");
+      if (invites.some((i) => i.email === email)) return;
+      if (members.length + invites.length >= GROUP_MAX_MEMBERS)
+        throw new Conflict(
+          `いっしょに使えるのは自分以外${GROUP_MAX_MEMBERS - 1}人までです`,
+        );
+      await db
+        .insert(s.groupInvites)
+        .values({ id: newId(), groupId, email, invitedBy: me.id })
+        .onConflictDoNothing();
+    },
+
+    async cancelInvite(id: string) {
+      const r = await db
+        .delete(s.groupInvites)
+        .where(
+          and(eq(s.groupInvites.id, id), eq(s.groupInvites.groupId, groupId)),
+        )
+        .returning({ id: s.groupInvites.id });
+      if (!r.length) throw new NotFound("invite");
     },
   };
 }

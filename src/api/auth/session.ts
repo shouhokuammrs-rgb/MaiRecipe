@@ -11,6 +11,12 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const db = openDb(c.env.DB);
   const groupId = await resolveGroupId(db, user.id, user.name);
   c.set("userId", user.id);
+  c.set("user", {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    emailVerified: user.emailVerified === true,
+  });
   c.set("repo", forGroup(db, groupId));
   await next();
 });
