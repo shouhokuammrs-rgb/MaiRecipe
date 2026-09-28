@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { MEALS, type Meal } from "../../shared/constants";
 import { addDays, isDate, todayJst } from "../../shared/dates";
-import { mealPlanSchema, shoppingMarkSchema } from "../../shared/recipe";
+import {
+  mealPlanSchema,
+  planMoveSchema,
+  shoppingMarkSchema,
+} from "../../shared/recipe";
 import { aggregateShopping } from "../../shared/shopping";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
@@ -28,6 +32,23 @@ plans.put("/", async (c) => {
   if (date < todayJst())
     return c.json({ error: "過ぎた日の献立は変えられません" }, 400);
   await c.var.repo.addPlan(date, meal, recipeId);
+  return c.body(null, 204);
+});
+
+// ↓ items のルートは "/:date/:meal" より先に登録する（DELETE /items/:id が date="items" にも一致するため）
+plans.delete("/items/:id", async (c) => {
+  await c.var.repo.deletePlanItem(c.req.param("id"), todayJst());
+  return c.body(null, 204);
+});
+
+plans.post("/items/:id/move", async (c) => {
+  const parsed = planMoveSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return badRequest(c, parsed.error);
+  await c.var.repo.movePlanItem(
+    c.req.param("id"),
+    parsed.data.direction,
+    todayJst(),
+  );
   return c.body(null, 204);
 });
 
