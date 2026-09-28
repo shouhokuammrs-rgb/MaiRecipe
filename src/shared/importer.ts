@@ -5,6 +5,7 @@
 import type { Category, Genre } from "./constants";
 import type { Ingredient } from "./recipe";
 import { LIMITS } from "./constants";
+import { parseAmount } from "./amount";
 import { canonicalName } from "./ingredients";
 import { splitIngredientLine, startsWithAmount } from "./recipe";
 
@@ -482,6 +483,7 @@ const GROUP_HEAD =
   /^(?:[＝=]{1,5}\s*(.{1,20}?)\s*[＝=]{1,5}|【(.{1,20})】|[■□◆◇]\s*(.{1,20})|[<＜](.{1,20})[>＞]|[[［](.{1,20})[\]］])$/u;
 /** 材料・まとまりの見出しとして読む行の長さの上限（長い行は正規表現にかけない） */
 const LOOSE_LINE_MAX = 80;
+const NOTE_LINE = /^[⭐★☆※]/u;
 /** 見出しの頭の記号の半角・全角をそろえる */
 const STYLE_OF: Record<string, string> = { "=": "＝", "[": "［", "<": "＜" };
 
@@ -529,6 +531,8 @@ function readBlock(lines: string[], start: number): Block {
       continue;
     }
     if (line.length > LOOSE_LINE_MAX || isJunkLine(line)) break;
+    // 材料の途中の「⭐︎お好みで塩」「※なくても可」のような注記は飛ばす
+    if (count && NOTE_LINE.test(line)) continue;
     const ing = looseIngredient(line);
     if (ing) {
       const last = groups[groups.length - 1];
@@ -573,30 +577,39 @@ function finishLoose(
   rest: string[],
   ruled: boolean,
 ): ParsedText {
-  // 最初のまとまりが「全体の量」なのは、その材料が全部後のまとまりにも出てきて、
-  // 見出しが無いか後のまとまりと違う形の見出し（【料理名】の後に ＝塩焼き＝…）のときだけ
   const names = (g: Group) =>
     new Set(g.items.map((i) => canonicalName(i.name)));
   const first = groups[0]!;
   const tail = groups.slice(1);
   const later = new Set(tail.flatMap((g) => [...names(g)]));
   const firstNames = [...names(first)];
-  const isOverall =
+  // 先頭のまとまりが見出し無し、または後のまとまりと違う形の見出し（【料理名】の後に ＝塩焼き＝…）
+  const headOfOthers =
     tail.length > 0 &&
-    firstNames.every((n) => later.has(n)) &&
     (!first.label || tail.every((g) => g.label && g.style !== first.style));
-  const overlaps = isOverall ? firstNames : [];
+  // その材料が全部後にも出てくるか、量が後のまとまりの合計と同じ（4尾＝2尾＋2尾）なら「全体の量」
+  const allRepeated = firstNames.every((n) => later.has(n));
+  const overlaps = headOfOthers
+    ? firstNames.filter(
+        (n) => later.has(n) && (allRepeated || sumsMatch(n, first, tail)),
+      )
+    : [];
   const labeled = groups.filter((g) => g.label).length;
   const ingredients: RawIngredient[] = [];
   groups.forEach((g, idx) => {
-    // 塊の頭の見出しが1つだけなら料理名とみなして付けない。途中の見出し（【タレ】など）は付ける
+    // 先頭の違う形の見出し（【料理名】）と、塊の頭の見出しが1つだけのときは料理名とみなして付けない
     const keepLabel =
-      g.label && (labeled >= 2 || idx > 0) && !(idx === 0 && isOverall);
+      g.label &&
+      (labeled >= 2 || idx > 0) &&
+      !(idx === 0 && (headOfOthers || overlaps.length));
     for (const i of g.items)
       ingredients.push(
         keepLabel ? { name: `${i.name}（${g.label}）`, amount: i.amount } : i,
       );
   });
+  const labels = new Set(
+    groups.flatMap((g) => (g.label ? [looseKey(g.label)] : [])),
+  );
 
   const steps: string[] = [];
   let afterBlank = false;
@@ -616,6 +629,8 @@ function finishLoose(
     if (descMarker(line) === "other" && (steps.length || isNoteHeading(line)))
       break;
     if (groupLabel(line) !== null) continue;
+    // 手順の前にある料理名だけの行（【料理名】の見出しと同じ文字）は飛ばす
+    if (!steps.length && labels.has(looseKey(line))) continue;
     // 「レシピはこちら↓」のような、リンクの見出しの行は手順にしない
     const body = line.replace(DESC_BULLET, "");
     const s = stripStepNumber(body, true);
@@ -635,6 +650,32 @@ function finishLoose(
     steps: steps.slice(0, 40),
     overlaps,
   };
+}
+
+/** 見出しと行を比べるための形（全角・半角と空白をそろえる） */
+function looseKey(s: string): string {
+  return s.normalize("NFKC").replace(/\s+/g, "");
+}
+
+/** 分量のカッコ書き（550g）を外して数と単位にする */
+function qtyOf(amount: string) {
+  return parseAmount(amount.replace(/[（(][^）)]*[）)]/g, ""));
+}
+
+/** 先頭のまとまりの name の量が、後のまとまりの同じ単位の合計と同じか */
+function sumsMatch(name: string, first: Group, tail: Group[]): boolean {
+  const own = first.items.find((i) => canonicalName(i.name) === name);
+  const a = own ? qtyOf(own.amount) : null;
+  if (!a || a.qty === null) return false;
+  let sum = 0;
+  for (const g of tail)
+    for (const i of g.items) {
+      if (canonicalName(i.name) !== name) continue;
+      const b = qtyOf(i.amount);
+      if (b.qty === null || b.unit !== a.unit) return false;
+      sum += b.qty;
+    }
+  return Math.abs(sum - a.qty) < 1e-9;
 }
 
 /** 見出しの無い文章から材料と手順を読む。罫線で囲まれた区間があればそこを先に */
