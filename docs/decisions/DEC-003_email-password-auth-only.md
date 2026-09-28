@@ -1,6 +1,6 @@
 # DEC-003: 認証はメール + パスワードのみにする
 
-- Status: Accepted
+- Status: Superseded by DEC-009
 - Date: 2026-09-02
 - 決めた人: Eiichi
 - 関連: docs/spec.md §3 / docs/spec.md §4

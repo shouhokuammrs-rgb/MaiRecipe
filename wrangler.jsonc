@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mairecipe",
+  "main": "src/api/index.ts",
+  // @cloudflare/vitest-pool-workers@0.22.0 が対応する最新日付に合わせている（Tandem と同じ理由）
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mairecipe",
+      // 本番の D1 を作ったら、発行された database_id に置き換える（README の手順）。
+      // ローカル開発・テストはこの値に関わらずローカル D1 が自動で作られる。
+      "database_id": "REPLACE_WITH_REAL_D1_DATABASE_ID",
+      "migrations_dir": "drizzle",
+    },
+  ],
+}

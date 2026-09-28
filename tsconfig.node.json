@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
+  },
+  "include": [
+    "vite.config.ts",
+    "drizzle.config.ts",
+    "playwright.config.ts",
+    "eslint.config.js",
+    "vitest.config.ts",
+    "vitest.shared.config.ts",
+    "scripts/**/*",
+    "e2e/**/*"
+  ]
+}

@@ -1,6 +1,6 @@
 # DEC-002: 差別化を狙わず、レピッタの機能構成をそのまま踏襲する
 
-- Status: Accepted
+- Status: Superseded by DEC-010
 - Date: 2026-09-02
 - 決めた人: Eiichi
 - 関連: docs/spec.md §2 / docs/spec.md §4

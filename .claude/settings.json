@@ -16,7 +16,11 @@
       "Read(//Users/**/.claude/settings.local.json)",
       "Read(//Users/**/.claude/.credentials.json)",
       "Read(//Users/**/.netrc)",
-      "Read(//Users/**/.npmrc)"
+      "Read(//Users/**/.npmrc)",
+      "Read(./**/.dev.vars)",
+      "Read(./**/.dev.vars.*)",
+      "Read(//Users/**/.dev.vars)",
+      "Read(//Users/**/.wrangler/**)"
     ],
     "allow": [
       "Bash(ls)",
@@ -48,7 +52,10 @@
       "Bash(gh run view *)",
       "Bash(gh run list *)",
       "Bash(gh release view *)",
-      "Bash(gh release list *)"
+      "Bash(gh release list *)",
+      "Bash(npm run e2e)",
+      "Bash(npm run db:generate)",
+      "Bash(npm run db:migrate:local)"
     ]
   }
 }

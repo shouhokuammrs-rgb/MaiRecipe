@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP", system-ui, sans-serif;
+  --font-display:
+    "Zen Maru Gothic", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+
+  --color-paper: #fbf8f3;
+  --color-card: #ffffff;
+  --color-ink: #2b2622;
+  --color-sub: #6b625a;
+  --color-faint: #8a8077;
+  --color-line: #e7e0d6;
+  --color-line-soft: #efe8de;
+  --color-field: #dcd3c7;
+  --color-accent: #b84a26;
+  --color-accent-deep: #8e3519;
+  --color-accent-soft: #f6e6de;
+  --color-herb: #2f5a3b;
+  --color-herb-mid: #3e6b4b;
+  --color-herb-soft: #eaf0ea;
+  --color-memo: #fbf4e4;
+  --color-memo-ink: #7a4e12;
+  --color-chip: #f1ece4;
+  --color-danger: #a1361a;
+  --color-video: #1f1b18;
+}
+
+:root {
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+  --primary: var(--color-accent);
+  --primary-foreground: #ffffff;
+  --border: var(--color-field);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
