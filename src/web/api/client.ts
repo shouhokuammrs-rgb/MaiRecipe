@@ -120,10 +120,7 @@ export type GroupInfo = {
   invites: { id: string; email: string }[];
 };
 export type MyInvite = { id: string; groupName: string; invitedBy: string };
-export type AcceptResult = {
-  movedRecipes: number;
-  keptPlans: { date: string; meal: Meal }[];
-};
+export type AcceptResult = { movedRecipes: number };
 
 export type ShopItem = {
   key: string;
