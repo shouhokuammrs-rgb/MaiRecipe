@@ -122,9 +122,24 @@ export function diffVersions(
   return out;
 }
 
+/** 分量の書き出し（"200g" "大さじ3" "各1パック" "1/2個" "少々"）。"1.8mm" のような商品名の一部は含めない */
+const AMOUNT_HEAD =
+  /^(?:各|約)?(?:大さじ|小さじ|[\d０-９][\d０-９./／〜~～と]*\s*(?:g|kg|ml|mL|cc|L|個|本|枚|切れ|片|かけ|束|袋|パック|缶|丁|カップ|合|杯|株|房|尾|玉|さじ|粒|人分)(?![a-zA-Z])|少々|適量|適宜|ひとつまみ|少量)/;
+
+/** 分量らしく始まっているか（"200g" "大さじ3" "少々"。"ダミー" や "1.8mm" は違う） */
+export function startsWithAmount(s: string): boolean {
+  return AMOUNT_HEAD.test(s.trim());
+}
+
 /** 取り込んだ材料の1行（"玉ねぎ 1個" "鶏むね肉300g" "塩 少々"）を名前と分量に分ける */
 export function splitIngredientLine(line: string): Ingredient {
   const s = line.replace(/\s+/g, " ").trim();
+  // 商品名に空白があるとき（"ブランド 商品 1.8mm 200g"）は、分量らしく始まる最初の区切りで分ける
+  for (const m of s.matchAll(/[ :：…]+/g)) {
+    const name = s.slice(0, m.index).trim();
+    const amount = s.slice(m.index + m[0].length).trim();
+    if (name && AMOUNT_HEAD.test(amount)) return { name, amount };
+  }
   const bySpace = s.match(/^(.+?)[ \u3000:：…]+(.+)$/);
   if (bySpace && bySpace[1] && bySpace[2]) {
     return { name: bySpace[1].trim(), amount: bySpace[2].trim() };

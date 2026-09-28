@@ -7,6 +7,8 @@ export type AppBindings = {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   DEV_LOGIN?: string;
+  /** YouTube Data API v3 の鍵（任意。無ければ動画は題名だけ）。使うのは platform/ だけ。DEC-014 */
+  YOUTUBE_API_KEY?: string;
 };
 
 export type AppEnv = {
