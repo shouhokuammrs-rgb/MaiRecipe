@@ -227,18 +227,36 @@ describe("献立と買い物リスト", () => {
     ]);
   });
 
-  it("枠を丸ごと空にする DELETE /plans/:date/:meal は残っている（古い画面のため）", async () => {
+  it("枠を丸ごと空にする DELETE /plans/:date/:meal は、1品以下の枠には残っている（古い画面のため）", async () => {
     const me = await signUp();
     const a = await create(me, sampleRecipe);
-    const b = await create(me, { ...sampleRecipe, title: "豚汁" });
     const day = "2030-01-08";
-    await put(me, day, "dinner", a);
-    await put(me, day, "dinner", b);
     await put(me, day, "lunch", a);
+    expect(
+      (await api(me, `/plans/${day}/lunch`, { method: "DELETE" })).status,
+    ).toBe(204);
+    expect((await plansOf(me, day)).map((p) => p.meal)).toEqual([]);
+    // 何も無い枠に呼んでも 204（今までと同じ）
     expect(
       (await api(me, `/plans/${day}/dinner`, { method: "DELETE" })).status,
     ).toBe(204);
-    expect((await plansOf(me, day)).map((p) => p.meal)).toEqual(["lunch"]);
+  });
+
+  it("枠に2品以上あるとき、古い画面の DELETE /plans/:date/:meal は消さずに 409", async () => {
+    const me = await signUp();
+    const a = await create(me, sampleRecipe);
+    const b = await create(me, { ...sampleRecipe, title: "豚汁" });
+    const day = "2030-01-09";
+    await put(me, day, "dinner", a);
+    await put(me, day, "dinner", b);
+    await put(me, day, "lunch", a);
+    const res = await api(me, `/plans/${day}/dinner`, { method: "DELETE" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "画面を新しくしてください" });
+    // 1品も消えていない
+    expect((await plansOf(me, day)).map((p) => `${p.meal}:${p.title}`)).toEqual(
+      ["lunch:鶏むね肉の甘酢炒め", "dinner:鶏むね肉の甘酢炒め", "dinner:豚汁"],
+    );
   });
 
   it("買い物リストは、1つの枠の全品の材料を合算する", async () => {

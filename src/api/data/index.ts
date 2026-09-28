@@ -643,17 +643,23 @@ export function forGroup(db: Db, groupId: string) {
       );
     },
 
-    /** 枠を丸ごと空にする。画面からは使わないが、古い画面（PWA のキャッシュ）のために残す */
+    /**
+     * 枠を丸ごと空にする。画面からは使わないが、古い画面（PWA のキャッシュ）のために残す。
+     * 枠に2品以上あるとき、古い画面は「どれか1品だけ消す」つもりでこれを呼んでいる可能性が
+     * 高いので、消さずに Conflict（409）にする。1品以下なら今までどおり消す。
+     */
     async deletePlan(date: string, meal: "breakfast" | "lunch" | "dinner") {
-      await db
-        .delete(s.mealPlans)
-        .where(
-          and(
-            eq(s.mealPlans.groupId, groupId),
-            eq(s.mealPlans.date, date),
-            eq(s.mealPlans.meal, meal),
-          ),
-        );
+      const slotCond = and(
+        eq(s.mealPlans.groupId, groupId),
+        eq(s.mealPlans.date, date),
+        eq(s.mealPlans.meal, meal),
+      );
+      const [row] = await db
+        .select({ n: count() })
+        .from(s.mealPlans)
+        .where(slotCond);
+      if ((row?.n ?? 0) >= 2) throw new Conflict("画面を新しくしてください");
+      await db.delete(s.mealPlans).where(slotCond);
     },
 
     // ---- 買い物リスト
