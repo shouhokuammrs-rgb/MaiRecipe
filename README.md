@@ -61,6 +61,7 @@ npm run e2e                                          # 画面の通しテスト�
    ```
 
 2回目以降は `npm run db:migrate:remote`（マイグレーションが増えたときだけ）と `npm run deploy` だけ。
+マイグレーションの前には、本番 D1 のバックアップを取る（`npx wrangler d1 export mairecipe --remote --output=backup-<日付>.sql`。このファイルはコミットしない）。マイグレーションとデプロイの間は空けない。
 
 ## Claude Code で作業する場合
 
