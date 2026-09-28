@@ -82,12 +82,13 @@ importer.post("/", async (c) => {
       // ② 概要欄に貼られた URL を上から順に（最大3件）。転送先が SNS・動画なら読まない
       const deadline = Date.now() + LINKS_DEADLINE_MS;
       for (const link of pickRecipeUrls(snip.description, 3)) {
-        if (Date.now() > deadline) break;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
         let page: PageScan;
         try {
           page = await scanPage(link, {
             ...LINK_SCAN,
-            timeoutMs: Math.min(LINK_SCAN.timeoutMs, deadline - Date.now()),
+            timeoutMs: Math.min(LINK_SCAN.timeoutMs, remaining),
           });
         } catch {
           continue;
