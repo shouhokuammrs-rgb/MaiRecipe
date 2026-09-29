@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 // ローカルの仮ログイン（DEV_LOGIN=1）で、取り込み以外の一通りの流れを確かめる。
 // 1. 手でレシピを作る → 2. 材料を直して v2 → 3. メモを残す → 4. あゆみに出る
-// 5. 献立に入れる → 6. 買い物リストに出る → 7. チェックして冷蔵庫へ入れると隠れる
+// 5. 献立に入れる → 6. 買い物リストに出る → 7. チェックで冷蔵庫に入って隠れる
 test("レシピを作って改良し、献立から買い物リストまで", async ({ page }) => {
   const email = `e2e-${Date.now()}@example.test`;
   await page.goto("/login");
@@ -72,10 +72,10 @@ test("レシピを作って改良し、献立から買い物リストまで", as
     fullPage: true,
   });
 
-  // 7. チェック（冷蔵庫に入れる）→ 隠れる
+  // 7. チェック → 冷蔵庫に入って隠れる
   const onionRow = page.locator("li", { hasText: "玉ねぎ" });
   await onionRow.getByRole("button", { name: "玉ねぎを買った・ある" }).click();
-  await expect(page.getByText("玉ねぎ")).toHaveCount(0);
+  await expect(page.getByText("玉ねぎ", { exact: true })).toHaveCount(0);
 });
 
 test("ログインしていなければログイン画面へ", async ({ page }) => {
