@@ -9,6 +9,7 @@ import {
   Loading,
   PageTitle,
 } from "@/components/common";
+import { Toast, useToast } from "@/components/Toast";
 import { cn } from "@/lib/utils";
 import { SHOP_SECTIONS } from "../../shared/constants";
 import { labelDate } from "../../shared/dates";
@@ -22,16 +23,17 @@ const RANGES = [
 
 export function Shopping() {
   const [days, setDays] = useState(3);
-  const [hideHome, setHideHome] = useState(true);
+  const [showHave, setShowHave] = useState(false);
   const qc = useQueryClient();
+  const { toast, show: setToast } = useToast();
   const q = useQuery({
     queryKey: ["shopping", days],
     queryFn: () => apiClient.shopping(days),
   });
 
-  const mark = useMutation({
-    mutationFn: (p: { key: string; kind: "home" | "bought"; value: boolean }) =>
-      apiClient.setMark(p.key, p.kind, p.value),
+  const check = useMutation({
+    mutationFn: (p: { name: string; value: boolean; section: string }) =>
+      apiClient.setHave(p.name, p.value),
     onMutate: async (p) => {
       await qc.cancelQueries({ queryKey: ["shopping", days] });
       const prev = qc.getQueryData<
@@ -41,35 +43,46 @@ export function Shopping() {
         qc.setQueryData(["shopping", days], {
           ...prev,
           items: prev.items.map((i) =>
-            i.key === p.key ? { ...i, [p.kind]: p.value } : i,
+            i.name === p.name ? { ...i, have: p.value } : i,
           ),
         });
       }
       return { prev };
     },
+    onSuccess: (_d, p) => {
+      if (p.section === "調味料") {
+        setToast(
+          p.value
+            ? `「${p.name}」は家にある扱いに戻しました`
+            : `「${p.name}」を買うものに入れました`,
+        );
+      } else {
+        setToast(
+          p.value
+            ? `「${p.name}」を冷蔵庫に入れました`
+            : `「${p.name}」を冷蔵庫から戻しました`,
+        );
+      }
+    },
     onError: (_e, _p, ctx) =>
       ctx?.prev && qc.setQueryData(["shopping", days], ctx.prev),
-    onSettled: () => qc.invalidateQueries({ queryKey: ["shopping"] }),
-  });
-  const clearBought = useMutation({
-    mutationFn: apiClient.clearBought,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["shopping"] }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["shopping"] });
+      qc.invalidateQueries({ queryKey: ["pantry"] });
+    },
   });
 
   const items = q.data?.items ?? [];
-  const homeCount = items.filter((i) => i.home).length;
-  const toBuy = items.filter((i) => !i.home);
-  const left = toBuy.filter((i) => !i.bought).length;
-  const shown = hideHome ? toBuy : items;
+  const hiddenCount = items.filter((i) => i.have).length;
+  const toBuy = items.filter((i) => !i.have);
+  const shown = showHave ? items : toBuy;
 
   return (
     <>
       <PageTitle
         aside={
           q.data && (
-            <span className="text-[13px] text-sub">
-              残り {left} / {toBuy.length}
-            </span>
+            <span className="text-[13px] text-sub">残り {toBuy.length}品</span>
           )
         }
       >
@@ -99,49 +112,43 @@ export function Shopping() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            aria-pressed={hideHome}
-            onClick={() => setHideHome(!hideHome)}
+            aria-pressed={showHave}
+            onClick={() => setShowHave(!showHave)}
             className={cn(
               "flex h-8 items-center gap-2 rounded-full border border-field px-3 text-xs",
-              hideHome ? "bg-[#f4f8f4]" : "bg-card",
+              showHave ? "bg-[#f4f8f4]" : "bg-card",
             )}
           >
             <span
               className={cn(
                 "relative inline-block h-4 w-7 rounded-full",
-                hideHome ? "bg-herb-mid" : "bg-[#cfc5b8]",
+                showHave ? "bg-herb-mid" : "bg-[#cfc5b8]",
               )}
             >
               <span
                 className={cn(
                   "absolute top-0.5 size-3 rounded-full bg-white",
-                  hideHome ? "left-3.5" : "left-0.5",
+                  showHave ? "left-3.5" : "left-0.5",
                 )}
               />
             </span>
-            家にあるものを隠す（{homeCount}品）
+            冷蔵庫にあるものも表示（{hiddenCount}件）
           </button>
-          {items.some((i) => i.bought) && (
-            <button
-              type="button"
-              onClick={() => clearBought.mutate()}
-              className="h-8 rounded-full px-2 text-xs text-sub underline"
-            >
-              買ったチェックを外す
-            </button>
-          )}
         </div>
       </div>
 
       <div className="flex flex-col gap-4 px-5 pt-1 pb-8">
         {q.isPending && <Loading />}
         {q.isError && <ErrorState error={q.error} retry={() => q.refetch()} />}
-        {q.data && shown.length === 0 && (
+        {q.data && items.length === 0 && (
           <Empty>
             この期間に買うものはありません。
             <br />
             献立にレシピを入れるか、期間を広げてください。
           </Empty>
+        )}
+        {q.data && items.length > 0 && toBuy.length === 0 && !showHave && (
+          <Empty>全部そろっています。冷蔵庫に入っています。</Empty>
         )}
         {SHOP_SECTIONS.map((section) => {
           const list = shown.filter((i) => i.section === section);
@@ -154,8 +161,8 @@ export function Shopping() {
                   <ShopRow
                     key={i.key}
                     i={i}
-                    onToggle={(kind, value) =>
-                      mark.mutate({ key: i.key, kind, value })
+                    onToggle={(value) =>
+                      check.mutate({ name: i.name, value, section: i.section })
                     }
                   />
                 ))}
@@ -164,6 +171,7 @@ export function Shopping() {
           );
         })}
       </div>
+      <Toast message={toast} />
     </>
   );
 }
@@ -173,44 +181,40 @@ function ShopRow({
   onToggle,
 }: {
   i: ShopItem;
-  onToggle: (kind: "home" | "bought", v: boolean) => void;
+  onToggle: (value: boolean) => void;
 }) {
-  const dim = i.bought || i.home;
   return (
     <li
       className={cn(
         "flex items-center border-b border-[#f3eee7] last:border-b-0",
-        i.home ? "bg-paper" : "bg-card",
+        i.have ? "bg-paper" : "bg-card",
       )}
     >
       <button
         type="button"
-        aria-pressed={i.bought}
-        onClick={() => onToggle("bought", !i.bought)}
-        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-1.5 pl-3.5 text-left"
+        aria-pressed={i.have}
+        aria-label={`${i.name}を買った・ある`}
+        onClick={() => onToggle(!i.have)}
+        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-3.5 pl-3.5 text-left"
       >
         <span
           className={cn(
             "flex size-[22px] shrink-0 items-center justify-center rounded-[7px] border-2",
-            i.bought
-              ? "border-herb-mid bg-herb-mid"
-              : "border-[#cfc5b8] bg-card",
+            i.have ? "border-herb-mid bg-herb-mid" : "border-[#cfc5b8] bg-card",
           )}
         >
-          {i.bought && (
-            <Check className="size-3.5 text-white" strokeWidth={3} />
-          )}
+          {i.have && <Check className="size-3.5 text-white" strokeWidth={3} />}
         </span>
         <span
           className={cn(
             "flex min-w-0 flex-1 flex-col gap-0.5",
-            dim && "opacity-50",
+            i.have && "opacity-50",
           )}
         >
           <span
             className={cn(
               "flex justify-between gap-2 text-[15px]",
-              i.bought && "line-through",
+              i.have && "line-through",
             )}
           >
             <span>{i.name}</span>
@@ -221,19 +225,6 @@ function ShopRow({
             {i.merged.length > 0 && `（${i.merged.join("・")} もまとめました）`}
           </span>
         </span>
-      </button>
-      <button
-        type="button"
-        aria-pressed={i.home}
-        onClick={() => onToggle("home", !i.home)}
-        className={cn(
-          "mr-2.5 h-8 shrink-0 rounded-lg border px-2 text-[11px] font-bold",
-          i.home
-            ? "border-[#9cb9a3] bg-herb-soft text-herb"
-            : "border-[#e1d9ce] bg-card text-sub",
-        )}
-      >
-        {i.home ? "家にある ✓" : "家にある"}
       </button>
     </li>
   );
