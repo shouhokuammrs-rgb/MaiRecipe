@@ -471,7 +471,7 @@ describe("POST /api/import（YouTube のコメント）", () => {
   it("本人のコメントに無ければ、上位5件の他の人のコメントから読む（6件目以降は読まない）", async () => {
     const five = Array.from({ length: 5 }, (_, i) => comment(`感想${i}`));
     mockFetch(route(threads([...five, comment(OTHER_RECIPE)])));
-    let body = await importDraft(video);
+    const body = await importDraft(video);
     expect(body.found).toBe(false);
 
     vi.restoreAllMocks();
