@@ -440,7 +440,8 @@ describe("読めなかった URL の報告", () => {
       body: { url: "https://example.com/r/0" },
     });
     expect(again.status).toBe(201);
-  });
+    // 200件を1件ずつ入れるので、全体を並列で流すと既定の5秒を超えることがある
+  }, 20_000);
 
   it("URL でなければ 400、ログインしていなければ 401", async () => {
     expect(
