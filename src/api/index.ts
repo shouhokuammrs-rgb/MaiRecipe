@@ -4,6 +4,7 @@ import { createAuth, hasGoogle, isDevLogin } from "./auth";
 import { handleError } from "./errors";
 import { group, invites } from "./routes/group";
 import { importer } from "./routes/importer";
+import { pantry } from "./routes/pantry";
 import { plans, shopping } from "./routes/plans";
 import { recipes } from "./routes/recipes";
 import { requireUser } from "./auth/session";
@@ -29,6 +30,7 @@ api.route("/recipes", recipes);
 api.route("/import", importer);
 api.route("/plans", plans);
 api.route("/shopping", shopping);
+api.route("/pantry", pantry);
 api.route("/group", group);
 api.route("/invites", invites);
 

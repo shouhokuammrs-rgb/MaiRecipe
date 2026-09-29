@@ -8,6 +8,8 @@ import type { Ingredient } from "../../shared/recipe";
 import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
+import { canonicalName } from "../../shared/ingredients";
+import { isSeasoning, sortPantry } from "../../shared/pantry";
 import type { SessionUser } from "../app-env";
 import * as s from "./schema";
 
@@ -48,6 +50,14 @@ export async function resolveGroupId(
   ]);
   return groupId;
 }
+
+export type PantryItem = {
+  id: string;
+  name: string;
+  amount: string | null;
+  expiresOn: string | null;
+  addedOn: string;
+};
 
 export type RecipeHeader = {
   id: string;
@@ -188,6 +198,16 @@ export function forGroup(db: Db, groupId: string) {
     if (!r[0]) throw new NotFound("plan");
     if (r[0].date < today) throw new BadInput("過ぎた日の献立は変えられません");
     return r[0];
+  }
+
+  /** 自分のグループの冷蔵庫の1行。無い・他のグループなら NotFound */
+  async function ownPantryItem(id: string) {
+    const r = await db
+      .select({ id: s.pantryItems.id })
+      .from(s.pantryItems)
+      .where(and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)))
+      .limit(1);
+    if (!r[0]) throw new NotFound("pantry");
   }
 
   return {
@@ -660,6 +680,96 @@ export function forGroup(db: Db, groupId: string) {
         .where(slotCond);
       if ((row?.n ?? 0) >= 2) throw new Conflict("画面を新しくしてください");
       await db.delete(s.mealPlans).where(slotCond);
+    },
+
+    // ---- 冷蔵庫（調味料は入れない・出さない。名前は名寄せ後）
+    async listPantry(): Promise<PantryItem[]> {
+      const rows = await db
+        .select({
+          id: s.pantryItems.id,
+          name: s.pantryItems.name,
+          amount: s.pantryItems.amount,
+          expiresOn: s.pantryItems.expiresOn,
+          addedOn: s.pantryItems.addedOn,
+        })
+        .from(s.pantryItems)
+        .where(eq(s.pantryItems.groupId, groupId));
+      return sortPantry(rows.filter((r) => !isSeasoning(r.name)));
+    },
+
+    /** 名寄せして入れる。空・調味料・すでにあるものは skipped。1行ずつの INSERT を batch で流す（D1 の値の上限のため） */
+    async addPantry(
+      names: string[],
+      today: string,
+    ): Promise<{ added: string[]; skipped: string[] }> {
+      const skipped: string[] = [];
+      const wanted: string[] = [];
+      for (const raw of names) {
+        const name = canonicalName(raw);
+        if (!name || isSeasoning(name) || wanted.includes(name)) {
+          skipped.push(name || raw);
+          continue;
+        }
+        wanted.push(name);
+      }
+      if (!wanted.length) return { added: [], skipped };
+      const inserts = wanted.map((name) =>
+        db
+          .insert(s.pantryItems)
+          .values({ id: newId(), groupId, name, addedOn: today })
+          .onConflictDoNothing()
+          .returning({ name: s.pantryItems.name }),
+      );
+      const results = await db.batch(
+        inserts as [(typeof inserts)[number], ...(typeof inserts)[number][]],
+      );
+      const added: string[] = [];
+      results.forEach((rows, i) => {
+        if (rows.length) added.push(wanted[i]!);
+        else skipped.push(wanted[i]!);
+      });
+      return { added, skipped };
+    },
+
+    async updatePantry(
+      id: string,
+      patch: { amount?: string | null; expiresOn?: string | null },
+    ) {
+      await ownPantryItem(id);
+      await db
+        .update(s.pantryItems)
+        .set(patch)
+        .where(
+          and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
+        );
+    },
+
+    async deletePantry(id: string) {
+      await ownPantryItem(id);
+      await db
+        .delete(s.pantryItems)
+        .where(
+          and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
+        );
+    },
+
+    async removePantryByName(name: string) {
+      await db
+        .delete(s.pantryItems)
+        .where(
+          and(
+            eq(s.pantryItems.groupId, groupId),
+            eq(s.pantryItems.name, canonicalName(name)),
+          ),
+        );
+    },
+
+    async pantryNames(): Promise<Set<string>> {
+      const rows = await db
+        .select({ name: s.pantryItems.name })
+        .from(s.pantryItems)
+        .where(eq(s.pantryItems.groupId, groupId));
+      return new Set(rows.map((r) => r.name));
     },
 
     // ---- 買い物リスト
