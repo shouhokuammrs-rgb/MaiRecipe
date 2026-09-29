@@ -130,6 +130,13 @@ export function membershipFor(db: Db, user: SessionUser) {
               and h.url = ${s.importReports.url})`,
         ),
       );
+      const deleteCollidingPantry = db.delete(s.pantryItems).where(
+        and(
+          eq(s.pantryItems.groupId, mine),
+          sql`exists (select 1 from pantry_items h where h.group_id = ${host}
+              and h.name = ${s.pantryItems.name})`,
+        ),
+      );
       // 献立はぶつかっても両方残す。参加する側の行の position を、招待した側の同じ枠の
       // 最大 + 1 だけ後ろへずらす（無ければ 0 のまま）。group_id を付け替える movePlans より
       // 前に、別の文で流す：同じ文で group_id も変えると、相関サブクエリがすでに付け替えた
@@ -172,12 +179,16 @@ export function membershipFor(db: Db, user: SessionUser) {
         .update(s.importReports)
         .set({ groupId: host })
         .where(eq(s.importReports.groupId, mine));
+      const movePantry = db
+        .update(s.pantryItems)
+        .set({ groupId: host })
+        .where(eq(s.pantryItems.groupId, mine));
       const deleteInvite = db
         .delete(s.groupInvites)
         .where(eq(s.groupInvites.id, inv.id));
       const deleteMyGroup = db.delete(s.groups).where(eq(s.groups.id, mine));
 
-      // 1つのトランザクションで：条件を確かめながら参加 → ぶつかる印・報告は招待した側を残し、献立は後ろに並べる →
+      // 1つのトランザクションで：条件を確かめながら参加 → ぶつかる印・報告・冷蔵庫は招待した側を残し、献立は後ろに並べる →
       // 残りを付け替える → 1人グループを消す。
       // (注) db.run(sql`...`) は D1 の db.batch() の中では使えない（drizzle-orm の SQLiteRaw に
       // batch 用の .stmt が無く落ちる。実機で確認済み）。同じ SQL を .delete().where() + exists(...) で書く。
@@ -196,6 +207,8 @@ export function membershipFor(db: Db, user: SessionUser) {
           movePlans,
           moveMarks,
           moveReports,
+          deleteCollidingPantry,
+          movePantry,
           deleteInvite,
           deleteMyGroup,
         ]);
