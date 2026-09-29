@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Plus, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient, type PlanEntry } from "@/api/client";
 import { Empty, ErrorState, Loading, PageTitle } from "@/components/common";
@@ -35,24 +43,48 @@ export function Plan() {
     void qc.invalidateQueries({ queryKey: ["plans"] });
     void qc.invalidateQueries({ queryKey: ["shopping"] });
   };
-  const set = useMutation({
+  const add = useMutation({
     mutationFn: (p: { date: string; meal: Meal; recipeId: string }) =>
-      apiClient.setPlan(p.date, p.meal, p.recipeId),
+      apiClient.addPlan(p.date, p.meal, p.recipeId),
+    onMutate: () => {
+      remove.reset();
+      move.reset();
+    },
     onSuccess: () => {
       setPicker(null);
       if (adding) setParams({}, { replace: true });
       refresh();
     },
   });
-  const clear = useMutation({
-    mutationFn: (p: { date: string; meal: Meal }) =>
-      apiClient.deletePlan(p.date, p.meal),
+  const remove = useMutation({
+    mutationFn: (id: string) => apiClient.deletePlanItem(id),
+    onMutate: () => {
+      add.reset();
+      move.reset();
+    },
     onSuccess: refresh,
   });
+  const move = useMutation({
+    mutationFn: (p: { id: string; direction: "up" | "down" }) =>
+      apiClient.movePlanItem(p.id, p.direction),
+    onMutate: () => {
+      add.reset();
+      remove.reset();
+    },
+    onSuccess: refresh,
+  });
+  // 次の操作を始めたら（上の各 onMutate で）前のエラーは消えるので、常に高々1つだけ立つ
+  const actionError = add.error ?? remove.error ?? move.error;
 
+  // API が 日付 → 朝昼晩 → 枠の中の順 で返すので、その順のまま枠ごとに分ける
   const bySlot = useMemo(() => {
-    const m = new Map<string, PlanEntry>();
-    for (const p of plans.data?.plans ?? []) m.set(`${p.date}|${p.meal}`, p);
+    const m = new Map<string, PlanEntry[]>();
+    for (const p of plans.data?.plans ?? []) {
+      const key = `${p.date}|${p.meal}`;
+      const list = m.get(key);
+      if (list) list.push(p);
+      else m.set(key, [p]);
+    }
     return m;
   }, [plans.data]);
 
@@ -66,7 +98,7 @@ export function Plan() {
             <button
               type="button"
               aria-label="前の週"
-              className="flex size-10 items-center justify-center"
+              className="flex size-11 items-center justify-center"
               onClick={() => setStart(addDays(start, -7))}
             >
               <ChevronLeft className="size-5" />
@@ -75,7 +107,7 @@ export function Plan() {
             <button
               type="button"
               aria-label="次の週"
-              className="flex size-10 items-center justify-center"
+              className="flex size-11 items-center justify-center"
               onClick={() => setStart(addDays(start, 7))}
             >
               <ChevronRight className="size-5" />
@@ -92,7 +124,7 @@ export function Plan() {
             「{addingRecipe.data.title}」を入れる枠をタップ
             <button
               type="button"
-              className="shrink-0 underline"
+              className="min-h-11 shrink-0 underline"
               onClick={() => setParams({}, { replace: true })}
             >
               やめる
@@ -102,21 +134,20 @@ export function Plan() {
         {start !== weekStart(today) && (
           <button
             type="button"
-            className="self-start text-xs text-accent underline"
+            className="min-h-11 self-start text-xs text-accent underline"
             onClick={() => setStart(weekStart(today))}
           >
             今週に戻る
           </button>
         )}
-        <div className="grid grid-cols-[3.2rem_repeat(3,minmax(0,1fr))] gap-1.5 text-center text-[11px] text-sub">
-          <span />
-          {MEALS.map((m) => (
-            <span key={m}>{MEAL_LABELS[m]}</span>
-          ))}
-        </div>
+        {actionError && (
+          <p role="alert" className="text-sm text-danger">
+            {actionError.message}
+          </p>
+        )}
       </div>
 
-      <div className="flex flex-col gap-2 px-5 pb-8">
+      <div className="flex flex-col gap-3 px-5 pb-8">
         {plans.isPending && <Loading />}
         {plans.isError && (
           <ErrorState error={plans.error} retry={() => plans.refetch()} />
@@ -127,16 +158,19 @@ export function Plan() {
             const past = d < today;
             const isToday = d === today;
             return (
-              <div
+              <section
                 key={d}
+                aria-label={
+                  isToday ? `今日 ${l.md}（${l.dow}）` : `${l.md}（${l.dow}）`
+                }
                 className={cn(
-                  "grid grid-cols-[3.2rem_repeat(3,minmax(0,1fr))] gap-1.5",
+                  "flex flex-col gap-2 rounded-2xl border border-line-soft bg-card p-3",
                   past && "opacity-45",
                 )}
               >
-                <div
+                <h2
                   className={cn(
-                    "flex flex-col justify-center",
+                    "flex items-baseline gap-1.5",
                     isToday
                       ? "text-accent"
                       : l.dowIndex === 0
@@ -151,59 +185,108 @@ export function Plan() {
                     {l.dow}
                     {isToday && "・今日"}
                   </span>
-                </div>
+                </h2>
                 {MEALS.map((meal) => {
-                  const p = bySlot.get(`${d}|${meal}`);
-                  if (p) {
-                    return (
-                      <div
-                        key={meal}
-                        className="relative flex min-h-16 rounded-xl p-2"
-                        style={{ background: categoryTint(p.category) }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => nav(`/recipes/${p.recipeId}`)}
-                          className="pr-4 text-left text-xs leading-snug font-bold"
-                        >
-                          {p.title}
-                        </button>
-                        {!past && (
-                          <button
-                            type="button"
-                            aria-label={`${l.md} ${MEAL_LABELS[meal]} から外す`}
-                            onClick={() => clear.mutate({ date: d, meal })}
-                            className="absolute top-0.5 right-0.5 flex size-6 items-center justify-center rounded-full bg-white/75 text-[#4a433c]"
-                          >
-                            <X className="size-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  }
+                  const items = bySlot.get(`${d}|${meal}`) ?? [];
+                  const slot = `${l.md} ${MEAL_LABELS[meal]}`;
                   return (
-                    <button
-                      key={meal}
-                      type="button"
-                      disabled={past}
-                      aria-label={`${l.md} ${MEAL_LABELS[meal]} にレシピを入れる`}
-                      onClick={() => {
-                        if (adding)
-                          set.mutate({ date: d, meal, recipeId: adding });
-                        else setPicker({ date: d, meal });
-                      }}
-                      className={cn(
-                        "flex min-h-16 items-center justify-center rounded-xl border-[1.5px] border-dashed text-faint",
-                        adding && !past
-                          ? "border-accent bg-[#fbeee8]"
-                          : "border-[#d6cdc1] bg-card",
-                      )}
-                    >
-                      <Plus className="size-5" />
-                    </button>
+                    <div key={meal} className="flex gap-2">
+                      <span className="w-6 shrink-0 pt-3 text-center text-xs text-sub">
+                        {MEAL_LABELS[meal]}
+                      </span>
+                      <ul className="flex min-w-0 flex-1 flex-col gap-1.5">
+                        {items.map((p, i) => (
+                          <li
+                            key={p.id}
+                            className="flex min-h-11 items-center rounded-xl"
+                            style={{ background: categoryTint(p.category) }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => nav(`/recipes/${p.recipeId}`)}
+                              className="min-h-11 min-w-0 flex-1 px-3 py-2 text-left text-sm leading-snug font-bold"
+                            >
+                              {p.title}
+                            </button>
+                            {!past && (
+                              <>
+                                {i > 0 ? (
+                                  <IconButton
+                                    label={`「${p.title}」を上へ`}
+                                    disabled={move.isPending}
+                                    onClick={() =>
+                                      move.mutate({ id: p.id, direction: "up" })
+                                    }
+                                  >
+                                    <ChevronUp className="size-4" />
+                                  </IconButton>
+                                ) : (
+                                  <span className="size-11 shrink-0" />
+                                )}
+                                {i < items.length - 1 ? (
+                                  <IconButton
+                                    label={`「${p.title}」を下へ`}
+                                    disabled={move.isPending}
+                                    onClick={() =>
+                                      move.mutate({
+                                        id: p.id,
+                                        direction: "down",
+                                      })
+                                    }
+                                  >
+                                    <ChevronDown className="size-4" />
+                                  </IconButton>
+                                ) : (
+                                  <span className="size-11 shrink-0" />
+                                )}
+                                <IconButton
+                                  label={`「${p.title}」を${slot}から外す`}
+                                  disabled={remove.isPending}
+                                  onClick={() => remove.mutate(p.id)}
+                                >
+                                  <X className="size-4" />
+                                </IconButton>
+                              </>
+                            )}
+                          </li>
+                        ))}
+                        {!past && (
+                          <li>
+                            <button
+                              type="button"
+                              aria-label={`${slot} に品を追加`}
+                              disabled={add.isPending}
+                              onClick={() => {
+                                if (adding)
+                                  add.mutate({
+                                    date: d,
+                                    meal,
+                                    recipeId: adding,
+                                  });
+                                else setPicker({ date: d, meal });
+                              }}
+                              className={cn(
+                                "flex min-h-11 w-full items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed text-sm",
+                                adding
+                                  ? "border-accent bg-[#fbeee8] text-accent-deep"
+                                  : "border-[#d6cdc1] text-faint",
+                              )}
+                            >
+                              <Plus className="size-4" />
+                              品を追加
+                            </button>
+                          </li>
+                        )}
+                        {past && items.length === 0 && (
+                          <li className="flex min-h-11 items-center px-3 text-xs text-faint">
+                            なし
+                          </li>
+                        )}
+                      </ul>
+                    </div>
                   );
                 })}
-              </div>
+              </section>
             );
           })}
       </div>
@@ -211,8 +294,9 @@ export function Plan() {
       {picker && (
         <RecipePicker
           label={`${labelDate(picker.date).md}（${labelDate(picker.date).dow}）${MEAL_LABELS[picker.meal]}`}
+          error={add.error?.message ?? null}
           onClose={() => setPicker(null)}
-          onPick={(id) => set.mutate({ ...picker, recipeId: id })}
+          onPick={(id) => add.mutate({ ...picker, recipeId: id })}
         />
       )}
     </>
@@ -221,10 +305,12 @@ export function Plan() {
 
 function RecipePicker({
   label,
+  error,
   onClose,
   onPick,
 }: {
   label: string;
+  error?: string | null;
   onClose: () => void;
   onPick: (id: string) => void;
 }) {
@@ -254,6 +340,11 @@ function RecipePicker({
             閉じる
           </button>
         </div>
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        )}
         <label className="relative block">
           <span className="sr-only">レシピ名で絞り込む</span>
           <Search className="absolute top-3 left-3 size-4 text-sub" />
@@ -297,5 +388,29 @@ function RecipePicker({
         </div>
       </div>
     </div>
+  );
+}
+
+function IconButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="flex size-11 shrink-0 items-center justify-center text-[#4a433c] disabled:opacity-40"
+    >
+      {children}
+    </button>
   );
 }

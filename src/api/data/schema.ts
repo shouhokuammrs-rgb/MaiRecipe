@@ -225,7 +225,7 @@ export const recipeImages = sqliteTable("recipe_images", {
   createdAt: createdAt(),
 });
 
-// ---- 献立（日付 × 朝昼晩に1品）
+// ---- 献立（日付 × 朝昼晩 × 並び順つきの複数レシピ。同じ枠に同じレシピは1回まで）
 export const mealPlans = sqliteTable(
   "meal_plans",
   {
@@ -238,9 +238,14 @@ export const mealPlans = sqliteTable(
     recipeId: text("recipe_id")
       .notNull()
       .references(() => recipes.id, { onDelete: "cascade" }),
+    /** 枠の中の並び順（小さいほど上）。移行前の行は 0 */
+    position: integer("position").notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("meal_plans_slot_uq").on(t.groupId, t.date, t.meal)],
+  (t) => [
+    uniqueIndex("meal_plans_item_uq").on(t.groupId, t.date, t.meal, t.recipeId),
+    index("meal_plans_slot_idx").on(t.groupId, t.date, t.meal),
+  ],
 );
 
 // ---- 買い物リストの印（家にある / 買った）。キーは「材料名|単位」

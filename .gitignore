@@ -13,6 +13,9 @@ dist/
 .env.*.local
 .DS_Store
 
+# 本番 D1 のバックアップ（手順ではリポジトリの外に保存するが、念のため）
+backup-*.sql
+
 # claude code（自動で書き換わる個人設定・作業場所）
 .claude/settings.local.json
 .claude/worktrees/

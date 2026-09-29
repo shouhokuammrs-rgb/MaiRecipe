@@ -66,6 +66,39 @@ export async function rawShoppingMark(
   return row ? Boolean(row.value) : null;
 }
 
+/**
+ * テストだけで使う：そのユーザーのグループに献立の行を直接入れる（API では過ぎた日に入れられないため）。
+ * position を省くと列そのものを書かない（position 列が無かった頃と同じ形の INSERT）。行の id を返す。
+ */
+export async function insertPlanRaw(
+  email: string,
+  p: {
+    date: string;
+    meal: "breakfast" | "lunch" | "dinner";
+    recipeId: string;
+    position?: number;
+  },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const withPosition = p.position !== undefined;
+  await env.DB.prepare(
+    `insert into meal_plans (id, group_id, date, meal, recipe_id${withPosition ? ", position" : ""})
+     select ?, gm.group_id, ?, ?, ?${withPosition ? ", ?" : ""}
+     from group_members gm join user u on u.id = gm.user_id
+     where u.email = ?`,
+  )
+    .bind(
+      id,
+      p.date,
+      p.meal,
+      p.recipeId,
+      ...(withPosition ? [p.position] : []),
+      email.toLowerCase(),
+    )
+    .run();
+  return id;
+}
+
 export async function api(
   cookie: string | null,
   path: string,

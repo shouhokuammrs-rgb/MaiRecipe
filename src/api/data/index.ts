@@ -173,6 +173,23 @@ export function forGroup(db: Db, groupId: string) {
       .where(and(eq(s.recipes.id, recipeId), inGroup));
   }
 
+  /** 自分のグループの献立の1行。無い・他のグループなら NotFound。過ぎた日なら BadInput */
+  async function editablePlanItem(id: string, today: string) {
+    const r = await db
+      .select({
+        id: s.mealPlans.id,
+        date: s.mealPlans.date,
+        meal: s.mealPlans.meal,
+        position: s.mealPlans.position,
+      })
+      .from(s.mealPlans)
+      .where(and(eq(s.mealPlans.id, id), eq(s.mealPlans.groupId, groupId)))
+      .limit(1);
+    if (!r[0]) throw new NotFound("plan");
+    if (r[0].date < today) throw new BadInput("過ぎた日の献立は変えられません");
+    return r[0];
+  }
+
   return {
     groupId,
 
@@ -512,12 +529,14 @@ export function forGroup(db: Db, groupId: string) {
       }));
     },
 
-    // ---- 献立
+    // ---- 献立（1つの枠に並び順つきで複数の品）
     async listPlans(from: string, to: string) {
       return db
         .select({
+          id: s.mealPlans.id,
           date: s.mealPlans.date,
           meal: s.mealPlans.meal,
+          position: s.mealPlans.position,
           recipeId: s.mealPlans.recipeId,
           title: s.recipes.title,
           category: s.recipes.category,
@@ -534,10 +553,19 @@ export function forGroup(db: Db, groupId: string) {
             lte(s.mealPlans.date, to),
           ),
         )
-        .orderBy(asc(s.mealPlans.date));
+        .orderBy(
+          asc(s.mealPlans.date),
+          sql`case ${s.mealPlans.meal} when 'breakfast' then 0 when 'lunch' then 1 else 2 end`,
+          asc(s.mealPlans.position),
+          asc(s.mealPlans.id),
+        );
     },
 
-    async setPlan(
+    /**
+     * 枠の最後に1品足す。同じ枠に同じレシピがあれば何もしない。
+     * position は「その枠の最大 + 1」を INSERT の中のサブクエリで決める（Worker で数えない）。
+     */
+    async addPlan(
       date: string,
       meal: "breakfast" | "lunch" | "dinner",
       recipeId: string,
@@ -545,23 +573,93 @@ export function forGroup(db: Db, groupId: string) {
       await recipeRow(recipeId);
       await db
         .insert(s.mealPlans)
-        .values({ id: newId(), groupId, date, meal, recipeId })
-        .onConflictDoUpdate({
-          target: [s.mealPlans.groupId, s.mealPlans.date, s.mealPlans.meal],
-          set: { recipeId },
-        });
+        .values({
+          id: newId(),
+          groupId,
+          date,
+          meal,
+          recipeId,
+          position: sql`(select coalesce(max(p.position) + 1, 0) from meal_plans p
+            where p.group_id = ${groupId} and p.date = ${date} and p.meal = ${meal})`,
+        })
+        .onConflictDoNothing();
     },
 
-    async deletePlan(date: string, meal: "breakfast" | "lunch" | "dinner") {
+    /** 1品だけ外す */
+    async deletePlanItem(id: string, today: string) {
+      await editablePlanItem(id, today);
       await db
         .delete(s.mealPlans)
+        .where(and(eq(s.mealPlans.id, id), eq(s.mealPlans.groupId, groupId)));
+    },
+
+    /**
+     * 1つ上・下の品と入れ替える。端なら何もしない。
+     * 並びは listPlans と同じ「position → id」の順で決める。position が同じ行が
+     * 複数あるとき（移行前のデータや同時書き込みで起き得る）、その枠の全品を今の並び順で
+     * 0, 1, 2, … と振り直してから隣と入れ替える。そうしないと、position が同じ2行を
+     * 単純に入れ替えても値が変わらず、見た目の順が動かないため。
+     * 枠の中の品数は普通は数品なので、枠ごと読み直しても軽い。
+     */
+    async movePlanItem(id: string, direction: "up" | "down", today: string) {
+      const item = await editablePlanItem(id, today);
+      const rows = await db
+        .select({ id: s.mealPlans.id, position: s.mealPlans.position })
+        .from(s.mealPlans)
         .where(
           and(
             eq(s.mealPlans.groupId, groupId),
-            eq(s.mealPlans.date, date),
-            eq(s.mealPlans.meal, meal),
+            eq(s.mealPlans.date, item.date),
+            eq(s.mealPlans.meal, item.meal),
           ),
-        );
+        )
+        .orderBy(asc(s.mealPlans.position), asc(s.mealPlans.id));
+      const index = rows.findIndex((r) => r.id === item.id);
+      const swapWith = direction === "up" ? index - 1 : index + 1;
+      if (index < 0 || swapWith < 0 || swapWith >= rows.length) return;
+      const reordered = [...rows];
+      [reordered[index], reordered[swapWith]] = [
+        reordered[swapWith]!,
+        reordered[index]!,
+      ];
+      const updates = reordered
+        .map((r, newPosition) => ({
+          id: r.id,
+          oldPosition: r.position,
+          newPosition,
+        }))
+        .filter((r) => r.oldPosition !== r.newPosition);
+      if (!updates.length) return;
+      const queries = updates.map((u) =>
+        db
+          .update(s.mealPlans)
+          .set({ position: u.newPosition })
+          .where(
+            and(eq(s.mealPlans.id, u.id), eq(s.mealPlans.groupId, groupId)),
+          ),
+      );
+      await db.batch(
+        queries as [(typeof queries)[number], ...(typeof queries)[number][]],
+      );
+    },
+
+    /**
+     * 枠を丸ごと空にする。画面からは使わないが、古い画面（PWA のキャッシュ）のために残す。
+     * 枠に2品以上あるとき、古い画面は「どれか1品だけ消す」つもりでこれを呼んでいる可能性が
+     * 高いので、消さずに Conflict（409）にする。1品以下なら今までどおり消す。
+     */
+    async deletePlan(date: string, meal: "breakfast" | "lunch" | "dinner") {
+      const slotCond = and(
+        eq(s.mealPlans.groupId, groupId),
+        eq(s.mealPlans.date, date),
+        eq(s.mealPlans.meal, meal),
+      );
+      const [row] = await db
+        .select({ n: count() })
+        .from(s.mealPlans)
+        .where(slotCond);
+      if ((row?.n ?? 0) >= 2) throw new Conflict("画面を新しくしてください");
+      await db.delete(s.mealPlans).where(slotCond);
     },
 
     // ---- 買い物リスト

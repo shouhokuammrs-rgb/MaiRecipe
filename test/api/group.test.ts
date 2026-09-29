@@ -230,24 +230,22 @@ describe("招待への参加", () => {
 
     const res = await accept(b.cookie, inviteId);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      movedRecipes: 1,
-      keptPlans: [{ date: "2030-10-03", meal: "dinner" }],
-    });
+    expect(await res.json()).toEqual({ movedRecipes: 1 });
 
-    // 参加後：同じものが見える。ぶつかった枠は A の献立、ぶつからない B の献立は移る
+    // 参加後：同じものが見える。ぶつかった枠は両方残り、招待した側（A）の品が先
     expect(await titles(a.cookie)).toEqual(["Aの煮物", "Bのサラダ"]);
     expect(await titles(b.cookie)).toEqual(["Aの煮物", "Bのサラダ"]);
     const plans = (
       (await (
         await api(a.cookie, "/plans?from=2030-10-01&to=2030-10-31")
       ).json()) as {
-        plans: { date: string; title: string }[];
+        plans: { date: string; title: string; position: number }[];
       }
     ).plans;
-    expect(plans.map((p) => `${p.date}:${p.title}`)).toEqual([
-      "2030-10-03:Aの煮物",
-      "2030-10-04:Bのサラダ",
+    expect(plans.map((p) => `${p.date}:${p.title}:${p.position}`)).toEqual([
+      "2030-10-03:Aの煮物:0",
+      "2030-10-03:Bのサラダ:1",
+      "2030-10-04:Bのサラダ:0",
     ]);
 
     // A から B が持ち込んだメモ・写真・版が見える
@@ -452,5 +450,57 @@ describe("招待への参加", () => {
     await invite(a.cookie, b.email);
     await accept(b.cookie, (await invitesOf(b.cookie))[0]!.id);
     expect((await invite(a.cookie, b.email)).status).toBe(409);
+  });
+
+  it("同じ枠に両方2品ずつあっても、招待した側の順 → 参加した側の順で並ぶ", async () => {
+    const a = await signUpAs("A");
+    const b = await signUpAs("B");
+    const day = "2030-11-05";
+    const a1 = await create(a.cookie, "A1");
+    const a2 = await create(a.cookie, "A2");
+    const b1 = await create(b.cookie, "B1");
+    const b2 = await create(b.cookie, "B2");
+    for (const r of [a1, a2]) await plan(a.cookie, day, r);
+    for (const r of [b1, b2]) await plan(b.cookie, day, r);
+    await verifyEmail(b.email);
+    await invite(a.cookie, b.email);
+    expect(
+      (await accept(b.cookie, (await invitesOf(b.cookie))[0]!.id)).status,
+    ).toBe(200);
+
+    const read = async (cookie: string) =>
+      (
+        (await (await api(cookie, `/plans?from=${day}&to=${day}`)).json()) as {
+          plans: { id: string; title: string }[];
+        }
+      ).plans;
+    expect((await read(a.cookie)).map((p) => p.title)).toEqual([
+      "A1",
+      "A2",
+      "B1",
+      "B2",
+    ]);
+    expect((await read(b.cookie)).map((p) => p.title)).toEqual([
+      "A1",
+      "A2",
+      "B1",
+      "B2",
+    ]);
+    // 移ってきた品も、同じグループの品として並べ替えられる
+    const b1Item = (await read(a.cookie)).find((p) => p.title === "B1")!;
+    expect(
+      (
+        await api(a.cookie, `/plans/items/${b1Item.id}/move`, {
+          method: "POST",
+          body: { direction: "up" },
+        })
+      ).status,
+    ).toBe(204);
+    expect((await read(b.cookie)).map((p) => p.title)).toEqual([
+      "A1",
+      "B1",
+      "A2",
+      "B2",
+    ]);
   });
 });
