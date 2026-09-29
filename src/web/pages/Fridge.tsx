@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { apiClient, ApiError, type PantryItem } from "@/api/client";
+import { apiClient, type PantryItem } from "@/api/client";
 import {
   Empty,
   ErrorState,
@@ -12,7 +11,7 @@ import {
 } from "@/components/common";
 import { MicButton } from "@/components/MicButton";
 import { Toast, useToast } from "@/components/Toast";
-import { cn } from "@/lib/utils";
+import { apiErrorMessage, cn } from "@/lib/utils";
 import { labelDate } from "../../shared/dates";
 import {
   addedLabel,
@@ -22,12 +21,6 @@ import {
 
 /** 消す確認が自動で元に戻るまでの時間 */
 const CONFIRM_MS = 4000;
-
-function apiErrorMessage(e: unknown): string {
-  return e instanceof ApiError
-    ? e.message
-    : "エラーが起きました。もう一度お試しください";
-}
 
 export function Fridge() {
   const qc = useQueryClient();
@@ -68,7 +61,7 @@ export function Fridge() {
             onClick={() => setAddOpen(true)}
             className="flex h-11 items-center gap-1 rounded-xl bg-accent px-3.5 text-sm font-bold text-white"
           >
-            <Plus className="size-4" strokeWidth={2.4} />＋ 食材
+            ＋ 食材
           </button>
         }
       >
@@ -148,7 +141,7 @@ function FridgeRow({
       <button
         type="button"
         onClick={onEdit}
-        className="min-w-0 flex-1 text-left"
+        className="min-h-11 min-w-0 flex-1 text-left"
       >
         <span className="block text-[15px]">{item.name}</span>
         <span className="block text-[11px] text-sub">
@@ -208,9 +201,11 @@ function AddSheet({
     mutationFn: (names: string[]) => apiClient.addPantry(names),
     onSuccess: (r) => {
       onClose();
-      let msg = `${r.added.length}個を冷蔵庫に入れました`;
+      let msg =
+        r.added.length > 0 ? `${r.added.length}個を冷蔵庫に入れました` : "";
       if (r.skipped.length > 0) {
-        msg += `（${r.skipped.join("・")} は入れませんでした：調味料かすでにあります）`;
+        const skippedMsg = `${r.skipped.join("・")} は入れませんでした：調味料かすでにあります`;
+        msg = msg ? `${msg}（${skippedMsg}）` : skippedMsg;
       }
       onDone(msg);
     },
@@ -318,7 +313,7 @@ function EditSheet({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={item.name}
+        aria-label={`${item.name}の量と期限`}
         className="mx-auto flex w-full max-w-xl flex-col gap-3 rounded-t-3xl bg-card px-5 pt-5 pb-8"
         onClick={(e) => e.stopPropagation()}
       >

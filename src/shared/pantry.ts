@@ -1,5 +1,6 @@
 // 冷蔵庫（棚卸し）の純粋な関数と入力の検証。AI は使わない。
 import { z } from "zod";
+import { LIMITS } from "./constants";
 import { addDays, isDate } from "./dates";
 import { canonicalName, shopSection } from "./ingredients";
 
@@ -52,7 +53,7 @@ export function sortPantry<
   });
 }
 
-const pantryName = z.string().trim().min(1).max(40);
+const pantryName = z.string().trim().min(1).max(LIMITS.ingredientNameMax);
 
 export const pantryAddSchema = z.object({
   names: z.array(pantryName).min(1).max(30),

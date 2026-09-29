@@ -10,7 +10,7 @@ import {
   PageTitle,
 } from "@/components/common";
 import { Toast, useToast } from "@/components/Toast";
-import { cn } from "@/lib/utils";
+import { apiErrorMessage, cn } from "@/lib/utils";
 import { SHOP_SECTIONS } from "../../shared/constants";
 import { labelDate } from "../../shared/dates";
 
@@ -64,8 +64,10 @@ export function Shopping() {
         );
       }
     },
-    onError: (_e, _p, ctx) =>
-      ctx?.prev && qc.setQueryData(["shopping", days], ctx.prev),
+    onError: (e, _p, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["shopping", days], ctx.prev);
+      setToast(apiErrorMessage(e));
+    },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["shopping"] });
       qc.invalidateQueries({ queryKey: ["pantry"] });
@@ -115,7 +117,7 @@ export function Shopping() {
             aria-pressed={showHave}
             onClick={() => setShowHave(!showHave)}
             className={cn(
-              "flex h-8 items-center gap-2 rounded-full border border-field px-3 text-xs",
+              "flex h-11 items-center gap-2 rounded-full border border-field px-3 text-xs",
               showHave ? "bg-[#f4f8f4]" : "bg-card",
             )}
           >

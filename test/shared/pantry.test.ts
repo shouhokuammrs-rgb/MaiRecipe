@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LIMITS } from "../../src/shared/constants";
 import {
   addedLabel,
   isExpiringSoon,
@@ -86,5 +87,17 @@ describe("入力の検証", () => {
       name: "卵",
       value: true,
     });
+  });
+  it("名前の上限はレシピの材料名と同じ（60文字）", () => {
+    const ok = "あ".repeat(LIMITS.ingredientNameMax);
+    const tooLong = "あ".repeat(LIMITS.ingredientNameMax + 1);
+    expect(pantryAddSchema.safeParse({ names: [ok] }).success).toBe(true);
+    expect(pantryAddSchema.safeParse({ names: [tooLong] }).success).toBe(false);
+    expect(
+      shoppingHaveSchema.safeParse({ name: ok, value: true }).success,
+    ).toBe(true);
+    expect(
+      shoppingHaveSchema.safeParse({ name: tooLong, value: true }).success,
+    ).toBe(false);
   });
 });

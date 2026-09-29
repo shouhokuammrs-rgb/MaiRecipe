@@ -415,6 +415,26 @@ describe("献立と買い物リスト", () => {
     ).toBe(400);
   });
 
+  it("材料名の上限（60文字）まで買い物のチェックが通る", async () => {
+    const me = await signUp();
+    const longName = "あ".repeat(45);
+    const have = (value: boolean) =>
+      api(me, "/shopping/have", {
+        method: "PUT",
+        body: { name: longName, value },
+      });
+    expect((await have(true)).status).toBe(204);
+    const pantry = (await (await api(me, "/pantry")).json()) as {
+      items: { name: string }[];
+    };
+    expect(pantry.items.map((i) => i.name)).toContain(longName);
+    expect((await have(false)).status).toBe(204);
+    const pantry2 = (await (await api(me, "/pantry")).json()) as {
+      items: { name: string }[];
+    };
+    expect(pantry2.items.map((i) => i.name)).not.toContain(longName);
+  });
+
   it("他の人の買い物リスト・献立は見えない", async () => {
     const alice = await signUp();
     const bob = await signUp();
