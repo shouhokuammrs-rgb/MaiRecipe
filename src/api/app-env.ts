@@ -1,4 +1,5 @@
 import type { GroupRepo } from "./data";
+import type { membershipFor } from "./data/membership";
 
 export type AppBindings = {
   DB: D1Database;
@@ -11,7 +12,19 @@ export type AppBindings = {
   YOUTUBE_API_KEY?: string;
 };
 
+export type SessionUser = {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+};
+
 export type AppEnv = {
   Bindings: AppBindings;
-  Variables: { userId: string; repo: GroupRepo };
+  Variables: {
+    userId: string;
+    user: SessionUser;
+    repo: GroupRepo;
+    membership: ReturnType<typeof membershipFor>;
+  };
 };

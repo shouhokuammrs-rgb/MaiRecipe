@@ -60,6 +60,7 @@ docs/             spec / decisions / meetings / archive
 - TDD: `src/shared/` / `src/api/` / マイグレーション / バグ修正は必須。画面の見た目は例外
 - **グループの判定はセッションからだけ**。クライアントから来た group_id を使わない。DB は `forGroup` 経由でだけ触る。
   新しいテーブル・API を足したら `test/api` の「グループをまたいだ漏れがないこと」に項目を足す。これを崩す変更はレビューで Critical
+  例外：招待への参加（グループをまたぐ）は `src/api/data/membership.ts` だけで行う。宛先は確認済みのメールだけで決める
 - UI ガイダンスの優先順位: ①既存のトークン（`src/web/index.css` の @theme）→ ②`vercel-react-best-practices`（React 部分のみ）
   → ③`web-design-guidelines`（PR 前の a11y 監査）→ ④`frontend-design`（方向性を新しく決めるときだけ）
 - モデル割り当ては eiichi-rules §10 に従う

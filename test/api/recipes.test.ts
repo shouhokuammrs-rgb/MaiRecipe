@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { api, sampleRecipe, signUp } from "./helpers";
+import { api, sampleRecipe, signUp, signUpAs, verifyEmail } from "./helpers";
 
 type Recipe = {
   id: string;
@@ -260,17 +260,17 @@ describe("レビューで見つかった点の再発防止", () => {
 describe("グループをまたいだ漏れがないこと", () => {
   it("他の人のレシピは 見えない・変えられない・消せない・献立に入れられない", async () => {
     const alice = await signUp("A");
-    const bob = await signUp("B");
+    const bob = await signUpAs("B");
     const id = await create(alice);
 
-    const list = (await (await api(bob, "/recipes")).json()) as {
+    const list = (await (await api(bob.cookie, "/recipes")).json()) as {
       recipes: unknown[];
     };
     expect(list.recipes).toEqual([]);
-    expect((await api(bob, `/recipes/${id}`)).status).toBe(404);
+    expect((await api(bob.cookie, `/recipes/${id}`)).status).toBe(404);
     expect(
       (
-        await api(bob, `/recipes/${id}/versions`, {
+        await api(bob.cookie, `/recipes/${id}/versions`, {
           method: "POST",
           body: { ...sampleRecipe, title: "乗っ取り" },
         })
@@ -278,26 +278,26 @@ describe("グループをまたいだ漏れがないこと", () => {
     ).toBe(404);
     expect(
       (
-        await api(bob, `/recipes/${id}/memos`, {
+        await api(bob.cookie, `/recipes/${id}/memos`, {
           method: "POST",
           body: { text: "x" },
         })
       ).status,
     ).toBe(404);
-    expect((await api(bob, `/recipes/${id}/image`)).status).toBe(404);
+    expect((await api(bob.cookie, `/recipes/${id}/image`)).status).toBe(404);
     expect(
-      (await api(bob, `/recipes/${id}`, { method: "DELETE" })).status,
+      (await api(bob.cookie, `/recipes/${id}`, { method: "DELETE" })).status,
     ).toBe(404);
     expect(
       (
-        await api(bob, "/plans", {
+        await api(bob.cookie, "/plans", {
           method: "PUT",
           body: { date: "2030-01-01", meal: "dinner", recipeId: id },
         })
       ).status,
     ).toBe(404);
     const found = (await (
-      await api(bob, "/recipes/find", {
+      await api(bob.cookie, "/recipes/find", {
         method: "POST",
         body: { terms: ["鶏肉"] },
       })
@@ -309,10 +309,46 @@ describe("グループをまたいだ漏れがないこと", () => {
       method: "POST",
       body: { url: "https://example.com/secret" },
     });
-    const reports = (await (await api(bob, "/import/reports")).json()) as {
+    const reports = (await (
+      await api(bob.cookie, "/import/reports")
+    ).json()) as {
       reports: unknown[];
     };
     expect(reports.reports).toEqual([]);
+
+    // グループの中身（メンバー・招待）も、他のグループからは見えない
+    await api(alice, "/group/invites", {
+      method: "POST",
+      body: { email: "secret@example.test" },
+    });
+    const g = (await (await api(bob.cookie, "/group")).json()) as {
+      invites: unknown[];
+      members: unknown[];
+    };
+    expect(g.invites).toEqual([]);
+    expect(g.members).toHaveLength(1);
+
+    // bob は alice の招待を取り消せない。自分宛ての招待も無い
+    const aliceInvites = (await (await api(alice, "/group")).json()) as {
+      invites: { id: string }[];
+    };
+    const secretInviteId = aliceInvites.invites[0]!.id;
+    expect(
+      (
+        await api(bob.cookie, `/group/invites/${secretInviteId}`, {
+          method: "DELETE",
+        })
+      ).status,
+    ).toBe(404);
+    // bob が確認済みでも（招待の宛先はあくまで secret@example.test なので）自分宛ての招待は無い
+    await verifyEmail(bob.email);
+    expect(
+      (
+        (await (await api(bob.cookie, "/invites")).json()) as {
+          invites: unknown[];
+        }
+      ).invites,
+    ).toEqual([]);
 
     // alice からは変わらず見える
     expect((await get(alice, id)).title).toBe(sampleRecipe.title);

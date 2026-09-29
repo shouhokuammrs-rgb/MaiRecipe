@@ -114,6 +114,17 @@ export type PlanEntry = {
   category: Category;
 };
 
+export type GroupInfo = {
+  name: string;
+  members: { name: string; isMe: boolean; role: "owner" | "member" }[];
+  invites: { id: string; email: string }[];
+};
+export type MyInvite = { id: string; groupName: string; invitedBy: string };
+export type AcceptResult = {
+  movedRecipes: number;
+  keptPlans: { date: string; meal: Meal }[];
+};
+
 export type ShopItem = {
   key: string;
   name: string;
@@ -205,4 +216,17 @@ export const apiClient = {
       json: { key, kind, value },
     }),
   clearBought: () => call<void>("/shopping/bought", { method: "DELETE" }),
+
+  group: () => call<GroupInfo>("/group"),
+  invite: (email: string) =>
+    call<{ ok: true }>("/group/invites", { method: "POST", json: { email } }),
+  cancelInvite: (id: string) =>
+    call<void>(`/group/invites/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+  myInvites: () => call<{ invites: MyInvite[] }>("/invites"),
+  acceptInvite: (id: string) =>
+    call<AcceptResult>(`/invites/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+    }),
 };

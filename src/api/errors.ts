@@ -1,11 +1,13 @@
 import type { Context } from "hono";
 import type { ZodError } from "zod";
-import { Forbidden, NotFound } from "./data";
+import { BadInput, Conflict, Forbidden, NotFound } from "./data";
 import { FetchPageError } from "./platform/fetch-page";
 
 export function handleError(err: Error, c: Context) {
   if (err instanceof NotFound) return c.json({ error: "見つかりません" }, 404);
   if (err instanceof Forbidden) return c.json({ error: err.message }, 403);
+  if (err instanceof BadInput) return c.json({ error: err.message }, 400);
+  if (err instanceof Conflict) return c.json({ error: err.message }, 409);
   if (err instanceof FetchPageError) return c.json({ error: err.message }, 422);
   console.error(err);
   return c.json({ error: "サーバーでエラーが起きました" }, 500);
