@@ -397,6 +397,204 @@ describe("POST /api/import（YouTube の概要欄の URL）", () => {
   });
 });
 
+describe("POST /api/import（YouTube のコメント）", () => {
+  const video = "https://youtu.be/abcDEF12345";
+  const watch = "https://www.youtube.com/watch?v=abcDEF12345";
+  const OWNER = "UCowner0000000000000000";
+  const video_ = (description: string) =>
+    json({
+      items: [
+        {
+          snippet: {
+            title: "ダミー動画のレシピ",
+            description,
+            channelId: OWNER,
+          },
+        },
+      ],
+    });
+  const comment = (text: string, author = "UCviewer") => ({
+    snippet: {
+      topLevelComment: {
+        snippet: { textDisplay: text, authorChannelId: { value: author } },
+      },
+    },
+  });
+  // 返事は呼ばれたときに作る（Workers では別のリクエストで作った本文を読めない）
+  const threads = (items: unknown[]) => () => json({ items });
+  const OTHER_RECIPE =
+    "【材料】\n・ダミー豆腐 1丁\n【作り方】\n1. 豆腐を切る。\n2. 煮る。";
+  const route =
+    (comments: () => Response, extra?: Route): Route =>
+    (u) => {
+      if (u.pathname === "/youtube/v3/videos") return video_("今日のレシピ！");
+      if (u.pathname === "/youtube/v3/commentThreads") return comments();
+      if (u.pathname === "/oembed") return json({ title: "oEmbed の題名" });
+      return extra?.(u);
+    };
+
+  it("概要欄で読めなければ、投稿者本人のコメントを先に読む。出典は動画", async () => {
+    mockFetch(
+      route(
+        threads([
+          comment(OTHER_RECIPE),
+          comment("おいしそう！"),
+          comment(DESCRIPTION_WITH_RECIPE, OWNER),
+        ]),
+      ),
+    );
+    const res = await api(cookie, "/import", {
+      method: "POST",
+      body: { url: video },
+    });
+    const text = await res.text();
+    const body = JSON.parse(text) as {
+      found: boolean;
+      message: string;
+      draft: { ingredients: { name: string }[]; sourceUrl: string };
+    };
+    expect(body.found).toBe(true);
+    expect(body.message).toContain("動画のコメントから読み取りました");
+    expect(body.message).toContain("投稿者本人");
+    expect(body.draft.ingredients[0]?.name).toBe("鶏もも肉");
+    expect(body.draft.sourceUrl).toBe(watch);
+    // commentThreads を関連度順・テキストで、鍵はヘッダーで呼んでいる
+    const c = new URL(calls.find((x) => x.includes("commentThreads")) ?? "");
+    expect(c.searchParams.get("videoId")).toBe("abcDEF12345");
+    expect(c.searchParams.get("order")).toBe("relevance");
+    expect(c.searchParams.get("textFormat")).toBe("plainText");
+    expect(c.searchParams.has("key")).toBe(false);
+    expect(keyHeaders.every((k) => k === "test-youtube-key")).toBe(true);
+    expect(text).not.toContain("test-youtube-key");
+  });
+
+  it("本人のコメントに無ければ、上位5件の他の人のコメントから読む（6件目以降は読まない）", async () => {
+    const five = Array.from({ length: 5 }, (_, i) => comment(`感想${i}`));
+    mockFetch(route(threads([...five, comment(OTHER_RECIPE)])));
+    let body = await importDraft(video);
+    expect(body.found).toBe(false);
+
+    vi.restoreAllMocks();
+    mockFetch(route(threads([comment("感想"), comment(OTHER_RECIPE)])));
+    const res = await api(cookie, "/import", {
+      method: "POST",
+      body: { url: video },
+    });
+    const viewer = (await res.json()) as {
+      found: boolean;
+      message: string;
+      draft: { ingredients: { name: string }[] };
+    };
+    expect(viewer.found).toBe(true);
+    expect(viewer.draft.ingredients[0]?.name).toBe("ダミー豆腐");
+    // 他の人のコメントからのときは、確かめるよう知らせる
+    expect(viewer.message).toContain("投稿者以外");
+    expect(viewer.message).toContain("確かめて");
+  });
+
+  it("本人のコメントも上位3件まで（4件目以降は読まない）", async () => {
+    const three = Array.from({ length: 3 }, (_, i) =>
+      comment(`ご覧いただきありがとうございます${i}`, OWNER),
+    );
+    mockFetch(route(threads([...three, comment(OTHER_RECIPE, OWNER)])));
+    const body = await importDraft(video);
+    expect(body.found).toBe(false);
+  });
+
+  it("動画のチャンネルが分からなければ、誰のコメントも本人扱いにしない（リンクも読まない）", async () => {
+    mockFetch((u) => {
+      if (u.pathname === "/youtube/v3/videos") return snippet("今日のレシピ！");
+      if (u.pathname === "/youtube/v3/commentThreads")
+        return json({
+          items: [comment("詳しくは https://other.example.org/r/9", "")],
+        });
+      if (u.hostname === "other.example.org") return html(NIPPN_LIKE_HTML);
+      if (u.pathname === "/oembed") return json({ title: "題名" });
+      return undefined;
+    });
+    const body = await importDraft(video);
+    expect(body.found).toBe(false);
+    expect(calls.some((c) => c.includes("other.example.org"))).toBe(false);
+  });
+
+  it("概要欄のリンクで読めたらコメントは取りに行かない", async () => {
+    mockFetch((u) => {
+      if (u.pathname === "/youtube/v3/videos")
+        return video_("https://other.example.org/r/9");
+      if (u.hostname === "other.example.org") return html(NIPPN_LIKE_HTML);
+      return undefined;
+    });
+    const body = await importDraft(video);
+    expect(body.found).toBe(true);
+    expect(calls.some((c) => c.includes("commentThreads"))).toBe(false);
+  });
+
+  it("コメントの返事が壊れていたら、今まで通り題名だけ", async () => {
+    mockFetch(route(() => new Response("{broken", { status: 200 })));
+    const body = await importDraft(video);
+    expect(body.found).toBe(false);
+    expect(body.draft.title).toBe("ダミー動画のレシピ");
+  });
+
+  it("コメントのリンクは本人のものだけ読む", async () => {
+    const extra: Route = (u) =>
+      u.hostname === "other.example.org" || u.hostname === "spam.example.com"
+        ? html(NIPPN_LIKE_HTML)
+        : undefined;
+    mockFetch(
+      route(
+        threads([
+          comment("レシピはこちら https://spam.example.com/r/1"),
+          comment("詳しくは https://other.example.org/r/9", OWNER),
+        ]),
+        extra,
+      ),
+    );
+    const body = await importDraft(video);
+    expect(body.found).toBe(true);
+    expect(body.draft.sourceUrl).toBe("https://other.example.org/r/9");
+    expect(calls.some((c) => c.includes("spam.example.com"))).toBe(false);
+
+    vi.restoreAllMocks();
+    calls.length = 0;
+    mockFetch(
+      route(
+        threads([comment("レシピはこちら https://spam.example.com/r/1")]),
+        extra,
+      ),
+    );
+    const viewerOnly = await importDraft(video);
+    expect(viewerOnly.found).toBe(false);
+    expect(calls.some((c) => c.includes("spam.example.com"))).toBe(false);
+  });
+
+  it("コメントが止められている（403）なら、今まで通り題名だけ", async () => {
+    mockFetch(
+      route(() =>
+        json(
+          { error: { code: 403, errors: [{ reason: "commentsDisabled" }] } },
+          403,
+        ),
+      ),
+    );
+    const body = await importDraft(video);
+    expect(body.found).toBe(false);
+    expect(body.draft.title).toBe("ダミー動画のレシピ");
+    expect(body.draft.sourceUrl).toBe(watch);
+  });
+
+  it("概要欄で読めたらコメントは取りに行かない", async () => {
+    mockFetch((u) =>
+      u.pathname === "/youtube/v3/videos"
+        ? video_(DESCRIPTION_WITH_RECIPE)
+        : undefined,
+    );
+    const body = await importDraft(video);
+    expect(body.found).toBe(true);
+    expect(calls.some((c) => c.includes("commentThreads"))).toBe(false);
+  });
+});
+
 describe("読めなかった URL の報告", () => {
   it("URL だけを保存し、同じ URL は1件にまとめて一覧できる", async () => {
     const me = await signUp("報告");
@@ -440,7 +638,8 @@ describe("読めなかった URL の報告", () => {
       body: { url: "https://example.com/r/0" },
     });
     expect(again.status).toBe(201);
-  });
+    // 200件を1件ずつ入れるので、全体を並列で流すと既定の5秒を超えることがある
+  }, 20_000);
 
   it("URL でなければ 400、ログインしていなければ 401", async () => {
     expect(

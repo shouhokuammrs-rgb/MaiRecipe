@@ -496,7 +496,7 @@ export async function scanPage(
 export async function youtubeSnippet(
   env: { YOUTUBE_API_KEY?: string },
   videoId: string,
-): Promise<{ title: string; description: string } | null> {
+): Promise<{ title: string; description: string; channelId: string } | null> {
   const key = env.YOUTUBE_API_KEY;
   if (!key) return null;
   const u = new URL("https://www.googleapis.com/youtube/v3/videos");
@@ -514,7 +514,13 @@ export async function youtubeSnippet(
       return null;
     }
     const j = (await res.json()) as {
-      items?: { snippet?: { title?: unknown; description?: unknown } }[];
+      items?: {
+        snippet?: {
+          title?: unknown;
+          description?: unknown;
+          channelId?: unknown;
+        };
+      }[];
     };
     const sn = j.items?.[0]?.snippet;
     if (!sn) return null;
@@ -522,9 +528,77 @@ export async function youtubeSnippet(
       title: typeof sn.title === "string" ? sn.title.slice(0, 100) : "",
       description:
         typeof sn.description === "string" ? sn.description.slice(0, 5000) : "",
+      channelId: typeof sn.channelId === "string" ? sn.channelId : "",
     };
   } catch {
     return null;
+  }
+}
+
+const COMMENTS_FETCHED = 20;
+const OWNER_COMMENTS = 3;
+const OTHER_COMMENTS = 5;
+/** 1件あたりの文字数（読む件数と合わせて、CPU 10ms に収まる量にする） */
+const MAX_COMMENT_CHARS = 3000;
+
+/**
+ * YouTube Data API v3（commentThreads.list、関連度順）でコメントを取る。
+ * 固定コメントは API で見分けられないので、投稿者本人（動画のチャンネル）のコメントを上位3件まで先に、
+ * 次に他の人のコメントを上位5件まで返す。鍵が無い・コメントが止められている・失敗したら空
+ */
+export async function youtubeComments(
+  env: { YOUTUBE_API_KEY?: string },
+  videoId: string,
+  ownerChannelId: string,
+): Promise<{ text: string; byOwner: boolean }[]> {
+  const key = env.YOUTUBE_API_KEY;
+  if (!key) return [];
+  const u = new URL("https://www.googleapis.com/youtube/v3/commentThreads");
+  u.searchParams.set("part", "snippet");
+  u.searchParams.set("videoId", videoId);
+  u.searchParams.set("order", "relevance");
+  u.searchParams.set("textFormat", "plainText");
+  u.searchParams.set("maxResults", String(COMMENTS_FETCHED));
+  try {
+    const res = await fetchWithTimeout(
+      u.toString(),
+      { headers: { "x-goog-api-key": key } },
+      4000,
+    );
+    if (!res.ok) {
+      await res.body?.cancel();
+      return [];
+    }
+    const j = (await res.json()) as {
+      items?: {
+        snippet?: {
+          topLevelComment?: {
+            snippet?: {
+              textDisplay?: unknown;
+              authorChannelId?: { value?: unknown };
+            };
+          };
+        };
+      }[];
+    };
+    const all = (Array.isArray(j.items) ? j.items : []).flatMap((it) => {
+      const sn = it?.snippet?.topLevelComment?.snippet;
+      if (typeof sn?.textDisplay !== "string" || !sn.textDisplay.trim())
+        return [];
+      return [
+        {
+          text: sn.textDisplay.slice(0, MAX_COMMENT_CHARS),
+          byOwner:
+            !!ownerChannelId && sn.authorChannelId?.value === ownerChannelId,
+        },
+      ];
+    });
+    return [
+      ...all.filter((c) => c.byOwner).slice(0, OWNER_COMMENTS),
+      ...all.filter((c) => !c.byOwner).slice(0, OTHER_COMMENTS),
+    ];
+  } catch {
+    return [];
   }
 }
 

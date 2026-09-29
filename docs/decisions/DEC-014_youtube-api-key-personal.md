@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-28
 - 決めた人: Eiichi
-- 関連: docs/spec.md §3（#7・#13）/ DEC-011 / DEC-012
+- 関連: docs/spec.md §3（#7・#13）/ DEC-011 / DEC-012 / DEC-015（コメントまで読むよう拡張）
 
 ## 背景
 YouTube の料理動画を取り込むと、題名しか入らず、材料と作り方を毎回手で入れていた。
