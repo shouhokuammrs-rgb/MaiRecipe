@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { planSlotLabel } from "../../shared/group";
 import { ApiError, apiClient } from "@/api/client";
 import {
   ErrorState,
@@ -53,7 +52,7 @@ export function JoinGroup() {
   };
 
   if (accept.isSuccess && accept.data) {
-    const { movedRecipes, keptPlans } = accept.data;
+    const { movedRecipes } = accept.data;
     return (
       <>
         <SubHeader title="招待への参加" back="/" />
@@ -62,18 +61,6 @@ export function JoinGroup() {
           <p className="text-sm leading-7 text-[#4a433c]">
             レシピを {movedRecipes} 件移しました
           </p>
-          {keptPlans.length > 0 && (
-            <ul className="flex flex-col gap-1.5">
-              {keptPlans.map((p) => (
-                <li
-                  key={`${p.date}-${p.meal}`}
-                  className="rounded-xl bg-memo px-3.5 py-2.5 text-sm leading-6 text-memo-ink"
-                >
-                  {planSlotLabel(p.date, p.meal)}は、もとの献立を残しました
-                </li>
-              ))}
-            </ul>
-          )}
           <Link
             to="/"
             className="flex h-12 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-[15px] font-bold text-white"
@@ -102,9 +89,7 @@ export function JoinGroup() {
             <p className="text-sm leading-7 text-[#4a433c]">
               参加すると、あなたのレシピ・献立・買い物リストは{" "}
               {invite.invitedBy || invite.groupName}{" "}
-              さんのグループに移り、同じものを一緒に使います。同じ日・同じ食事の献立がすでにあるときは、
-              {invite.invitedBy || invite.groupName}{" "}
-              さんの献立を残します。参加したあとで抜けることは、今はできません。
+              さんのグループに移り、同じものを一緒に使います。同じ日・同じ食事の献立は、両方並べて残します。参加したあとで抜けることは、今はできません。
             </p>
             <PrimaryButton disabled={accept.isPending} onClick={askConfirm}>
               {accept.isPending

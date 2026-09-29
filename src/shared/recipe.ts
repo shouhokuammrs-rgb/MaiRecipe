@@ -58,6 +58,11 @@ export const mealPlanSchema = z.object({
   recipeId: z.string().min(1),
 });
 
+/** 献立の品を1つ上・下の品と入れ替える */
+export const planMoveSchema = z.object({
+  direction: z.enum(["up", "down"]),
+});
+
 export const findSchema = z.object({
   terms: z.array(z.string().trim().min(1).max(30)).min(1).max(10),
 });

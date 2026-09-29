@@ -350,6 +350,40 @@ describe("グループをまたいだ漏れがないこと", () => {
       ).invites,
     ).toEqual([]);
 
+    // 献立の品（id で操作する）も、他のグループからは外せない・並べ替えられない
+    const id2 = await create(alice, { ...sampleRecipe, title: "副菜" });
+    for (const r of [id, id2])
+      await api(alice, "/plans", {
+        method: "PUT",
+        body: { date: "2030-01-02", meal: "dinner", recipeId: r },
+      });
+    const alicePlans = async () =>
+      (
+        (await (
+          await api(alice, "/plans?from=2030-01-02&to=2030-01-02")
+        ).json()) as { plans: { id: string; title: string }[] }
+      ).plans;
+    const [firstItem, secondItem] = await alicePlans();
+    expect(
+      (
+        await api(bob.cookie, `/plans/items/${firstItem!.id}`, {
+          method: "DELETE",
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(bob.cookie, `/plans/items/${secondItem!.id}/move`, {
+          method: "POST",
+          body: { direction: "up" },
+        })
+      ).status,
+    ).toBe(404);
+    expect((await alicePlans()).map((p) => p.title)).toEqual([
+      sampleRecipe.title,
+      "副菜",
+    ]);
+
     // alice からは変わらず見える
     expect((await get(alice, id)).title).toBe(sampleRecipe.title);
   });

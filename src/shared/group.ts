@@ -12,14 +12,3 @@ export function normalizeEmail(raw: string): string {
 export const inviteSchema = z.object({
   email: z.string().transform(normalizeEmail).pipe(z.string().email().max(254)),
 });
-
-const MEAL_LABEL = { breakfast: "朝", lunch: "昼", dinner: "夜" } as const;
-
-/** "2026-10-03" + dinner → "10月3日の夜" */
-export function planSlotLabel(
-  date: string,
-  meal: keyof typeof MEAL_LABEL,
-): string {
-  const [, m, d] = date.split("-").map(Number);
-  return `${m}月${d}日の${MEAL_LABEL[meal]}`;
-}

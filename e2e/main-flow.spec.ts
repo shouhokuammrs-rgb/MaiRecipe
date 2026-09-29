@@ -55,7 +55,7 @@ test("レシピを作って改良し、献立から買い物リストまで", as
   await page.getByRole("button", { name: "献立に追加" }).click();
   await expect(page.getByText("を入れる枠をタップ")).toBeVisible();
   await page
-    .getByRole("button", { name: /にレシピを入れる/ })
+    .getByRole("button", { name: /に品を追加/ })
     .and(page.locator(":not([disabled])"))
     .last()
     .click();

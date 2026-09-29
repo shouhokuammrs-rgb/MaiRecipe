@@ -1,7 +1,6 @@
 // グループをまたぐ操作はここだけ（自分宛ての招待を読む・参加する）。
 // 宛先はセッションのユーザーの「確認済み」のメールだけで決める。クライアントから group_id は受け取らない。
 import { and, count, eq, sql } from "drizzle-orm";
-import { MEALS } from "../../shared/constants";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
 import type { SessionUser } from "../app-env";
 import { Conflict, NotFound, type Db } from "./index";
@@ -101,8 +100,9 @@ export function membershipFor(db: Db, user: SessionUser) {
           and exists (select 1 from group_members m where m.group_id = ${mine} and m.user_id = ${user.id})
           and not exists (select 1 from group_members m where m.user_id = ${user.id} and m.group_id <> ${mine}))`;
 
-      // batch に渡す1つ1つを名前つきの変数にしてから並べる。結果もこの名前で分割代入して取り出す
-      // ので、並びを入れ替えると（変数名を書き忘れない限り）結果の取り違えが起きにくい。
+      // batch に渡す1つ1つを名前つきの変数にしてから並べる。結果は名前ではなく「並び順
+      // （位置）」で分割代入して取り出す（下の return を参照）。batch の並びを変えたら、
+      // 結果を取り出す分割代入の位置もあわせて直す。
       const insertMember = db.insert(s.groupMembers).values({
         groupId: guardedGroupId,
         userId: user.id,
@@ -116,16 +116,6 @@ export function membershipFor(db: Db, user: SessionUser) {
             eq(s.groupMembers.userId, user.id),
           ),
         );
-      const deleteCollidingPlans = db
-        .delete(s.mealPlans)
-        .where(
-          and(
-            eq(s.mealPlans.groupId, mine),
-            sql`exists (select 1 from meal_plans h where h.group_id = ${host}
-                and h.date = ${s.mealPlans.date} and h.meal = ${s.mealPlans.meal})`,
-          ),
-        )
-        .returning({ date: s.mealPlans.date, meal: s.mealPlans.meal });
       const deleteCollidingMarks = db.delete(s.shoppingMarks).where(
         and(
           eq(s.shoppingMarks.groupId, mine),
@@ -140,6 +130,19 @@ export function membershipFor(db: Db, user: SessionUser) {
               and h.url = ${s.importReports.url})`,
         ),
       );
+      // 献立はぶつかっても両方残す。参加する側の行の position を、招待した側の同じ枠の
+      // 最大 + 1 だけ後ろへずらす（無ければ 0 のまま）。group_id を付け替える movePlans より
+      // 前に、別の文で流す：同じ文で group_id も変えると、相関サブクエリがすでに付け替えた
+      // 行を拾い、参加する側の品同士の順番が崩れることがあるため。
+      // 同じ枠に同じレシピが入ることは無い（レシピの id はグループごとに別）。
+      const shiftMyPlans = db
+        .update(s.mealPlans)
+        .set({
+          position: sql`${s.mealPlans.position} + coalesce((select max(h.position) + 1
+            from meal_plans h where h.group_id = ${host}
+              and h.date = ${s.mealPlans.date} and h.meal = ${s.mealPlans.meal}), 0)`,
+        })
+        .where(eq(s.mealPlans.groupId, mine));
       const moveRecipes = db
         .update(s.recipes)
         .set({ groupId: host })
@@ -174,7 +177,7 @@ export function membershipFor(db: Db, user: SessionUser) {
         .where(eq(s.groupInvites.id, inv.id));
       const deleteMyGroup = db.delete(s.groups).where(eq(s.groups.id, mine));
 
-      // 1つのトランザクションで：条件を確かめながら参加 → ぶつかる行は招待した側を残す →
+      // 1つのトランザクションで：条件を確かめながら参加 → ぶつかる印・報告は招待した側を残し、献立は後ろに並べる →
       // 残りを付け替える → 1人グループを消す。
       // (注) db.run(sql`...`) は D1 の db.batch() の中では使えない（drizzle-orm の SQLiteRaw に
       // batch 用の .stmt が無く落ちる。実機で確認済み）。同じ SQL を .delete().where() + exists(...) で書く。
@@ -183,9 +186,9 @@ export function membershipFor(db: Db, user: SessionUser) {
         results = await db.batch([
           insertMember,
           deleteMyMembership,
-          deleteCollidingPlans,
           deleteCollidingMarks,
           deleteCollidingReports,
+          shiftMyPlans,
           moveRecipes,
           moveVersions,
           moveMemos,
@@ -221,15 +224,9 @@ export function membershipFor(db: Db, user: SessionUser) {
         throw new Conflict("状況が変わりました。もう一度開いてください");
       }
 
-      const [, , collidingPlans, , , movedRecipeRows] = results;
-      return {
-        movedRecipes: movedRecipeRows.length,
-        keptPlans: [...collidingPlans].sort((a, b) =>
-          a.date === b.date
-            ? MEALS.indexOf(a.meal) - MEALS.indexOf(b.meal)
-            : a.date.localeCompare(b.date),
-        ),
-      };
+      // 並びは上の db.batch([...]) と同じ。6番目（index 5）が moveRecipes
+      const [, , , , , movedRecipeRows] = results;
+      return { movedRecipes: movedRecipeRows.length };
     },
   };
 }

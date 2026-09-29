@@ -107,8 +107,11 @@ export type ImportResult = {
 };
 
 export type PlanEntry = {
+  id: string;
   date: string;
   meal: Meal;
+  /** 枠の中の並び順（小さいほど上） */
+  position: number;
   recipeId: string;
   title: string;
   category: Category;
@@ -120,10 +123,7 @@ export type GroupInfo = {
   invites: { id: string; email: string }[];
 };
 export type MyInvite = { id: string; groupName: string; invitedBy: string };
-export type AcceptResult = {
-  movedRecipes: number;
-  keptPlans: { date: string; meal: Meal }[];
-};
+export type AcceptResult = { movedRecipes: number };
 
 export type ShopItem = {
   key: string;
@@ -201,10 +201,16 @@ export const apiClient = {
 
   plans: (from: string, to: string) =>
     call<{ plans: PlanEntry[]; today: string }>(`/plans?from=${from}&to=${to}`),
-  setPlan: (date: string, meal: Meal, recipeId: string) =>
+  /** 枠の最後に1品足す（同じレシピが既にあれば何もしない） */
+  addPlan: (date: string, meal: Meal, recipeId: string) =>
     call<void>("/plans", { method: "PUT", json: { date, meal, recipeId } }),
-  deletePlan: (date: string, meal: Meal) =>
-    call<void>(`/plans/${date}/${meal}`, { method: "DELETE" }),
+  deletePlanItem: (id: string) =>
+    call<void>(`/plans/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  movePlanItem: (id: string, direction: "up" | "down") =>
+    call<void>(`/plans/items/${encodeURIComponent(id)}/move`, {
+      method: "POST",
+      json: { direction },
+    }),
 
   shopping: (days: number) =>
     call<{ from: string; to: string; recipeCount: number; items: ShopItem[] }>(
