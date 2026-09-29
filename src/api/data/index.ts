@@ -797,33 +797,46 @@ export function forGroup(db: Db, groupId: string) {
       }));
     },
 
-    async shoppingMarks() {
-      return db
-        .select({
-          key: s.shoppingMarks.key,
-          kind: s.shoppingMarks.kind,
-          value: s.shoppingMarks.value,
-        })
+    /** 調味料のうち「家にない」印が付いているもの（名寄せ後の名前） */
+    async seasoningsOut(): Promise<Set<string>> {
+      const rows = await db
+        .select({ key: s.shoppingMarks.key })
         .from(s.shoppingMarks)
-        .where(eq(s.shoppingMarks.groupId, groupId));
+        .where(
+          and(
+            eq(s.shoppingMarks.groupId, groupId),
+            eq(s.shoppingMarks.kind, "home"),
+            eq(s.shoppingMarks.value, false),
+          ),
+        );
+      return new Set(rows.map((r) => r.key));
     },
 
-    async setShoppingMark(
-      key: string,
-      kind: "home" | "bought",
-      value: boolean,
-    ) {
-      await db
-        .insert(s.shoppingMarks)
-        .values({ groupId, key, kind, value })
-        .onConflictDoUpdate({
-          target: [
-            s.shoppingMarks.groupId,
-            s.shoppingMarks.key,
-            s.shoppingMarks.kind,
-          ],
-          set: { value, updatedAt: new Date() },
-        });
+    async setSeasoningOut(name: string, out: boolean) {
+      const key = canonicalName(name);
+      if (out) {
+        await db
+          .insert(s.shoppingMarks)
+          .values({ groupId, key, kind: "home", value: false })
+          .onConflictDoUpdate({
+            target: [
+              s.shoppingMarks.groupId,
+              s.shoppingMarks.key,
+              s.shoppingMarks.kind,
+            ],
+            set: { value: false, updatedAt: new Date() },
+          });
+      } else {
+        await db
+          .delete(s.shoppingMarks)
+          .where(
+            and(
+              eq(s.shoppingMarks.groupId, groupId),
+              eq(s.shoppingMarks.key, key),
+              eq(s.shoppingMarks.kind, "home"),
+            ),
+          );
+      }
     },
 
     /** 読めなかった URL を覚えておく。同じ URL は1件だけ。上限を超えたら false */
@@ -867,17 +880,6 @@ export function forGroup(db: Db, groupId: string) {
         url: r.url,
         createdAt: r.createdAt.getTime(),
       }));
-    },
-
-    async clearBought() {
-      await db
-        .delete(s.shoppingMarks)
-        .where(
-          and(
-            eq(s.shoppingMarks.groupId, groupId),
-            eq(s.shoppingMarks.kind, "bought"),
-          ),
-        );
     },
 
     // ---- いっしょに使う人（グループのメンバーと招待）

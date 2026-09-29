@@ -7,8 +7,7 @@ type ShopItem = {
   name: string;
   amount: string;
   section: string;
-  home: boolean;
-  bought: boolean;
+  have: boolean;
   recipes: string[];
 };
 
@@ -345,12 +344,12 @@ describe("献立と買い物リスト", () => {
     const onion = res.items.find((i) => i.name === "玉ねぎ")!;
     expect(onion).toMatchObject({
       amount: "1と1/2個",
-      home: false,
+      have: false,
       recipes: ["鶏むね肉の甘酢炒め", "親子丼"],
     });
     expect(res.items.find((i) => i.name === "砂糖")).toMatchObject({
       section: "調味料",
-      home: true,
+      have: true,
     });
 
     // 今日の分だけ
@@ -359,30 +358,61 @@ describe("献立と買い物リスト", () => {
     };
     expect(todayOnly.items.find((i) => i.name === "卵")).toBeUndefined();
 
-    // 印を付ける
-    await api(me, "/shopping/marks", {
-      method: "PUT",
-      body: { key: onion.key, kind: "home", value: true },
-    });
-    await api(me, "/shopping/marks", {
-      method: "PUT",
-      body: { key: onion.key, kind: "bought", value: true },
-    });
+    // チェック＝冷蔵庫に入る（名寄せ後の名前で）
+    const have = (name: string, value: boolean) =>
+      api(me, "/shopping/have", { method: "PUT", body: { name, value } });
+    expect((await have("玉ねぎ", true)).status).toBe(204);
     let again = (await (await api(me, "/shopping?days=3")).json()) as {
       items: ShopItem[];
     };
-    expect(again.items.find((i) => i.name === "玉ねぎ")).toMatchObject({
-      home: true,
-      bought: true,
-    });
-    await api(me, "/shopping/bought", { method: "DELETE" });
+    expect(again.items.find((i) => i.name === "玉ねぎ")?.have).toBe(true);
+    const pantry = (await (await api(me, "/pantry")).json()) as {
+      items: { name: string }[];
+    };
+    expect(pantry.items.map((i) => i.name)).toContain("玉ねぎ");
+    // 外すと冷蔵庫から戻る
+    await have("玉ねぎ", false);
     again = (await (await api(me, "/shopping?days=3")).json()) as {
       items: ShopItem[];
     };
-    expect(again.items.find((i) => i.name === "玉ねぎ")).toMatchObject({
-      home: true,
-      bought: false,
-    });
+    expect(again.items.find((i) => i.name === "玉ねぎ")?.have).toBe(false);
+
+    // 冷蔵庫に「玉葱」と入れても、買い物の「玉ねぎ」が隠れる
+    await api(me, "/pantry", { method: "POST", body: { names: ["玉葱"] } });
+    again = (await (await api(me, "/shopping?days=3")).json()) as {
+      items: ShopItem[];
+    };
+    expect(again.items.find((i) => i.name === "玉ねぎ")?.have).toBe(true);
+
+    // 調味料：外すと「家にない」、付けると戻る。冷蔵庫には入らない
+    await have("砂糖", false);
+    again = (await (await api(me, "/shopping?days=3")).json()) as {
+      items: ShopItem[];
+    };
+    expect(again.items.find((i) => i.name === "砂糖")?.have).toBe(false);
+    await have("さとう", true);
+    again = (await (await api(me, "/shopping?days=3")).json()) as {
+      items: ShopItem[];
+    };
+    expect(again.items.find((i) => i.name === "砂糖")?.have).toBe(true);
+    const pantry2 = (await (await api(me, "/pantry")).json()) as {
+      items: { name: string }[];
+    };
+    expect(pantry2.items.map((i) => i.name)).not.toContain("砂糖");
+
+    // 古い印の API は無い
+    expect(
+      (
+        await api(me, "/shopping/marks", {
+          method: "PUT",
+          body: { key: "x", kind: "home", value: true },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await api(me, "/shopping/have", { method: "PUT", body: { name: "" } }))
+        .status,
+    ).toBe(400);
   });
 
   it("他の人の買い物リスト・献立は見えない", async () => {
@@ -402,6 +432,30 @@ describe("献立と買い物リスト", () => {
       await api(bob, `/plans?from=${t}&to=${t}`)
     ).json()) as { plans: unknown[] };
     expect(plans.plans).toEqual([]);
+  });
+
+  it("他の人の冷蔵庫は自分の買い物リストに効かない", async () => {
+    const alice = await signUp();
+    const bob = await signUp();
+    const b = await create(bob, sampleRecipe);
+    await api(bob, "/plans", {
+      method: "PUT",
+      body: { date: todayJst(), meal: "dinner", recipeId: b },
+    });
+    await api(alice, "/pantry", {
+      method: "POST",
+      body: { names: ["玉ねぎ", "鶏むね肉"] },
+    });
+    await api(alice, "/shopping/have", {
+      method: "PUT",
+      body: { name: "砂糖", value: false },
+    });
+    const shop = (await (await api(bob, "/shopping?days=1")).json()) as {
+      items: ShopItem[];
+    };
+    expect(shop.items.find((i) => i.name === "玉ねぎ")?.have).toBe(false);
+    expect(shop.items.find((i) => i.name === "鶏むね肉")?.have).toBe(false);
+    expect(shop.items.find((i) => i.name === "砂糖")?.have).toBe(true);
   });
 
   it("期間がおかしければ 400", async () => {
