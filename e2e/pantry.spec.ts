@@ -38,7 +38,10 @@ test("冷蔵庫に入れる・使い切る・買い物のチェックで入る",
     .fill("たまねぎ にんじん しょうゆ");
   await addDialog.getByRole("button", { name: "入れる", exact: true }).click();
 
-  const toast = page.getByRole("status");
+  // role=status は読み込み中の表示とも重なるので、トーストの文言で絞る
+  const toast = page
+    .getByRole("status")
+    .filter({ hasText: "冷蔵庫に入れました" });
   await expect(toast).toContainText("2個を冷蔵庫に入れました");
   await expect(toast).toContainText("醤油");
 

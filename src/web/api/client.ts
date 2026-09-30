@@ -7,6 +7,7 @@ import type {
 } from "../../shared/constants";
 import type { FindResult } from "../../shared/find";
 import type { Ingredient } from "../../shared/recipe";
+import type { RecoLists } from "../../shared/recommend";
 
 export class ApiError extends Error {
   constructor(
@@ -225,6 +226,8 @@ export const apiClient = {
     ),
   setHave: (name: string, value: boolean) =>
     call<void>("/shopping/have", { method: "PUT", json: { name, value } }),
+
+  recommend: () => call<RecoLists & { today: string }>("/recommend"),
 
   pantry: () => call<{ items: PantryItem[]; today: string }>("/pantry"),
   addPantry: (names: string[]) =>

@@ -64,7 +64,10 @@ export const planMoveSchema = z.object({
 });
 
 export const findSchema = z.object({
-  terms: z.array(z.string().trim().min(1).max(30)).min(1).max(10),
+  terms: z
+    .array(z.string().trim().min(1).max(LIMITS.ingredientNameMax))
+    .min(1)
+    .max(10),
 });
 
 export const importSchema = z.object({

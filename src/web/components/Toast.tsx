@@ -18,7 +18,7 @@ export function Toast({ message }: { message: string | null }) {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-xl bg-ink px-4 py-2 text-[13px] text-white shadow-lg"
+      className="fixed bottom-20 left-1/2 z-30 w-[calc(100%-32px)] max-w-md -translate-x-1/2 rounded-xl bg-ink px-4 py-2 text-center text-[13px] text-white shadow-lg"
     >
       {message}
     </div>
