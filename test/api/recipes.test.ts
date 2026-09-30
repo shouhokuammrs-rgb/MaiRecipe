@@ -171,6 +171,20 @@ describe("レシピと版", () => {
     ]);
   });
 
+  it("冷蔵庫の食材名の上限（60文字）と同じ長さの言葉でも「材料から探す」が使える", async () => {
+    const me = await signUp();
+    const longName = "あ".repeat(45);
+    await create(me, {
+      ...sampleRecipe,
+      ingredients: [{ name: longName, amount: "1個" }],
+    });
+    const res = await api(me, "/recipes/find", {
+      method: "POST",
+      body: { terms: [longName] },
+    });
+    expect(res.status).toBe(200);
+  });
+
   it("写真を保存して取り出せる", async () => {
     const me = await signUp();
     const id = await create(me);

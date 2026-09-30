@@ -1,7 +1,11 @@
 // 冷蔵庫と献立から、保存したレシピに点数を付けて「今日のおすすめ」を作る。AI は使わない。
 import { addDays } from "./dates";
-import { canonicalName, matchesIngredient } from "./ingredients";
-import { isExpiringSoon, isSeasoning } from "./pantry";
+import {
+  canonicalName,
+  matchesCanonical,
+  sectionOfCanonical,
+} from "./ingredients";
+import { isExpiringSoon } from "./pantry";
 import type { Ingredient } from "./recipe";
 
 export const RECO_SLOTS = ["main", "side", "soup"] as const;
@@ -42,31 +46,43 @@ export function slotOf(category: string): RecoSlot | null {
   return null;
 }
 
-export function scoreRecipe(
+/** 冷蔵庫の食材を、名寄せした名前つきに変えておく（呼び出し1回につき1度だけ） */
+type CanonPantryItem = RecoPantry & { c: string };
+
+function canonPantry(pantry: RecoPantry[]): CanonPantryItem[] {
+  return pantry.map((p) => ({ ...p, c: canonicalName(p.name) }));
+}
+
+function scoreRecipeCanon(
   r: RecoRecipe,
-  pantry: RecoPantry[],
+  pantry: CanonPantryItem[],
   plans: RecoPlan[],
   today: string,
 ): { score: number; have: string[]; soon: string[] } {
   // 調味料を除き、名寄せした名前で重複を消した「主な材料」（表記はレシピ側の最初のもの）
   const seen = new Set<string>();
-  const main: string[] = [];
+  const main: { name: string; c: string }[] = [];
   for (const ing of r.ingredients) {
     const c = canonicalName(ing.name);
-    if (!c || isSeasoning(c) || seen.has(c)) continue;
+    if (!c || sectionOfCanonical(c) === "調味料" || seen.has(c)) continue;
     seen.add(c);
-    main.push(ing.name.trim());
+    main.push({ name: ing.name.trim(), c });
   }
   const have: string[] = [];
   const soon: string[] = [];
-  for (const name of main) {
-    const hit = pantry.find((p) => matchesIngredient(p.name, name));
+  // 期限ボーナスは「当たった冷蔵庫の食材」1つにつき（材料側の当たった回数ではない）
+  const soonPantry = new Set<CanonPantryItem>();
+  for (const { name, c } of main) {
+    const hit = pantry.find((p) => matchesCanonical(p.c, c));
     if (!hit) continue;
     have.push(name);
-    if (isExpiringSoon(hit.expiresOn, today)) soon.push(name);
+    if (isExpiringSoon(hit.expiresOn, today)) {
+      soon.push(name);
+      soonPantry.add(hit);
+    }
   }
   let score = main.length ? (have.length / main.length) * 100 : 0;
-  score += soon.length * SOON_BONUS;
+  score += soonPantry.size * SOON_BONUS;
   const mine = plans.filter((p) => p.recipeId === r.id);
   if (mine.some((p) => p.date >= addDays(today, -7) && p.date < today))
     score -= RECENT_PENALTY;
@@ -75,17 +91,27 @@ export function scoreRecipe(
   return { score, have, soon };
 }
 
+export function scoreRecipe(
+  r: RecoRecipe,
+  pantry: RecoPantry[],
+  plans: RecoPlan[],
+  today: string,
+): { score: number; have: string[]; soon: string[] } {
+  return scoreRecipeCanon(r, canonPantry(pantry), plans, today);
+}
+
 export function rankRecommendations(
   recipes: RecoRecipe[],
   pantry: RecoPantry[],
   plans: RecoPlan[],
   today: string,
 ): RecoLists {
+  const pantryC = canonPantry(pantry);
   const scored = recipes
     .map((r) => ({
       r,
       slot: slotOf(r.category),
-      ...scoreRecipe(r, pantry, plans, today),
+      ...scoreRecipeCanon(r, pantryC, plans, today),
     }))
     .sort(
       (a, b) =>

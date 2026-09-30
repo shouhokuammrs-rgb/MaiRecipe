@@ -68,6 +68,33 @@ describe("点数", () => {
     expect(s.soon).toEqual(["鮭", "しめじ"]);
   });
 
+  it("期限が今日+4日ならボーナスなし（3日以内の境界）", () => {
+    const s = scoreRecipe(
+      r("a", "主菜", ["鮭"]),
+      [{ name: "鮭", expiresOn: "2026-10-04" }],
+      [],
+      T,
+    );
+    expect(s.soon).toEqual([]);
+    expect(s.score).toBe(100);
+  });
+
+  it("同じ冷蔵庫の食材（鶏肉）が複数の材料（鶏むね肉・鶏もも肉）に当たっても、期限ボーナスは食材1つにつき+15", () => {
+    const s = scoreRecipe(
+      r("a", "主菜", ["鶏むね肉", "鶏もも肉", "たまねぎ"]),
+      [
+        { name: "鶏肉", expiresOn: "2026-10-01" },
+        { name: "玉ねぎ", expiresOn: null },
+      ],
+      [],
+      T,
+    );
+    // 材料側の表記としては両方載る
+    expect(s.soon).toEqual(["鶏むね肉", "鶏もも肉"]);
+    // でも冷蔵庫の食材は「鶏肉」1つだけなのでボーナスは+15のみ
+    expect(s.score).toBeCloseTo(100 + 15);
+  });
+
   it("過去7日の献立に入っていたら −25、今日から6日後までに入っていたら −60（両方なら両方）", () => {
     const rec = r("a", "主菜", ["鮭"]);
     const pantry = [{ name: "鮭", expiresOn: null }];
@@ -186,5 +213,56 @@ describe("最初に空いている夜", () => {
       meal: "dinner",
     }));
     expect(firstEmptyDinner(full, T)).toBe(T);
+  });
+});
+
+describe("性能（Workers無料プランの1回10ms CPUに収まること）", () => {
+  it("300件のレシピ×6材料と30件の冷蔵庫（当たらない最悪ケース）でも十分速い", () => {
+    const cats = ["主菜", "副菜", "汁物"] as const;
+    const base = [
+      "鶏むね肉",
+      "鶏もも肉",
+      "豚こま肉",
+      "牛肉",
+      "鮭",
+      "さば",
+      "たまねぎ",
+      "にんじん",
+      "じゃがいも",
+      "キャベツ",
+      "ピーマン",
+      "しめじ",
+      "醤油",
+      "砂糖",
+      "塩",
+      "みりん",
+      "卵",
+      "豆腐",
+    ];
+    const recipes: RecoRecipe[] = Array.from({ length: 300 }, (_, i) => ({
+      id: `r${i}`,
+      title: `レシピ${i}`,
+      category: cats[i % cats.length]!,
+      updatedAt: i,
+      ingredients: Array.from({ length: 6 }, (_, k) => ({
+        name: base[(i + k) % base.length]!,
+        amount: "1個",
+      })),
+    }));
+    // 冷蔵庫はレシピの材料に一切当たらない名前にして、pantry.find が毎回全件を
+    // 走査する最悪ケースにする（当たった時点で打ち切られる平均ケースより重い）
+    const pantry = Array.from({ length: 30 }, (_, i) => ({
+      name: `謎食材${String(i).padStart(3, "0")}`,
+      expiresOn: i % 3 === 0 ? "2026-10-01" : null,
+    }));
+    const times: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      rankRecommendations(recipes, pantry, [], T);
+      times.push(performance.now() - start);
+    }
+    times.sort((a, b) => a - b);
+    const median = times[Math.floor(times.length / 2)]!;
+    expect(median).toBeLessThan(5);
   });
 });
