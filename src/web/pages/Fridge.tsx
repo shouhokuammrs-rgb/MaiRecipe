@@ -10,6 +10,7 @@ import {
   SecondaryButton,
 } from "@/components/common";
 import { MicButton } from "@/components/MicButton";
+import { RecoCard } from "@/components/RecoCard";
 import { Toast, useToast } from "@/components/Toast";
 import { apiErrorMessage, cn } from "@/lib/utils";
 import { labelDate } from "../../shared/dates";
@@ -46,6 +47,7 @@ export function Fridge() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["pantry"] });
       qc.invalidateQueries({ queryKey: ["shopping"] });
+      qc.invalidateQueries({ queryKey: ["recommend"] });
     },
   });
 
@@ -69,6 +71,7 @@ export function Fridge() {
       </PageTitle>
 
       <div className="flex flex-col gap-3 px-5 pt-1 pb-8">
+        <RecoCard onToast={show} />
         {q.isPending && <Loading />}
         {q.isError && <ErrorState error={q.error} retry={() => q.refetch()} />}
         {q.data && items.length === 0 && (
@@ -213,6 +216,7 @@ function AddSheet({
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["pantry"] });
       qc.invalidateQueries({ queryKey: ["shopping"] });
+      qc.invalidateQueries({ queryKey: ["recommend"] });
     },
   });
 
@@ -302,6 +306,7 @@ function EditSheet({
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["pantry"] });
       qc.invalidateQueries({ queryKey: ["shopping"] });
+      qc.invalidateQueries({ queryKey: ["recommend"] });
     },
   });
 
