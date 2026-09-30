@@ -8,6 +8,8 @@ import type { Ingredient } from "../../shared/recipe";
 import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
+import { canonicalName } from "../../shared/ingredients";
+import { isSeasoning, sortPantry } from "../../shared/pantry";
 import type { SessionUser } from "../app-env";
 import * as s from "./schema";
 
@@ -48,6 +50,14 @@ export async function resolveGroupId(
   ]);
   return groupId;
 }
+
+export type PantryItem = {
+  id: string;
+  name: string;
+  amount: string | null;
+  expiresOn: string | null;
+  addedOn: string;
+};
 
 export type RecipeHeader = {
   id: string;
@@ -188,6 +198,16 @@ export function forGroup(db: Db, groupId: string) {
     if (!r[0]) throw new NotFound("plan");
     if (r[0].date < today) throw new BadInput("過ぎた日の献立は変えられません");
     return r[0];
+  }
+
+  /** 自分のグループの冷蔵庫の1行。無い・他のグループなら NotFound */
+  async function ownPantryItem(id: string) {
+    const r = await db
+      .select({ id: s.pantryItems.id })
+      .from(s.pantryItems)
+      .where(and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)))
+      .limit(1);
+    if (!r[0]) throw new NotFound("pantry");
   }
 
   return {
@@ -662,6 +682,96 @@ export function forGroup(db: Db, groupId: string) {
       await db.delete(s.mealPlans).where(slotCond);
     },
 
+    // ---- 冷蔵庫（調味料は入れない・出さない。名前は名寄せ後）
+    async listPantry(): Promise<PantryItem[]> {
+      const rows = await db
+        .select({
+          id: s.pantryItems.id,
+          name: s.pantryItems.name,
+          amount: s.pantryItems.amount,
+          expiresOn: s.pantryItems.expiresOn,
+          addedOn: s.pantryItems.addedOn,
+        })
+        .from(s.pantryItems)
+        .where(eq(s.pantryItems.groupId, groupId));
+      return sortPantry(rows.filter((r) => !isSeasoning(r.name)));
+    },
+
+    /** 名寄せして入れる。空・調味料・すでにあるものは skipped。1行ずつの INSERT を batch で流す（D1 の値の上限のため） */
+    async addPantry(
+      names: string[],
+      today: string,
+    ): Promise<{ added: string[]; skipped: string[] }> {
+      const skipped: string[] = [];
+      const wanted: string[] = [];
+      for (const raw of names) {
+        const name = canonicalName(raw);
+        if (!name || isSeasoning(name) || wanted.includes(name)) {
+          skipped.push(name || raw);
+          continue;
+        }
+        wanted.push(name);
+      }
+      if (!wanted.length) return { added: [], skipped };
+      const inserts = wanted.map((name) =>
+        db
+          .insert(s.pantryItems)
+          .values({ id: newId(), groupId, name, addedOn: today })
+          .onConflictDoNothing()
+          .returning({ name: s.pantryItems.name }),
+      );
+      const results = await db.batch(
+        inserts as [(typeof inserts)[number], ...(typeof inserts)[number][]],
+      );
+      const added: string[] = [];
+      results.forEach((rows, i) => {
+        if (rows.length) added.push(wanted[i]!);
+        else skipped.push(wanted[i]!);
+      });
+      return { added, skipped };
+    },
+
+    async updatePantry(
+      id: string,
+      patch: { amount?: string | null; expiresOn?: string | null },
+    ) {
+      await ownPantryItem(id);
+      await db
+        .update(s.pantryItems)
+        .set(patch)
+        .where(
+          and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
+        );
+    },
+
+    async deletePantry(id: string) {
+      await ownPantryItem(id);
+      await db
+        .delete(s.pantryItems)
+        .where(
+          and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
+        );
+    },
+
+    async removePantryByName(name: string) {
+      await db
+        .delete(s.pantryItems)
+        .where(
+          and(
+            eq(s.pantryItems.groupId, groupId),
+            eq(s.pantryItems.name, canonicalName(name)),
+          ),
+        );
+    },
+
+    async pantryNames(): Promise<Set<string>> {
+      const rows = await db
+        .select({ name: s.pantryItems.name })
+        .from(s.pantryItems)
+        .where(eq(s.pantryItems.groupId, groupId));
+      return new Set(rows.map((r) => r.name));
+    },
+
     // ---- 買い物リスト
     async shoppingSources(from: string, to: string) {
       const [plans, latest] = await Promise.all([
@@ -687,33 +797,46 @@ export function forGroup(db: Db, groupId: string) {
       }));
     },
 
-    async shoppingMarks() {
-      return db
-        .select({
-          key: s.shoppingMarks.key,
-          kind: s.shoppingMarks.kind,
-          value: s.shoppingMarks.value,
-        })
+    /** 調味料のうち「家にない」印が付いているもの（名寄せ後の名前） */
+    async seasoningsOut(): Promise<Set<string>> {
+      const rows = await db
+        .select({ key: s.shoppingMarks.key })
         .from(s.shoppingMarks)
-        .where(eq(s.shoppingMarks.groupId, groupId));
+        .where(
+          and(
+            eq(s.shoppingMarks.groupId, groupId),
+            eq(s.shoppingMarks.kind, "home"),
+            eq(s.shoppingMarks.value, false),
+          ),
+        );
+      return new Set(rows.map((r) => r.key));
     },
 
-    async setShoppingMark(
-      key: string,
-      kind: "home" | "bought",
-      value: boolean,
-    ) {
-      await db
-        .insert(s.shoppingMarks)
-        .values({ groupId, key, kind, value })
-        .onConflictDoUpdate({
-          target: [
-            s.shoppingMarks.groupId,
-            s.shoppingMarks.key,
-            s.shoppingMarks.kind,
-          ],
-          set: { value, updatedAt: new Date() },
-        });
+    async setSeasoningOut(name: string, out: boolean) {
+      const key = canonicalName(name);
+      if (out) {
+        await db
+          .insert(s.shoppingMarks)
+          .values({ groupId, key, kind: "home", value: false })
+          .onConflictDoUpdate({
+            target: [
+              s.shoppingMarks.groupId,
+              s.shoppingMarks.key,
+              s.shoppingMarks.kind,
+            ],
+            set: { value: false, updatedAt: new Date() },
+          });
+      } else {
+        await db
+          .delete(s.shoppingMarks)
+          .where(
+            and(
+              eq(s.shoppingMarks.groupId, groupId),
+              eq(s.shoppingMarks.key, key),
+              eq(s.shoppingMarks.kind, "home"),
+            ),
+          );
+      }
     },
 
     /** 読めなかった URL を覚えておく。同じ URL は1件だけ。上限を超えたら false */
@@ -757,17 +880,6 @@ export function forGroup(db: Db, groupId: string) {
         url: r.url,
         createdAt: r.createdAt.getTime(),
       }));
-    },
-
-    async clearBought() {
-      await db
-        .delete(s.shoppingMarks)
-        .where(
-          and(
-            eq(s.shoppingMarks.groupId, groupId),
-            eq(s.shoppingMarks.kind, "bought"),
-          ),
-        );
     },
 
     // ---- いっしょに使う人（グループのメンバーと招待）

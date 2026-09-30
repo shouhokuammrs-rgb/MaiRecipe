@@ -5,6 +5,7 @@ import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import "./index.css";
 import { Find } from "./pages/Find";
+import { Fridge } from "./pages/Fridge";
 import { Import } from "./pages/Import";
 import { JoinGroup } from "./pages/JoinGroup";
 import { Login } from "./pages/Login";
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
       { path: "recipes/:id", element: <RecipeDetail /> },
       { path: "recipes/:id/edit", element: <RecipeEdit /> },
       { path: "plan", element: <Plan /> },
+      { path: "fridge", element: <Fridge /> },
       { path: "shopping", element: <Shopping /> },
       { path: "settings", element: <Settings /> },
       { path: "invites/:id", element: <JoinGroup /> },

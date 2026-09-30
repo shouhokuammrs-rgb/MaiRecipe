@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CalendarDays, Settings, ShoppingCart } from "lucide-react";
+import {
+  BookOpen,
+  CalendarDays,
+  Refrigerator,
+  Settings,
+  ShoppingCart,
+} from "lucide-react";
 import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { apiClient, ApiError } from "@/api/client";
 import { Loading } from "@/components/common";
@@ -8,6 +14,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { to: "/", label: "レシピ", icon: BookOpen, end: true },
   { to: "/plan", label: "献立", icon: CalendarDays, end: false },
+  { to: "/fridge", label: "冷蔵庫", icon: Refrigerator, end: false },
   { to: "/shopping", label: "買い物", icon: ShoppingCart, end: false },
   { to: "/settings", label: "設定", icon: Settings, end: false },
 ];
@@ -25,7 +32,7 @@ export function AppLayout() {
   if (me.error instanceof ApiError && me.error.status === 401) {
     return <Navigate to="/login" replace />;
   }
-  const showTabs = ["/", "/plan", "/shopping", "/settings"].includes(
+  const showTabs = ["/", "/plan", "/fridge", "/shopping", "/settings"].includes(
     loc.pathname,
   );
   return (
@@ -36,7 +43,7 @@ export function AppLayout() {
       {showTabs && (
         <nav
           aria-label="メイン"
-          className="grid shrink-0 grid-cols-4 border-t border-line-soft bg-card"
+          className="grid shrink-0 grid-cols-5 border-t border-line-soft bg-card"
           style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         >
           {TABS.map((t) => (

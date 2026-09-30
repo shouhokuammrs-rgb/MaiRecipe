@@ -71,12 +71,6 @@ export const importSchema = z.object({
   url: videoUrl,
 });
 
-export const shoppingMarkSchema = z.object({
-  key: z.string().min(1).max(120),
-  kind: z.enum(["home", "bought"]),
-  value: z.boolean(),
-});
-
 /** 分量の表記を読みやすくそろえる（"大さじ 2" → "大さじ2"）。読めなければそのまま */
 export function tidyAmount(raw: string): string {
   const p = parseAmount(raw);

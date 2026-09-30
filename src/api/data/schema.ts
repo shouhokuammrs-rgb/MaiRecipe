@@ -248,7 +248,7 @@ export const mealPlans = sqliteTable(
   ],
 );
 
-// ---- 買い物リストの印（家にある / 買った）。キーは「材料名|単位」
+// ---- 買い物の印。今は調味料の「家にない」だけ（key＝名寄せ後の名前、kind="home"、value=false）。#38 で「買った」「家にある」は冷蔵庫へ移した
 export const shoppingMarks = sqliteTable(
   "shopping_marks",
   {
@@ -261,6 +261,26 @@ export const shoppingMarks = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.groupId, t.key, t.kind] })],
+);
+
+// ---- 冷蔵庫の中身（グループ × 名寄せ後の名前で1行）。量と期限は任意
+export const pantryItems = sqliteTable(
+  "pantry_items",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    amount: text("amount"),
+    /** 期限 YYYY-MM-DD（任意） */
+    expiresOn: text("expires_on"),
+    /** 入れた日 YYYY-MM-DD（JST） */
+    addedOn: text("added_on").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("pantry_items_name_uq").on(t.groupId, t.name)],
 );
 
 // ---- 招待（相手の Google のメールアドレス宛て。参加・取り消しで行を消す）

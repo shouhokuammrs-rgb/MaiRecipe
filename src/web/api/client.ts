@@ -132,8 +132,15 @@ export type ShopItem = {
   section: ShopSection;
   recipes: string[];
   merged: string[];
-  home: boolean;
-  bought: boolean;
+  have: boolean;
+};
+
+export type PantryItem = {
+  id: string;
+  name: string;
+  amount: string | null;
+  expiresOn: string | null;
+  addedOn: string;
 };
 
 export const apiClient = {
@@ -216,12 +223,25 @@ export const apiClient = {
     call<{ from: string; to: string; recipeCount: number; items: ShopItem[] }>(
       `/shopping?days=${days}`,
     ),
-  setMark: (key: string, kind: "home" | "bought", value: boolean) =>
-    call<void>("/shopping/marks", {
-      method: "PUT",
-      json: { key, kind, value },
+  setHave: (name: string, value: boolean) =>
+    call<void>("/shopping/have", { method: "PUT", json: { name, value } }),
+
+  pantry: () => call<{ items: PantryItem[]; today: string }>("/pantry"),
+  addPantry: (names: string[]) =>
+    call<{ added: string[]; skipped: string[] }>("/pantry", {
+      method: "POST",
+      json: { names },
     }),
-  clearBought: () => call<void>("/shopping/bought", { method: "DELETE" }),
+  updatePantry: (
+    id: string,
+    patch: { amount?: string | null; expiresOn?: string | null },
+  ) =>
+    call<void>(`/pantry/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      json: patch,
+    }),
+  deletePantry: (id: string) =>
+    call<void>(`/pantry/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   group: () => call<GroupInfo>("/group"),
   invite: (email: string) =>

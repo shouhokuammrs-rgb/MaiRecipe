@@ -1,11 +1,9 @@
 import { Hono } from "hono";
 import { MEALS, type Meal } from "../../shared/constants";
 import { addDays, isDate, todayJst } from "../../shared/dates";
-import {
-  mealPlanSchema,
-  planMoveSchema,
-  shoppingMarkSchema,
-} from "../../shared/recipe";
+import { mealPlanSchema, planMoveSchema } from "../../shared/recipe";
+import { canonicalName } from "../../shared/ingredients";
+import { isSeasoning, shoppingHaveSchema } from "../../shared/pantry";
 import { aggregateShopping } from "../../shared/shopping";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
@@ -71,37 +69,33 @@ shopping.get("/", async (c) => {
   const days = Math.min(Math.max(Number(c.req.query("days") ?? 7) || 7, 1), 14);
   const from = today;
   const to = addDays(today, days - 1);
-  const [sources, marks] = await Promise.all([
+  const [sources, pantry, out] = await Promise.all([
     c.var.repo.shoppingSources(from, to),
-    c.var.repo.shoppingMarks(),
+    c.var.repo.pantryNames(),
+    c.var.repo.seasoningsOut(),
   ]);
-  const home = new Map<string, boolean>();
-  const bought = new Map<string, boolean>();
-  for (const m of marks)
-    (m.kind === "home" ? home : bought).set(m.key, m.value);
   const items = aggregateShopping(sources).map((i) => ({
     ...i,
-    // 調味料は最初から「家にある」扱い。印を付け直せばそちらが優先
-    home: home.has(i.key) ? home.get(i.key)! : i.section === "調味料",
-    bought: bought.get(i.key) ?? false,
+    // 調味料はいつも家にある扱い（「家にない」印が付いたときだけ買う）。ほかは冷蔵庫にあるか
+    have: i.section === "調味料" ? !out.has(i.name) : pantry.has(i.name),
   }));
   return c.json({ from, to, recipeCount: sources.length, items });
 });
 
-shopping.put("/marks", async (c) => {
-  const parsed = shoppingMarkSchema.safeParse(
+/** 買い物のチェック。調味料以外は冷蔵庫に入れる／戻す。調味料は「家にない」印を外す／付ける */
+shopping.put("/have", async (c) => {
+  const parsed = shoppingHaveSchema.safeParse(
     await c.req.json().catch(() => null),
   );
   if (!parsed.success) return badRequest(c, parsed.error);
-  await c.var.repo.setShoppingMark(
-    parsed.data.key,
-    parsed.data.kind,
-    parsed.data.value,
-  );
-  return c.body(null, 204);
-});
-
-shopping.delete("/bought", async (c) => {
-  await c.var.repo.clearBought();
+  const name = canonicalName(parsed.data.name);
+  if (!name) return c.json({ error: "名前を確認してください" }, 400);
+  if (isSeasoning(name)) {
+    await c.var.repo.setSeasoningOut(name, !parsed.data.value);
+  } else if (parsed.data.value) {
+    await c.var.repo.addPantry([name], todayJst());
+  } else {
+    await c.var.repo.removePantryByName(name);
+  }
   return c.body(null, 204);
 });

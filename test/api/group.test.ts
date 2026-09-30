@@ -120,9 +120,22 @@ describe("招待への参加", () => {
     await plan(b.cookie, "2030-10-04", bRecipe); // ぶつからない枠
 
     // A 側の印・報告（参加でぶつかったとき A の側が残ることを確かめる下準備）
-    await api(a.cookie, "/shopping/marks", {
+    await api(a.cookie, "/pantry", {
+      method: "POST",
+      body: { names: ["卵"] },
+    });
+    const aEgg = (
+      (await (await api(a.cookie, "/pantry")).json()) as {
+        items: { id: string; name: string }[];
+      }
+    ).items[0]!;
+    await api(a.cookie, `/pantry/${aEgg.id}`, {
+      method: "PATCH",
+      body: { amount: "Aの6個" },
+    });
+    await api(a.cookie, "/shopping/have", {
       method: "PUT",
-      body: { key: "共通の印", kind: "home", value: true },
+      body: { name: "醤油", value: false }, // A の「家にない」
     });
     await api(a.cookie, "/import/reports", {
       method: "POST",
@@ -148,13 +161,17 @@ describe("招待への参加", () => {
         })
       ).status,
     ).toBe(204);
-    await api(b.cookie, "/shopping/marks", {
-      method: "PUT",
-      body: { key: "共通の印", kind: "home", value: false }, // ぶつかる
+    await api(b.cookie, "/pantry", {
+      method: "POST",
+      body: { names: ["卵", "Bだけの食材"] }, // 卵はぶつかる
     });
-    await api(b.cookie, "/shopping/marks", {
+    await api(b.cookie, "/shopping/have", {
       method: "PUT",
-      body: { key: "Bだけの印", kind: "bought", value: true }, // ぶつからない
+      body: { name: "醤油", value: false }, // ぶつかる
+    });
+    await api(b.cookie, "/shopping/have", {
+      method: "PUT",
+      body: { name: "みりん", value: false }, // ぶつからない
     });
     await api(b.cookie, "/import/reports", {
       method: "POST",
@@ -210,9 +227,9 @@ describe("招待への参加", () => {
         .map((r) => r.url)
         .sort(),
     ).toEqual([B_ONLY_URL, COMMON_URL].sort());
-    expect(await rawShoppingMark(a.email, "共通の印", "home")).toBe(true);
-    expect(await rawShoppingMark(b.email, "共通の印", "home")).toBe(false);
-    expect(await rawShoppingMark(b.email, "Bだけの印", "bought")).toBe(true);
+    expect(await rawShoppingMark(a.email, "醤油", "home")).toBe(false);
+    expect(await rawShoppingMark(b.email, "醤油", "home")).toBe(false);
+    expect(await rawShoppingMark(b.email, "みりん", "home")).toBe(false);
     // 参加前：B から A の献立は見えず、B の /group はまだ自分1人だけ
     expect(
       (
@@ -273,9 +290,18 @@ describe("招待への参加", () => {
     expect(img.status).toBe(200);
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(photoBytes);
 
-    // ぶつかった印は招待した側（A）の値が残り、ぶつからない印は移る
-    expect(await rawShoppingMark(a.email, "共通の印", "home")).toBe(true);
-    expect(await rawShoppingMark(a.email, "Bだけの印", "bought")).toBe(true);
+    // 冷蔵庫：ぶつかった「卵」は A の行（量が A のもの）が残り、B だけの食材は移る
+    const pantryAfter = (
+      (await (await api(a.cookie, "/pantry")).json()) as {
+        items: { name: string; amount: string | null }[];
+      }
+    ).items;
+    expect(pantryAfter.filter((i) => i.name === "卵")).toEqual([
+      expect.objectContaining({ amount: "Aの6個" }),
+    ]);
+    expect(pantryAfter.map((i) => i.name)).toContain("Bだけの食材");
+    expect(await rawShoppingMark(a.email, "醤油", "home")).toBe(false);
+    expect(await rawShoppingMark(a.email, "みりん", "home")).toBe(false);
 
     // 報告は重複せず、両方見える
     expect(

@@ -53,7 +53,7 @@ export async function groupMembershipCount(email: string): Promise<number> {
 export async function rawShoppingMark(
   email: string,
   key: string,
-  kind: "home" | "bought",
+  kind: "home",
 ): Promise<boolean | null> {
   const row = await env.DB.prepare(
     `select sm.value as value from shopping_marks sm
