@@ -45,9 +45,10 @@ test("今日のおすすめを献立に入れる・冷蔵庫で食材を選ん�
   const addDialog = page.getByRole("dialog", { name: "冷蔵庫に入れる" });
   await addDialog.getByPlaceholder("玉ねぎ にんじん 豚こま").fill("鮭 豆腐");
   await addDialog.getByRole("button", { name: "入れる", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "2個を冷蔵庫に入れました",
-  );
+  // role=status は読み込み中の表示とも重なるので、トーストの文言で絞る
+  await expect(
+    page.getByRole("status").filter({ hasText: "冷蔵庫に入れました" }),
+  ).toContainText("2個を冷蔵庫に入れました");
 
   // 「今日のおすすめ」に2つのレシピ名が見える
   await expect(
@@ -58,7 +59,9 @@ test("今日のおすすめを献立に入れる・冷蔵庫で食材を選ん�
 
   // ボタン「M/Dの夜に 2品入れる」を押す → トーストに「2品入れました」
   await page.getByRole("button", { name: /の夜に 2品入れる/ }).click();
-  await expect(page.getByRole("status")).toContainText("2品入れました");
+  await expect(
+    page.getByRole("status").filter({ hasText: "品入れました" }),
+  ).toContainText("2品入れました");
 
   // 献立タブ → 2つのレシピ名が見える
   await page.getByRole("link", { name: "献立" }).click();

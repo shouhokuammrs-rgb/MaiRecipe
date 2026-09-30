@@ -8,6 +8,7 @@ import { addDays, labelDate } from "../../shared/dates";
 import {
   firstEmptyDinner,
   pickSet,
+  RECO_SLOTS,
   type Reco,
   type RecoSlot,
 } from "../../shared/recommend";
@@ -52,11 +53,14 @@ export function RecoCard({ onToast }: { onToast: (msg: string) => void }) {
       );
       setOff([]);
       setTarget(null);
+    },
+    onError: (e) => onToast(apiErrorMessage(e)),
+    onSettled: () => {
+      // 一部だけ失敗しても（1品目は入って2品目が失敗、など）最新の状態に揃える
       qc.invalidateQueries({ queryKey: ["plans"] });
       qc.invalidateQueries({ queryKey: ["recommend"] });
       qc.invalidateQueries({ queryKey: ["shopping"] });
     },
-    onError: (e) => onToast(apiErrorMessage(e)),
   });
 
   if (recoQ.isPending) return <Loading label="おすすめを考えています…" />;
@@ -74,6 +78,10 @@ export function RecoCard({ onToast }: { onToast: (msg: string) => void }) {
   const selected = items.filter((i) => !off.includes(i.slot));
   const n = selected.length;
   const busy = add.isPending;
+  // 空いている日を献立から読んでいる間は、確定前に入れてしまわないよう待つ
+  const plansPending = target === null && plansQ.isPending;
+  // どの分類も候補が1つ以下なら、替えても何も変わらない
+  const canReshuffle = RECO_SLOTS.some((slot) => reco[slot].length > 1);
 
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-line bg-card p-3.5">
@@ -81,7 +89,7 @@ export function RecoCard({ onToast }: { onToast: (msg: string) => void }) {
         <h2 className="text-base font-bold">今日のおすすめ</h2>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !canReshuffle}
           onClick={() => {
             setRound((r) => r + 1);
             setSwaps({ main: 0, side: 0, soup: 0 });
@@ -183,11 +191,21 @@ export function RecoCard({ onToast }: { onToast: (msg: string) => void }) {
       </ul>
 
       <PrimaryButton
-        disabled={n === 0 || busy}
+        disabled={n === 0 || busy || plansPending}
         onClick={() => add.mutate({ target: effectiveTarget, items: selected })}
       >
-        {n > 0 ? `${md}の夜に ${n}品入れる` : "入れる品を選んでください"}
+        {plansPending
+          ? "読み込み中…"
+          : n > 0
+            ? `${md}の夜に ${n}品入れる`
+            : "入れる品を選んでください"}
       </PrimaryButton>
+
+      {plansQ.isError && (
+        <p className="text-[11px] text-danger">
+          献立の空き状況を読み込めませんでした。‹ › で日付を選べます
+        </p>
+      )}
 
       <div className="flex items-center justify-between">
         <button

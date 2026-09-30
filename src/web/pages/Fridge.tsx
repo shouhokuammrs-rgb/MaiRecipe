@@ -56,6 +56,8 @@ export function Fridge() {
         next.delete(item.name);
         return next;
       });
+      // 使い切った食材で固定していた「探す」の言葉が古いまま残らないようにする
+      setTerms((prev) => (prev.includes(item.name) ? [] : prev));
     },
     onError: (e) => show(apiErrorMessage(e)),
     onSettled: () => {
@@ -78,7 +80,7 @@ export function Fridge() {
       setTerms([]);
       return;
     }
-    if (selectedNames.size >= SELECT_LIMIT) {
+    if (selected.length >= SELECT_LIMIT) {
       show(`${SELECT_LIMIT}個まで選べます`);
       return;
     }
@@ -272,16 +274,20 @@ function FindSection({
     mutationFn: async (recipeId: string) => {
       const date = firstEmptyDinner(plansQ.data?.plans ?? [], today);
       await apiClient.addPlan(date, "dinner", recipeId);
+      // 献立を読み直してから isPending を戻す。すぐ次を押しても
+      // 古い献立のまま次の空き日を計算しないようにする
+      await qc.invalidateQueries({ queryKey: ["plans"] });
       return date;
     },
     onSuccess: (date) => {
       const { md, dow } = labelDate(date);
       onToast(`${md}（${dow}）の夜に入れました`);
-      qc.invalidateQueries({ queryKey: ["plans"] });
+    },
+    onError: (e) => onToast(apiErrorMessage(e)),
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["recommend"] });
       qc.invalidateQueries({ queryKey: ["shopping"] });
     },
-    onError: (e) => onToast(apiErrorMessage(e)),
   });
 
   return (
@@ -303,7 +309,10 @@ function FindSection({
               key={r.id}
               className="flex items-center gap-2 rounded-2xl border border-line-soft bg-card p-3.5"
             >
-              <Link to={`/recipes/${r.id}`} className="min-w-0 flex-1">
+              <Link
+                to={`/recipes/${r.id}`}
+                className="flex min-h-11 min-w-0 flex-1 flex-col justify-center"
+              >
                 <span className="block truncate text-[15px] font-bold">
                   {r.title}
                 </span>
