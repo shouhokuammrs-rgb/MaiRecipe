@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiClient, type PantryItem } from "@/api/client";
 import {
   Empty,
@@ -13,12 +15,16 @@ import { MicButton } from "@/components/MicButton";
 import { RecoCard } from "@/components/RecoCard";
 import { Toast, useToast } from "@/components/Toast";
 import { apiErrorMessage, cn } from "@/lib/utils";
-import { labelDate } from "../../shared/dates";
+import { addDays, labelDate } from "../../shared/dates";
 import {
   addedLabel,
   isExpiringSoon,
   splitPantryInput,
 } from "../../shared/pantry";
+import { firstEmptyDinner } from "../../shared/recommend";
+
+/** 一度に選べる食材の上限 */
+const SELECT_LIMIT = 10;
 
 /** 消す確認が自動で元に戻るまでの時間 */
 const CONFIRM_MS = 4000;
@@ -30,6 +36,8 @@ export function Fridge() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PantryItem | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
+  const [terms, setTerms] = useState<string[]>([]);
 
   useEffect(() => {
     if (!confirming) return;
@@ -42,6 +50,12 @@ export function Fridge() {
     onSuccess: (_d, item) => {
       setConfirming(null);
       show(`「${item.name}」を使い切りました`);
+      setSelectedNames((prev) => {
+        if (!prev.has(item.name)) return prev;
+        const next = new Set(prev);
+        next.delete(item.name);
+        return next;
+      });
     },
     onError: (e) => show(apiErrorMessage(e)),
     onSettled: () => {
@@ -53,6 +67,26 @@ export function Fridge() {
 
   const items = q.data?.items ?? [];
   const today = q.data?.today ?? "";
+  // 冷蔵庫の一覧の並び順にそろえる
+  const selected = items.map((i) => i.name).filter((n) => selectedNames.has(n));
+
+  const toggleSelect = (name: string) => {
+    if (selectedNames.has(name)) {
+      const next = new Set(selectedNames);
+      next.delete(name);
+      setSelectedNames(next);
+      setTerms([]);
+      return;
+    }
+    if (selectedNames.size >= SELECT_LIMIT) {
+      show(`${SELECT_LIMIT}個まで選べます`);
+      return;
+    }
+    const next = new Set(selectedNames);
+    next.add(name);
+    setSelectedNames(next);
+    setTerms([]);
+  };
 
   return (
     <>
@@ -83,9 +117,14 @@ export function Fridge() {
         )}
         {q.data && items.length > 0 && (
           <>
-            <h2 className="text-[13px] font-bold text-sub">
-              冷蔵庫の中（{items.length}）
-            </h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-[13px] font-bold text-sub">
+                冷蔵庫の中（{items.length}）
+              </h2>
+              <span className="text-[11.5px] text-faint">
+                食材を選ぶと「これを使いたい」
+              </span>
+            </div>
             <ul className="overflow-hidden rounded-2xl border border-line-soft bg-card">
               {items.map((item) => (
                 <FridgeRow
@@ -94,7 +133,9 @@ export function Fridge() {
                   today={today}
                   confirming={confirming === item.id}
                   disabled={del.isPending}
+                  selected={selectedNames.has(item.name)}
                   onEdit={() => setEditing(item)}
+                  onToggleSelect={() => toggleSelect(item.name)}
                   onFinishTap={() =>
                     confirming === item.id
                       ? del.mutate(item)
@@ -103,6 +144,14 @@ export function Fridge() {
                 />
               ))}
             </ul>
+            {selected.length > 0 && (
+              <PrimaryButton onClick={() => setTerms(selected)}>
+                {`${selected.length}個を使いたい → レシピを探す`}
+              </PrimaryButton>
+            )}
+            {terms.length > 0 && (
+              <FindSection terms={terms} today={today} onToast={show} />
+            )}
           </>
         )}
         <p className="text-xs text-sub">
@@ -128,19 +177,41 @@ function FridgeRow({
   today,
   confirming,
   disabled,
+  selected,
   onEdit,
+  onToggleSelect,
   onFinishTap,
 }: {
   item: PantryItem;
   today: string;
   confirming: boolean;
   disabled: boolean;
+  selected: boolean;
   onEdit: () => void;
+  onToggleSelect: () => void;
   onFinishTap: () => void;
 }) {
   const soon = isExpiringSoon(item.expiresOn, today);
   return (
-    <li className="flex items-center gap-3 border-b border-[#f3eee7] px-3.5 py-2.5 last:border-b-0">
+    <li className="flex items-center gap-1 border-b border-[#f3eee7] px-2.5 py-2.5 last:border-b-0">
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`${item.name}を選ぶ`}
+        onClick={onToggleSelect}
+        className="flex size-11 shrink-0 items-center justify-center"
+      >
+        <span
+          className={cn(
+            "flex size-7 items-center justify-center rounded-lg border-2",
+            selected
+              ? "border-herb-mid bg-herb-mid"
+              : "border-[#cfc5b8] bg-card",
+          )}
+        >
+          {selected && <Check className="size-4 text-white" strokeWidth={3} />}
+        </span>
+      </button>
       <button
         type="button"
         onClick={onEdit}
@@ -171,6 +242,88 @@ function FridgeRow({
         {confirming ? "本当に消す？" : "使い切った"}
       </button>
     </li>
+  );
+}
+
+/** 選んだ食材を使うレシピを探し、献立に入れる */
+function FindSection({
+  terms,
+  today,
+  onToast,
+}: {
+  terms: string[];
+  today: string;
+  onToast: (msg: string) => void;
+}) {
+  const qc = useQueryClient();
+  const to = today ? addDays(today, 13) : "";
+  const plansQ = useQuery({
+    queryKey: ["plans", today, to],
+    queryFn: () => apiClient.plans(today, to),
+    enabled: Boolean(today),
+  });
+  const findQ = useQuery({
+    queryKey: ["find", terms],
+    queryFn: () => apiClient.find(terms),
+    enabled: terms.length > 0,
+  });
+
+  const addToPlan = useMutation({
+    mutationFn: async (recipeId: string) => {
+      const date = firstEmptyDinner(plansQ.data?.plans ?? [], today);
+      await apiClient.addPlan(date, "dinner", recipeId);
+      return date;
+    },
+    onSuccess: (date) => {
+      const { md, dow } = labelDate(date);
+      onToast(`${md}（${dow}）の夜に入れました`);
+      qc.invalidateQueries({ queryKey: ["plans"] });
+      qc.invalidateQueries({ queryKey: ["recommend"] });
+      qc.invalidateQueries({ queryKey: ["shopping"] });
+    },
+    onError: (e) => onToast(apiErrorMessage(e)),
+  });
+
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-[13px] font-bold text-sub">
+        「{terms.join("・")}」を使うレシピ
+      </h2>
+      {findQ.isPending && <Loading />}
+      {findQ.isError && (
+        <ErrorState error={findQ.error} retry={() => findQ.refetch()} />
+      )}
+      {findQ.data && findQ.data.length === 0 && (
+        <Empty>保存したレシピには、この食材を使うものがありません。</Empty>
+      )}
+      {findQ.data && findQ.data.length > 0 && (
+        <ul className="flex flex-col gap-2.5">
+          {findQ.data.map((r) => (
+            <li
+              key={r.id}
+              className="flex items-center gap-2 rounded-2xl border border-line-soft bg-card p-3.5"
+            >
+              <Link to={`/recipes/${r.id}`} className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-bold">
+                  {r.title}
+                </span>
+                <span className="mt-0.5 block text-[11.5px] font-bold text-herb">
+                  {r.matched}個使う：{r.have.join("・")}
+                </span>
+              </Link>
+              <button
+                type="button"
+                disabled={addToPlan.isPending}
+                onClick={() => addToPlan.mutate(r.id)}
+                className="flex h-11 shrink-0 items-center rounded-xl border border-field bg-card px-3 text-[13px] font-bold text-ink disabled:opacity-50"
+              >
+                献立へ
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
