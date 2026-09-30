@@ -75,7 +75,10 @@ export function Shopping() {
   });
 
   const items = q.data?.items ?? [];
-  const hiddenCount = items.filter((i) => i.have).length;
+  // 冷蔵庫にある食材だけ数える（調味料はいつも家にある扱いなので数えない）
+  const hiddenCount = items.filter(
+    (i) => i.have && i.section !== "調味料",
+  ).length;
   const toBuy = items.filter((i) => !i.have);
   const shown = showHave ? items : toBuy;
 

@@ -36,7 +36,7 @@ test("冷蔵庫に入れる・使い切る・買い物のチェックで入る",
   await addDialog
     .getByPlaceholder("玉ねぎ にんじん 豚こま")
     .fill("たまねぎ にんじん しょうゆ");
-  await addDialog.getByRole("button", { name: "入れる" }).click();
+  await addDialog.getByRole("button", { name: "入れる", exact: true }).click();
 
   const toast = page.getByRole("status");
   await expect(toast).toContainText("2個を冷蔵庫に入れました");
