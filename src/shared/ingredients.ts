@@ -53,7 +53,8 @@ export function canonicalName(raw: string): string {
   const s = raw
     .trim()
     .replace(/^[◎○●・★☆◆◇■□※\-‐–—*]+/, "")
-    .replace(/[（(][^）)]*[）)]$/, "")
+    // 最後の括弧を、続けて付いていれば全部落とす（「卵(大)(小)」→「卵」。2回かけても同じになる）
+    .replace(/(\s*[（(][^）)]*[）)])+$/, "")
     .trim();
   return ALIASES[s] ?? s;
 }
