@@ -17,6 +17,8 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
+      // AI（Workers AI）は本物を呼ばない。テストでは env.AI を差し替える
+      remoteBindings: false,
       miniflare: {
         bindings: {
           TEST_MIGRATIONS: migrations,

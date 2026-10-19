@@ -202,6 +202,9 @@ export const apiClient = {
 
   importUrl: (url: string) =>
     call<ImportResult>("/import", { method: "POST", json: { url } }),
+  /** AI（無料）で読み取る。押した時だけ（DEC-012）。保存はしない */
+  importAi: (input: { url?: string; text?: string; title?: string }) =>
+    call<ImportResult>("/import/ai", { method: "POST", json: input }),
   reportImport: (url: string) =>
     call<{ ok: true }>("/import/reports", { method: "POST", json: { url } }),
   importReports: () =>

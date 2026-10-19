@@ -1,5 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, ClipboardPaste, Flag, Info, TriangleAlert } from "lucide-react";
+import {
+  Check,
+  ClipboardPaste,
+  Flag,
+  Info,
+  Sparkles,
+  TriangleAlert,
+} from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -58,6 +65,13 @@ export function Import() {
   const read = useMutation({
     mutationFn: (u: string) => apiClient.importUrl(u),
     onSuccess: (r) => setResult(r),
+  });
+  const aiRead = useMutation({
+    mutationFn: apiClient.importAi,
+    onSuccess: (r) => {
+      setResult(r);
+      setTextError("");
+    },
   });
   const report = useMutation({
     mutationFn: (u: string) => apiClient.reportImport(u),
@@ -135,6 +149,22 @@ export function Import() {
               )}
               {!result.found && (
                 <div className="flex flex-col gap-2">
+                  <PrimaryButton
+                    disabled={aiRead.isPending}
+                    onClick={() =>
+                      aiRead.mutate({ url: d.sourceUrl, title: d.title })
+                    }
+                  >
+                    <Sparkles className="size-4" />
+                    {aiRead.isPending
+                      ? "AI が読み取り中…（10〜30秒）"
+                      : "AI で読み取る（無料）"}
+                  </PrimaryButton>
+                  {aiRead.isError && (
+                    <p role="alert" className="text-sm text-danger">
+                      {aiRead.error.message}
+                    </p>
+                  )}
                   <SecondaryButton
                     onClick={() => {
                       setUrl(d.sourceUrl);
@@ -249,8 +279,8 @@ export function Import() {
               </p>
             )}
             <p className="text-xs leading-6 text-sub">
-              読み取りは AI
-              を使いません。うまく取れなかったときは、文章を貼って読み取るか、出典を残したまま手で入れられます。
+              読み取りは AI を使いません。うまく取れなかったときは「AI
+              で読み取る（無料）」か、文章を貼って読み取るか、手で入れられます。
             </p>
           </form>
         ) : (
@@ -310,9 +340,32 @@ export function Import() {
                 {textError}
               </p>
             )}
+            {textError && text.trim() && /^https?:\/\//i.test(url.trim()) && (
+              <SecondaryButton
+                disabled={aiRead.isPending}
+                onClick={() =>
+                  aiRead.mutate({
+                    text: text.trim(),
+                    url: url.trim(),
+                    title: fallbackTitle || undefined,
+                  })
+                }
+              >
+                <Sparkles className="size-4" />
+                {aiRead.isPending
+                  ? "AI が読み取り中…（10〜30秒）"
+                  : "AI で読み取る（無料）"}
+              </SecondaryButton>
+            )}
+            {mode === "text" && aiRead.isError && (
+              <p role="alert" className="text-sm text-danger">
+                {aiRead.error.message}
+              </p>
+            )}
             <p className="text-xs leading-6 text-sub">
               分けるのはこの端末の中だけで、AI
-              も使いません。貼った文章そのものは保存しません。
+              も使いません。うまく分けられないときだけ「AI
+              で読み取る」が出ます。貼った文章そのものは保存しません。
             </p>
           </form>
         )}
