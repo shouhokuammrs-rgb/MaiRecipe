@@ -33,9 +33,9 @@
 | E2E | `npm run e2e` |
 | マイグレーション生成 | `npm run db:generate` |
 | ローカル D1 に適用 | `npm run db:migrate:local` |
-| 本番 D1 に適用 | `npm run db:migrate:remote`（Eiichi の確認後のみ） |
+| 本番 D1 に適用 | main へのマージで GitHub Actions が自動（バックアップ・件数確認つき）。手では流さない |
 | Workers の型生成 | `npm run cf-typegen` |
-| デプロイ | `npm run deploy`（Eiichi の確認後のみ） |
+| デプロイ | main へのマージで GitHub Actions が自動（`.github/workflows/deploy.yml`） |
 
 PR 前は最低限 `npm run lint && npm run typecheck && npm run test` を通す。
 
@@ -56,7 +56,7 @@ docs/             spec / decisions / meetings / archive
 ```
 
 ## 開発ルール（Superpowers に加えて）
-- feature ブランチ + PR のみ。main 直 push・force push 禁止。**マージは Eiichi**
+- feature ブランチ + PR のみ。main 直 push・force push 禁止。**マージは Claude が行ってよい**（2026-10-19 Eiichi 決定。lint・型・テストが通り、レビューを通したものだけ）。マージ＝本番デプロイ
 - TDD: `src/shared/` / `src/api/` / マイグレーション / バグ修正は必須。画面の見た目は例外
 - **グループの判定はセッションからだけ**。クライアントから来た group_id を使わない。DB は `forGroup` 経由でだけ触る。
   新しいテーブル・API を足したら `test/api` の「グループをまたいだ漏れがないこと」に項目を足す。これを崩す変更はレビューで Critical
@@ -85,7 +85,7 @@ docs/             spec / decisions / meetings / archive
 - Cloudflare アカウント（無料・カード登録なし）と `wrangler login`、本番 D1 の作成
 - Google Cloud での OAuth クライアント作成と `wrangler secret put`
 - 本番 D1 へのマイグレーション適用とデプロイの最終 OK（Claude はローカルで検証してから、コピペできる手順で渡す）
-- PR のマージ
+- スマホでの動作確認（マージとデプロイは Claude と GitHub Actions が行う）
 
 ## 秘密情報
 ローカルは `.dev.vars`（コミットしない。ひな形は `.dev.vars.example`）、本番は `wrangler secret put`。

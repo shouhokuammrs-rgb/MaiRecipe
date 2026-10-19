@@ -25,43 +25,21 @@ npm run lint && npm run typecheck && npm run test   # PR 前に通す
 npm run e2e                                          # 画面の通しテスト（dev サーバーを自動で起動）
 ```
 
-## 本番に公開する（Eiichi の作業・初回だけ）
+## 本番に公開する（GitHub Actions で自動）
 
-1. **Cloudflare にログイン**（無料アカウント。カード登録は不要）
-   ```bash
-   npx wrangler login
-   ```
-2. **本番の D1 を作る**。表示された `database_id` を `wrangler.jsonc` の `REPLACE_WITH_REAL_D1_DATABASE_ID` に貼る
-   ```bash
-   npx wrangler d1 create mairecipe
-   ```
-3. **一度デプロイして URL を知る**（`https://mairecipe.<アカウント名>.workers.dev` のような URL が出る）
-   ```bash
-   npm run db:migrate:remote
-   npm run deploy
-   ```
-4. **Google ログインの鍵を作る**（Google Cloud Console → API とサービス → 認証情報 → OAuth クライアント ID → ウェブアプリケーション）
-   - 承認済みの JavaScript 生成元: `https://mairecipe.<アカウント名>.workers.dev`
-   - 承認済みのリダイレクト URI: `https://mairecipe.<アカウント名>.workers.dev/api/auth/callback/google`
-5. **秘密の値を登録**（1つずつ聞かれるので貼る）
-   ```bash
-   npx wrangler secret put GOOGLE_CLIENT_ID
-   npx wrangler secret put GOOGLE_CLIENT_SECRET
-   npx wrangler secret put BETTER_AUTH_URL        # 手順3の URL（末尾の / なし）
-   npx wrangler secret put BETTER_AUTH_SECRET     # openssl rand -base64 32 の出力
-   ```
-   `DEV_LOGIN` は本番に**入れない**。
-   YouTube の概要欄から材料と作り方を読みたいときだけ、YouTube Data API v3 のキーも入れる（無ければ動画は題名だけ。DEC-014）
-   ```bash
-   npx wrangler secret put YOUTUBE_API_KEY
-   ```
-6. **もう一度デプロイ**して、スマホで URL を開き Google でログイン → 共有メニューから「ホーム画面に追加」
-   ```bash
-   npm run deploy
-   ```
+`main` にマージされると `.github/workflows/deploy.yml` が
+**チェック → （マイグレーションがあれば）バックアップと件数確認 → 本番 D1 に適用 → デプロイ → 動作確認** まで自動で行う。
+件数が減ったらそこで止まる。バックアップは Actions の artifact に 30 日残る。手で動かすときは Actions タブ → deploy → Run workflow。
 
-2回目以降は `npm run db:migrate:remote`（マイグレーションが増えたときだけ）と `npm run deploy` だけ。
-マイグレーションの前には、本番 D1 のバックアップを取る（`npx wrangler d1 export mairecipe --remote --output=$HOME/Desktop/backup-mairecipe-<日付>.sql` のようにリポジトリの外に保存する。コミットしない）。マイグレーションとデプロイの間は空けない。
+### 初回だけ Eiichi がやること
+Cloudflare の API トークンを作り、GitHub の Secrets に `CLOUDFLARE_API_TOKEN` として登録する（チャットやファイルには書かない）。
+
+- Cloudflare：My Profile → API Tokens → Create Token →「Edit Cloudflare Workers」テンプレート
+  - 権限に **D1:Edit** と **Workers AI:Read** を足す。対象は自分のアカウントだけ
+- GitHub：Settings → Secrets and variables → Actions → New repository secret → 名前 `CLOUDFLARE_API_TOKEN`
+
+Worker の秘密の値（`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` / `YOUTUBE_API_KEY`）は
+`wrangler secret put` で登録済みのものをそのまま使う。`DEV_LOGIN` は本番に**入れない**。
 
 ## Claude Code で作業する場合
 
