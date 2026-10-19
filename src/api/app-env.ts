@@ -13,6 +13,8 @@ export type AppBindings = {
   YOUTUBE_API_KEY?: string;
   /** Workers AI（鍵不要・無料枠）。「AI で読み取る」だけが src/api/ai/ 経由で使う。#36 */
   AI?: WorkersAiBinding;
+  /** Gemini API の鍵（任意・無料枠）。動画を見て手順を読むときだけ platform/gemini.ts が使う。DEC-018 */
+  GEMINI_API_KEY?: string;
 };
 
 export type SessionUser = {

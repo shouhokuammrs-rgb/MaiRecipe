@@ -7,3 +7,5 @@ GOOGLE_CLIENT_SECRET=
 DEV_LOGIN=1
 # 任意：YouTube の概要欄から材料・手順を読む（無ければ動画は題名だけ）。Eiichi の個人の鍵。DEC-014
 YOUTUBE_API_KEY=
+# 任意：動画を見て手順を読む AI（Gemini API の無料枠）。Eiichi の個人の鍵。DEC-018
+GEMINI_API_KEY=
