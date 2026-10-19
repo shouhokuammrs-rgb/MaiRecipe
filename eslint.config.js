@@ -42,6 +42,8 @@ export default tseslint.config(
       "playwright-report",
       "test-results",
       ".claude",
+      "apps",
+      ".superpowers",
     ],
   },
   js.configs.recommended,
