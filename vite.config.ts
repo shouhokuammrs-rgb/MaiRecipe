@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    // AI は本物（リモート）に繋がない。ローカルでは鍵なしで動かし、AI は「使えない」扱いになる
+    // ローカルでは AI をリモートに繋がない（wrangler のログインが要らない）。呼ぶと失敗し、取り込みは規則の結果に理由を添えて返す
     cloudflare({ remoteBindings: false }),
     VitePWA({
       registerType: "autoUpdate",

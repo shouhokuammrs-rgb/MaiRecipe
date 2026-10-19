@@ -330,7 +330,9 @@ function SectionHead({
       {canSort && (
         <button
           type="button"
-          aria-pressed={sorting}
+          aria-label={
+            sorting ? `${label}の並び替えを終える` : `${label}を並び替え`
+          }
           className={`-my-2 h-11 px-2 text-sm font-bold ${sorting ? "text-accent-deep" : "text-accent"}`}
           onClick={onToggle}
         >
@@ -358,7 +360,7 @@ function SortRow({
   onMove: (dir: -1 | 1) => void;
 }) {
   const btn =
-    "flex size-11 shrink-0 items-center justify-center rounded-xl border border-field bg-card text-ink disabled:opacity-30";
+    "flex size-11 shrink-0 items-center justify-center rounded-xl border border-field bg-card text-ink aria-disabled:opacity-30";
   return (
     <div className="flex items-center gap-1.5">
       {numbered && (
@@ -371,8 +373,8 @@ function SortRow({
         type="button"
         aria-label={`${what}${index + 1}を上へ`}
         className={btn}
-        disabled={index === 0}
-        onClick={() => onMove(-1)}
+        aria-disabled={index === 0}
+        onClick={() => index > 0 && onMove(-1)}
       >
         <ArrowUp className="size-4" />
       </button>
@@ -380,8 +382,8 @@ function SortRow({
         type="button"
         aria-label={`${what}${index + 1}を下へ`}
         className={btn}
-        disabled={index === count - 1}
-        onClick={() => onMove(1)}
+        aria-disabled={index === count - 1}
+        onClick={() => index < count - 1 && onMove(1)}
       >
         <ArrowDown className="size-4" />
       </button>

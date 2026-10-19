@@ -31,20 +31,16 @@ test("文章を貼って取り込む", async ({ page }) => {
   await page.screenshot({ path: "test-results/03-paste.png", fullPage: true });
 
   // 並び替え：材料2を上へ、手順1を下へ
-  const sortButtons = page.getByRole("button", {
-    name: "並び替え",
-    exact: true,
-  });
-  await sortButtons.first().click();
+  await page.getByRole("button", { name: "材料（2人分）を並び替え" }).click();
   await page.getByRole("button", { name: "材料2を上へ" }).click();
-  await page.getByRole("button", { name: "並び替えを終える" }).click();
+  await page.getByRole("button", { name: /の並び替えを終える$/ }).click();
   await expect(page.getByLabel("材料1の名前")).toHaveValue(
     "ダミー魚（塩焼き）",
   );
-  await sortButtons.last().click();
+  await page.getByRole("button", { name: "作り方を並び替え" }).click();
   await page.getByRole("button", { name: "手順1を下へ" }).click();
   await page.screenshot({ path: "test-results/03-sort.png", fullPage: true });
-  await page.getByRole("button", { name: "並び替えを終える" }).click();
+  await page.getByRole("button", { name: /の並び替えを終える$/ }).click();
   await expect(page.getByLabel("手順2")).toHaveValue("魚に塩をふって10分おく");
 
   await page
