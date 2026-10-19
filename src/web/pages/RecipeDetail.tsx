@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronLeft, GitBranch } from "lucide-react";
+import { Camera, ChevronLeft, GitBranch, ChefHat } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -238,6 +238,17 @@ function DetailView({ r }: { r: Detail }) {
           <SecondaryButton onClick={() => nav(`/recipes/${r.id}/edit`)}>
             材料・作り方を編集
           </SecondaryButton>
+          {view.steps.length > 0 && (
+            <SecondaryButton
+              className="col-span-2 border-herb/30 bg-herb-soft font-bold text-herb"
+              onClick={() =>
+                nav(`/recipes/${r.id}/cook${viewingOld ? `?v=${view.id}` : ""}`)
+              }
+            >
+              <ChefHat className="size-5" />
+              料理モードで作る
+            </SecondaryButton>
+          )}
         </div>
 
         <section className="flex flex-col gap-2">
