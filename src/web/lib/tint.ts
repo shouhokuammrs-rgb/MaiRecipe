@@ -7,7 +7,7 @@ export function categoryTint(category: string): string {
       return "#D9E4CF";
     case "汁物":
       return "#EADFC8";
-    case "丼":
+    case "主食":
       return "#F3E3B8";
     case "デザート":
       return "#F0D6DE";

@@ -39,7 +39,7 @@ describe("おすすめ", () => {
       "しめじ",
       "醤油",
     ]);
-    const b = await create(me, "親子丼", "丼", ["鶏もも肉", "卵"]);
+    const b = await create(me, "親子丼", "主食", ["鶏もも肉", "卵"]);
     const c = await create(me, "豚汁", "汁物", ["豚こま肉", "大根"]);
     await create(me, "プリン", "デザート", ["卵"]);
     await api(me, "/pantry", {

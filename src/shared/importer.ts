@@ -142,17 +142,18 @@ export function durationLabel(v: Json): string {
 export function guessCategory(hints: string[]): Category {
   const s = hints.join(" ");
   if (
-    /デザート|スイーツ|お菓子|おやつ|ケーキ|プリン|クッキー|dessert|sweet/i.test(
+    /デザート|スイーツ|お菓子|おやつ|ケーキ|プリン|クッキー|ワッフル|クレープ|dessert|sweet/i.test(
       s,
     )
   )
     return "デザート";
+  // 主食は料理名（最初の手がかり）だけで見る。材料の「パン粉」「麺つゆ」「ピザ用チーズ」で主食にしない
   if (
-    /丼|どんぶり|カレー|チャーハン|炒飯|オムライス|ご飯もの|パスタ|麺|うどん|そば|ラーメン/i.test(
-      s,
+    /丼|どんぶり|カレー(?!粉|炒め)|チャーハン|炒飯|オムライス|ご飯もの|炊き込み|混ぜご飯|おにぎり|リゾット|カオマンガイ|ガパオ|ナシゴレン|ビリヤニ|パスタ|スパゲ|ナポリタン|麺(?!つゆ)|うどん|そば|そうめん|ラーメン|パン(?!粉|プキン|チェッタ)|トースト|サンドイッチ|ホットサンド|ピザ(?!用)/i.test(
+      (hints[0] ?? "").replace(/フライパン/g, ""),
     )
   )
-    return "丼";
+    return "主食";
   if (/汁|スープ|味噌汁|みそ汁|ポタージュ|soup/i.test(s)) return "汁物";
   if (/副菜|サラダ|和え|おひたし|小鉢|漬け|salad|side/i.test(s)) return "副菜";
   if (/主菜|メイン|main/i.test(s)) return "主菜";

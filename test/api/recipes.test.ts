@@ -217,7 +217,7 @@ describe("レビューで見つかった点の再発防止", () => {
     });
     const v3 = await api(me, `/recipes/${id}/versions`, {
       method: "POST",
-      body: { ...sampleRecipe, title: "v3", category: "丼" },
+      body: { ...sampleRecipe, title: "v3", category: "主食" },
     });
     const { versionId } = (await v3.json()) as { versionId: string };
     await api(me, `/recipes/${id}/versions/${versionId}`, { method: "DELETE" });

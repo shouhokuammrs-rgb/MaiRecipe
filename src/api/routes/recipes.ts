@@ -26,7 +26,9 @@ const tidy = <T extends { ingredients: { name: string; amount: string }[] }>(
 
 recipes.get("/", async (c) => {
   const q = (c.req.query("q") ?? "").trim().slice(0, 50);
-  const category = c.req.query("category");
+  // 古い画面の「丼」は主食で絞る（DEC-020）
+  const rawCategory = c.req.query("category");
+  const category = rawCategory === "丼" ? "主食" : rawCategory;
   const genre = c.req.query("genre");
   const list = await c.var.repo.listRecipes({
     q: q || undefined,
