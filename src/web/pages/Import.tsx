@@ -272,7 +272,7 @@ export function Import() {
               disabled={read.isPending || !url.trim()}
             >
               {read.isPending
-                ? "読み取り中…（AI を使うときは30秒〜1分ほど）"
+                ? "AI が読み取り中…（動画は1分ほど）"
                 : "読み取る"}
             </PrimaryButton>
             {read.isError && (
@@ -281,8 +281,9 @@ export function Import() {
               </p>
             )}
             <p className="text-xs leading-6 text-sub">
-              まず AI なしで読み、読めなかったときは自動で
-              AI（無料）を使います。それでも取れなければ、文章を貼るか、出典を残したまま手で入れられます。
+              サイトのレシピ情報があればそれを使い、無ければ
+              AI（無料）が読みます。動画は AI
+              が動画そのものを見て、手順まで書き出します。取れなければ、文章を貼るか、出典を残したまま手で入れられます。
             </p>
           </form>
         ) : (

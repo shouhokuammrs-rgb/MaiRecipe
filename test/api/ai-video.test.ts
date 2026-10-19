@@ -92,7 +92,7 @@ describe("Gemini の返事を読む", () => {
 });
 
 describe("手順が書かれていない動画は、Gemini に動画を見せる（DEC-018）", () => {
-  it("材料は概要欄から、手順は Gemini が動画から読んだものを使う", async () => {
+  it("動画は最初から Gemini に見せ、レシピ全体を Gemini の結果で作る（概要欄は手がかりとして渡す。DEC-019）", async () => {
     E.GEMINI_API_KEY = "test-gemini-key";
     const workersAi = { run: vi.fn(async () => ({ response: "{}" })) };
     E.AI = workersAi;
@@ -113,13 +113,8 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
       };
     };
     expect(j.found).toBe(true);
-    // 材料は投稿者が書いた概要欄のもの（4つ）。Gemini の 2 つではない
-    expect(j.draft.ingredients.map((i) => i.name)).toEqual([
-      "鶏もも肉",
-      "にんにく",
-      "米",
-      "しょうゆ",
-    ]);
+    // 材料・手順とも Gemini の結果（概要欄と後からつなぎ合わせない）
+    expect(j.draft.ingredients.map((i) => i.name)).toEqual(["鶏もも肉", "米"]);
     expect(j.draft.steps).toEqual([
       "米を洗う",
       "鶏肉に塩をすり込む",
@@ -279,5 +274,74 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
     ).json()) as { message: string };
     expect(pageFetches).toBe(1);
     expect(j.message).not.toContain("AI を使えません");
+  });
+
+  it("投稿者が貼ったページに構造化データがあれば、それを使って Gemini は呼ばない", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    const ld = `<html><head><script type="application/ld+json">${JSON.stringify(
+      {
+        "@type": "Recipe",
+        name: "ダミーのカオマンガイ",
+        recipeIngredient: ["鶏もも肉 1枚", "米 2合"],
+        recipeInstructions: ["米を研ぐ", "炊く"],
+      },
+    )}</script></head><body></body></html>`;
+    const seen = mockFetch(
+      () => geminiReply(GEMINI_RECIPE),
+      "作り方はこちら https://recipe.example.com/r/1",
+    );
+    const original = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const raw =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (new URL(raw).hostname === "recipe.example.com")
+        return new Response(ld, { headers: { "content-type": "text/html" } });
+      return original(input, init);
+    });
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", { method: "POST", body: { url: WATCH } })
+    ).json()) as {
+      message: string;
+      draft: { steps: string[]; sourceUrl: string; videoUrl: string };
+    };
+    expect(seen).toHaveLength(0);
+    expect(j.draft.steps).toEqual(["米を研ぐ", "炊く"]);
+    expect(j.draft.sourceUrl).toBe("https://recipe.example.com/r/1");
+    expect(j.draft.videoUrl).toBe(WATCH);
+    expect(j.message).toContain("AI なし");
+  });
+});
+
+describe("ページは構造化データが無ければ最初から AI で読む（DEC-019）", () => {
+  it("見出しから規則で読めるページでも、AI があれば AI の結果を使う", async () => {
+    const page = `<html><head><title>ダミーの煮物</title></head><body>
+      <h2>材料</h2><ul><li>大根 1/2本</li><li>しょうゆ 大さじ2</li></ul>
+      <h2>作り方</h2><ol><li>大根を切る</li><li>しょうゆで煮る</li></ol></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(page, { headers: { "content-type": "text/html" } }),
+    );
+    const ai = {
+      run: vi.fn(async () => ({
+        response:
+          '{"title":"煮物","ingredients":[{"name":"大根","amount":"1/2本"},{"name":"しょうゆ","amount":"大さじ2"}],"steps":["大根を切る","しょうゆで煮る"]}',
+      })),
+    };
+    E.AI = ai;
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", {
+        method: "POST",
+        body: { url: "https://example.com/nimono" },
+      })
+    ).json()) as { message: string; draft: { steps: string[] } };
+    expect(ai.run).toHaveBeenCalledTimes(1);
+    expect(j.message).toContain("AI（無料）で読み取りました");
+    expect(j.draft.steps).toEqual(["大根を切る", "しょうゆで煮る"]);
   });
 });

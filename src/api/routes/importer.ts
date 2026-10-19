@@ -104,6 +104,7 @@ function readText(
 async function readLinks(
   links: string[],
   deadline: number,
+  opts: { jsonLdOnly?: boolean } = {},
 ): Promise<(ImportedRecipe & { sourceUrl: string }) | null> {
   for (const link of links) {
     const remaining = deadline - Date.now();
@@ -119,6 +120,7 @@ async function readLinks(
     }
     const { recipe: r, via } = readPage(page);
     if (!r) continue;
+    if (opts.jsonLdOnly && via !== "jsonld") continue;
     // 見出しから読んだときは、材料と手順の両方が取れたページだけ（商品ページなどを避ける）
     if (via === "sections" && (!r.ingredients.length || !r.steps.length))
       continue;
@@ -142,196 +144,222 @@ type RuleBody = {
   notice?: string | null;
 };
 
-/**
- * 規則で読めなかった（材料か手順が 0）ときは、自動で AI（無料）に回す（DEC-017）。
- * AI でも読めなければ、規則の結果をそのまま返し、AI で読めなかった理由を添える
- */
-async function finishWithAi(c: Context<AppEnv>, body: RuleBody, url: string) {
-  const complete =
-    body.found &&
-    body.draft.ingredients.length > 0 &&
-    body.draft.steps.length > 0;
-  const canAi =
-    Boolean(c.env.AI) || (body.kind === "video" && canWatchVideo(c.env));
-  if (complete || !canAi) return c.json(body);
-  const ai = await readWithAi(c, { url, title: body.draft.title });
-  if (ai.ok) {
-    const aiDraft = ai.body.draft as {
-      ingredients: unknown[];
-      steps: unknown[];
-    };
-    // 動画で、材料は概要欄から読めていて AI が手順を取れたときは、
-    // 材料は概要欄（投稿者が書いた分量）を、手順は AI のものを使う
-    if (
-      body.kind === "video" &&
-      body.draft.ingredients.length > 0 &&
-      aiDraft.steps.length > 0
-    )
-      return c.json({
-        ...ai.body,
-        draft: {
-          ...(ai.body.draft as Record<string, unknown>),
-          title: body.draft.title,
-          ingredients: body.draft.ingredients,
-        },
-        message: ai.body.watched
-          ? "材料は概要欄から、手順は AI（無料）が動画を見て書き出しました。手順を確かめてから保存してください。"
-          : "材料は概要欄から、手順は AI（無料）で読み取りました。手順を確かめてから保存してください。",
-        notice:
-          [
-            body.notice,
-            /投稿者以外/.test(body.message)
-              ? "材料は投稿者以外の人のコメントから読んだので、分量を確かめてください。"
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" ") || null,
-      });
-    // 規則で一部は読めていて、AI の方が少なければ規則の方を残す
-    const aiScore = aiDraft.ingredients.length + aiDraft.steps.length;
-    const ruleScore = body.draft.ingredients.length + body.draft.steps.length;
-    if (aiScore > ruleScore)
-      return c.json({
-        ...ai.body,
-        message: body.found
-          ? "規則では一部しか読めなかったので、AI（無料）で読み直しました。分量と手順を確かめてから保存してください。"
-          : (ai.body.message as string),
-      });
-  }
-  return c.json({
-    ...body,
-    message: ai.ok ? body.message : `${body.message}（${ai.error}）`,
-  });
-}
+/** AI が1つでも使える設定か（鍵・バインディングがあるか） */
+const hasAnyAi = (c: Context<AppEnv>) =>
+  Boolean(c.env.AI) || canWatchVideo(c.env);
 
+/** AI が使えなかったとき、規則の結果に理由を添える */
+const withReason = (body: RuleBody, reason: string | null) =>
+  reason ? { ...body, message: `${body.message}（${reason}）` } : body;
+
+/**
+ * URL から取り込む（DEC-019：正確さを優先して一発で）。
+ * ① 作者が機械向けに書いたレシピ（構造化データ）があればそれ（速くて正確）
+ * ② 無ければ AI（動画は動画そのものを見る・ページは本文を読む）
+ * ③ AI が使えないときだけ、規則（見出し・概要欄の形）で読む
+ */
 importer.post("/", async (c) => {
   const parsed = importSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);
   const url = parsed.data.url;
-  const finish = (body: RuleBody) => finishWithAi(c, body, url);
 
   const video = parseVideoUrl(url);
   if (video) {
     const snip = await youtubeSnippet(c.env, video.id);
-    if (snip) {
-      const title = snip.title || "動画のレシピ";
-      const videoDraft = (recipe: ImportedRecipe) => ({
-        ...recipe,
-        title,
-        sourceUrl: video.watchUrl,
-        videoUrl: video.watchUrl,
+    const title = snip?.title || (await youtubeTitle(video.watchUrl)) || "";
+    // AI が無い設定では、今までどおり規則だけ（コメントは要るときだけ取りに行く）
+    if (!hasAnyAi(c)) return c.json(await videoByRules(c, video, snip, title));
+    const comments = snip
+      ? await youtubeComments(c.env, video.id, snip.channelId)
+      : [];
+    const ownerTexts = comments.filter((cm) => cm.byOwner).map((cm) => cm.text);
+
+    // ① 投稿者が概要欄・自分のコメントに貼ったレシピページの構造化データ
+    const deadline = Date.now() + LINKS_DEADLINE_MS;
+    const links = [
+      ...new Set([
+        ...pickRecipeUrls(snip?.description ?? "", 3),
+        ...ownerTexts.flatMap((t) => pickRecipeUrls(t, 3)),
+      ]),
+    ].slice(0, 4);
+    const fromLink = await readLinks(links, deadline, { jsonLdOnly: true });
+    if (fromLink)
+      return c.json({
+        kind: "video",
+        found: true,
+        draft: { ...fromLink, videoUrl: video.watchUrl },
+        message:
+          "動画の投稿者が載せたレシピのページから読み取りました（AI なし）。",
       });
-      // ① 概要欄の【材料】【作り方】の区切り、無ければ「名前...分量」の行の塊から
-      const fromDesc = readText(snip.description, title);
-      if (fromDesc) {
-        return finish({
-          kind: "video",
-          found: true,
-          draft: videoDraft(fromDesc.recipe),
-          message: "動画の概要欄から読み取りました（AI なし）。",
-          notice: fromDesc.notice,
-        });
-      }
-      // ② 概要欄に貼られた URL を上から順に（最大3件）。転送先が SNS・動画なら読まない
-      const deadline = Date.now() + LINKS_DEADLINE_MS;
-      const descLinks = pickRecipeUrls(snip.description, 3);
-      const fromLink = await readLinks(descLinks, deadline);
-      if (fromLink) {
-        return finish({
-          kind: "video",
-          found: true,
-          draft: { ...fromLink, videoUrl: video.watchUrl },
-          message:
-            "動画の概要欄にあるレシピのページから読み取りました（AI なし）。",
-        });
-      }
-      // ③ コメント（投稿者本人のものを先に、次に上位5件）を1件ずつ、概要欄と同じ読み方で
-      const comments = await youtubeComments(c.env, video.id, snip.channelId);
-      for (const comment of comments) {
-        const fromComment = readText(comment.text, title);
-        if (!fromComment) continue;
-        return finish({
-          kind: "video",
-          found: true,
-          draft: videoDraft(fromComment.recipe),
-          // 他の人のコメントはアレンジや書き間違いのことがあるので、分けて知らせる
-          message: comment.byOwner
-            ? "動画のコメントから読み取りました（投稿者本人・AI なし）。"
-            : "動画のコメントから読み取りました（投稿者以外の人のコメント・AI なし）。分量が合っているか確かめてから保存してください。",
-          notice: fromComment.notice,
-        });
-      }
-      // リンクは投稿者本人のコメントのものだけ（他の人のリンクは宣伝のことがある）
-      // 締め切りは概要欄のリンクと共通。概要欄で使い切っていれば、ここは読まない
-      const tried = new Set(descLinks);
-      const ownerLinks = [
-        ...new Set(
-          comments
-            .filter((cm) => cm.byOwner)
-            .flatMap((cm) => pickRecipeUrls(cm.text, 3)),
-        ),
-      ]
-        .filter((l) => !tried.has(l))
-        .slice(0, 3);
-      const fromOwnerLink = await readLinks(ownerLinks, deadline);
-      if (fromOwnerLink) {
-        return finish({
-          kind: "video",
-          found: true,
-          draft: { ...fromOwnerLink, videoUrl: video.watchUrl },
-          message:
-            "動画の投稿者のコメントにあるレシピのページから読み取りました（AI なし）。",
-        });
-      }
+
+    // ② AI（動画を見る → だめなら概要欄と投稿者のコメントを読む）
+    let reason: string | null = null;
+    if (hasAnyAi(c)) {
+      const source = [snip?.description ?? "", ...ownerTexts]
+        .filter(Boolean)
+        .join("\n\n");
+      const ai = await readWithAi(c, { url }, { source, title });
+      if (ai.ok) return c.json(ai.body);
+      // 「AI でも読めなかった」は規則の結果で十分。上限・不通のときだけ理由を添える
+      reason = ai.status === 422 ? null : ai.error;
     }
-    const title = snip?.title || (await youtubeTitle(video.watchUrl));
-    return finish({
-      kind: "video",
-      found: false,
-      draft: {
-        title: title || "動画のレシピ",
-        ingredients: [],
-        steps: [],
-        timeLabel: "",
-        category: guessCategory([title]),
-        genre: guessGenre([title]),
-        sourceUrl: video.watchUrl,
-        videoUrl: video.watchUrl,
-      },
-      message:
-        "動画はアプリ内で再生できます。材料と作り方は、動画を見ながら入れてください。",
-    });
+
+    // ③ 規則
+    return c.json(
+      withReason(await videoByRules(c, video, snip, title, comments), reason),
+    );
   }
 
-  const page = await scanPage(url);
+  const page = await scanPage(url, { collectText: hasAnyAi(c) });
   const { recipe, via } = readPage(page);
-  if (!recipe) {
-    return finish({
+  // ① 構造化データ
+  if (recipe && via === "jsonld")
+    return c.json({
       kind: "page",
-      found: false,
-      draft: {
-        title: page.title || "取り込んだレシピ",
-        ingredients: [],
-        steps: [],
-        timeLabel: "",
-        category: guessCategory([page.title]),
-        genre: guessGenre([page.title]),
-        sourceUrl: url,
-        videoUrl: null,
-      },
-      message: NOT_FOUND_MESSAGE,
+      found: true,
+      draft: { ...recipe, sourceUrl: url },
+      message: "ページの構造化データから読み取りました（AI なし）。",
     });
+
+  // ② AI（ページの本文）
+  let reason: string | null = null;
+  if (c.env.AI) {
+    const ai = await readWithAi(
+      c,
+      { url },
+      { source: page.bodyText, title: page.title },
+    );
+    if (ai.ok) return c.json(ai.body);
+    reason = ai.status === 422 ? null : ai.error;
   }
-  return finish({
-    kind: "page",
-    found: true,
-    draft: { ...recipe, sourceUrl: url },
-    message:
-      via === "jsonld"
-        ? "ページの構造化データから読み取りました（AI なし）。"
-        : "ページの「材料」「作り方」の見出しから読み取りました（AI なし）。内容を確かめてから保存してください。",
-  });
+
+  // ③ 規則（見出しの後から）
+  if (!recipe)
+    return c.json(
+      withReason(
+        {
+          kind: "page",
+          found: false,
+          draft: {
+            title: page.title || "取り込んだレシピ",
+            ingredients: [],
+            steps: [],
+            timeLabel: "",
+            category: guessCategory([page.title]),
+            genre: guessGenre([page.title]),
+            sourceUrl: url,
+            videoUrl: null,
+          },
+          message: NOT_FOUND_MESSAGE,
+        },
+        reason,
+      ),
+    );
+  return c.json(
+    withReason(
+      {
+        kind: "page",
+        found: true,
+        draft: { ...recipe, sourceUrl: url },
+        message:
+          "ページの「材料」「作り方」の見出しから読み取りました（AI なし）。内容を確かめてから保存してください。",
+      },
+      reason,
+    ),
+  );
 });
+
+/** AI が使えないときの、動画の規則での読み方（概要欄 → 貼られたページ → コメント） */
+async function videoByRules(
+  c: Context<AppEnv>,
+  video: NonNullable<ReturnType<typeof parseVideoUrl>>,
+  snip: Awaited<ReturnType<typeof youtubeSnippet>>,
+  rawTitle: string,
+  /** 既に取ってあればそれを使う。無ければ要るときだけ取りに行く */
+  fetched?: Awaited<ReturnType<typeof youtubeComments>>,
+): Promise<RuleBody> {
+  const title = rawTitle || "動画のレシピ";
+  const videoDraft = (recipe: ImportedRecipe) => ({
+    ...recipe,
+    title,
+    sourceUrl: video.watchUrl,
+    videoUrl: video.watchUrl,
+  });
+  if (snip) {
+    const fromDesc = readText(snip.description, title);
+    if (fromDesc)
+      return {
+        kind: "video",
+        found: true,
+        draft: videoDraft(fromDesc.recipe),
+        message: "動画の概要欄から読み取りました（AI なし）。",
+        notice: fromDesc.notice,
+      };
+    const deadline = Date.now() + LINKS_DEADLINE_MS;
+    const descLinks = pickRecipeUrls(snip.description, 3);
+    const fromLink = await readLinks(descLinks, deadline);
+    if (fromLink)
+      return {
+        kind: "video",
+        found: true,
+        draft: { ...fromLink, videoUrl: video.watchUrl },
+        message:
+          "動画の概要欄にあるレシピのページから読み取りました（AI なし）。",
+      };
+    const comments =
+      fetched ?? (await youtubeComments(c.env, video.id, snip.channelId));
+    for (const comment of comments) {
+      const fromComment = readText(comment.text, title);
+      if (!fromComment) continue;
+      return {
+        kind: "video",
+        found: true,
+        draft: videoDraft(fromComment.recipe),
+        // 他の人のコメントはアレンジや書き間違いのことがあるので、分けて知らせる
+        message: comment.byOwner
+          ? "動画のコメントから読み取りました（投稿者本人・AI なし）。"
+          : "動画のコメントから読み取りました（投稿者以外の人のコメント・AI なし）。分量が合っているか確かめてから保存してください。",
+        notice: fromComment.notice,
+      };
+    }
+    // リンクは投稿者本人のコメントのものだけ（他の人のリンクは宣伝のことがある）
+    const tried = new Set(descLinks);
+    const ownerLinks = [
+      ...new Set(
+        comments
+          .filter((cm) => cm.byOwner)
+          .flatMap((cm) => pickRecipeUrls(cm.text, 3)),
+      ),
+    ]
+      .filter((l) => !tried.has(l))
+      .slice(0, 3);
+    const fromOwnerLink = await readLinks(ownerLinks, deadline);
+    if (fromOwnerLink)
+      return {
+        kind: "video",
+        found: true,
+        draft: { ...fromOwnerLink, videoUrl: video.watchUrl },
+        message:
+          "動画の投稿者のコメントにあるレシピのページから読み取りました（AI なし）。",
+      };
+  }
+  return {
+    kind: "video",
+    found: false,
+    draft: {
+      title,
+      ingredients: [],
+      steps: [],
+      timeLabel: "",
+      category: guessCategory([title]),
+      genre: guessGenre([title]),
+      sourceUrl: video.watchUrl,
+      videoUrl: video.watchUrl,
+    },
+    message:
+      "動画はアプリ内で再生できます。材料と作り方は、動画を見ながら入れてください。",
+  };
+}
 
 /**
  * AI で読み取る（押した時だけ。DEC-012 / #36）。規則で読めなかったときに画面から呼ぶ。
@@ -347,14 +375,17 @@ type AiOutcome =
 async function readWithAi(
   c: Context<AppEnv>,
   input: AiInput,
+  /** 取り込みで既に取ってきた文章（もう一度取りに行かない） */
+  pre?: { source: string; title: string },
 ): Promise<AiOutcome> {
   const { url, text } = input;
-  let title = input.title ?? "";
-  let source = text ?? "";
+  let title = input.title ?? pre?.title ?? "";
+  let source = text ?? pre?.source ?? "";
+  const prefetched = Boolean(pre);
   let sourceUrl: string | null = url ? cleanSourceUrl(url) : null;
   const video = url ? parseVideoUrl(url) : null;
 
-  if (!source && video) {
+  if (!source && !prefetched && video) {
     const snip = await youtubeSnippet(c.env, video.id);
     // 説明が取れなくても、動画を見る AI は URL だけで読める
     if (!snip && !canWatchVideo(c.env))
@@ -373,7 +404,7 @@ async function readWithAi(
         .filter(Boolean)
         .join("\n\n");
     }
-  } else if (!source && url) {
+  } else if (!source && !prefetched && url) {
     const page = await scanPage(url, { collectText: true });
     title = title || page.title;
     source = page.bodyText;
