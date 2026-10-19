@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import "./index.css";
+import { CookMode } from "./pages/CookMode";
 import { Find } from "./pages/Find";
 import { Fridge } from "./pages/Fridge";
 import { Import } from "./pages/Import";
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
       { path: "recipes/new", element: <RecipeNew /> },
       { path: "recipes/:id", element: <RecipeDetail /> },
       { path: "recipes/:id/edit", element: <RecipeEdit /> },
+      { path: "recipes/:id/cook", element: <CookMode /> },
       { path: "plan", element: <Plan /> },
       { path: "fridge", element: <Fridge /> },
       { path: "shopping", element: <Shopping /> },
