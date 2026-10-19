@@ -8,7 +8,8 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    cloudflare(),
+    // AI は本物（リモート）に繋がない。ローカルでは鍵なしで動かし、AI は「使えない」扱いになる
+    cloudflare({ remoteBindings: false }),
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: "auto",
