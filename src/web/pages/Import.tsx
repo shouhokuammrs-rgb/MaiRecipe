@@ -271,7 +271,9 @@ export function Import() {
               type="submit"
               disabled={read.isPending || !url.trim()}
             >
-              {read.isPending ? "読み取り中…" : "読み取る"}
+              {read.isPending
+                ? "読み取り中…（AI を使うときは30秒ほど）"
+                : "読み取る"}
             </PrimaryButton>
             {read.isError && (
               <p role="alert" className="text-sm text-danger">
@@ -279,8 +281,8 @@ export function Import() {
               </p>
             )}
             <p className="text-xs leading-6 text-sub">
-              読み取りは AI を使いません。うまく取れなかったときは「AI
-              で読み取る（無料）」か、文章を貼って読み取るか、手で入れられます。
+              まず AI なしで読み、読めなかったときは自動で
+              AI（無料）を使います。それでも取れなければ、文章を貼るか、出典を残したまま手で入れられます。
             </p>
           </form>
         ) : (

@@ -179,3 +179,82 @@ describe("URL から AI で読み取る", () => {
     expect(j.draft.sourceUrl).toBe("https://example.com/nimono");
   });
 });
+
+describe("規則で読めなかったら自動で AI に回す（DEC-017）", () => {
+  const NO_RECIPE_HTML = `<!doctype html><html><head><title>ダミーの煮物</title></head><body>
+    <article><p>今日はダミーの煮物です。大根 1/2本、しょうゆ 大さじ2 を用意します。</p>
+    <p>大根を切って、しょうゆで煮ます。</p></article></body></html>`;
+  const AI_JSON =
+    '{"title":"煮物","ingredients":[{"name":"大根","amount":"1/2本"},{"name":"しょうゆ","amount":"大さじ2"}],"steps":["大根を切る","しょうゆで煮る"]}';
+
+  it("ボタンを押さなくても、読めなかったページは AI の結果が返る", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(NO_RECIPE_HTML, {
+          headers: { "content-type": "text/html" },
+        }),
+    );
+    const ai = stubAi(async () => ({ response: AI_JSON }));
+    const me = await signUp();
+    const res = await api(me, "/import", {
+      method: "POST",
+      body: { url: "https://example.com/nimono" },
+    });
+    const j = (await res.json()) as {
+      found: boolean;
+      message: string;
+      draft: { ingredients: unknown[]; steps: unknown[] };
+    };
+    expect(j.found).toBe(true);
+    expect(j.message).toContain("AI");
+    expect(j.draft.ingredients).toHaveLength(2);
+    expect(ai.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("AI も使えなければ、規則の結果に理由を添えて返す", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(NO_RECIPE_HTML, {
+          headers: { "content-type": "text/html" },
+        }),
+    );
+    stubAi(async () => {
+      throw new Error("daily neurons limit exceeded");
+    });
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", {
+        method: "POST",
+        body: { url: "https://example.com/nimono" },
+      })
+    ).json()) as { found: boolean; message: string };
+    expect(j.found).toBe(false);
+    expect(j.message).toContain("無料分");
+  });
+
+  it("規則で読めたページは AI を呼ばない", async () => {
+    const LD = `<html><head><script type="application/ld+json">${JSON.stringify(
+      {
+        "@type": "Recipe",
+        name: "ダミー",
+        recipeIngredient: ["大根 1/2本"],
+        recipeInstructions: ["切る", "煮る"],
+      },
+    )}</script></head><body></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(LD, { headers: { "content-type": "text/html" } }),
+    );
+    const ai = stubAi(async () => ({ response: AI_JSON }));
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", {
+        method: "POST",
+        body: { url: "https://example.com/ld" },
+      })
+    ).json()) as { found: boolean; message: string };
+    expect(j.found).toBe(true);
+    expect(j.message).not.toContain("AI（無料）");
+    expect(ai.run).not.toHaveBeenCalled();
+  });
+});
