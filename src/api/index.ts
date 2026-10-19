@@ -7,6 +7,7 @@ import { importer } from "./routes/importer";
 import { pantry } from "./routes/pantry";
 import { plans, shopping } from "./routes/plans";
 import { recipes } from "./routes/recipes";
+import { recommend } from "./routes/recommend";
 import { requireUser } from "./auth/session";
 
 const app = new Hono<AppEnv>();
@@ -31,6 +32,7 @@ api.route("/import", importer);
 api.route("/plans", plans);
 api.route("/shopping", shopping);
 api.route("/pantry", pantry);
+api.route("/recommend", recommend);
 api.route("/group", group);
 api.route("/invites", invites);
 

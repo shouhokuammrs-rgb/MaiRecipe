@@ -5,6 +5,7 @@
 import { and, asc, count, desc, eq, gte, lte, max, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { Ingredient } from "../../shared/recipe";
+import type { RecoRecipe } from "../../shared/recommend";
 import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
@@ -545,6 +546,29 @@ export function forGroup(db: Db, groupId: string) {
       return rows.map((r) => ({
         id: r.id,
         title: r.title,
+        ingredients: latest.get(r.id)?.ingredients ?? [],
+      }));
+    },
+
+    /** おすすめ用：レシピの分類・更新日時と、最新版の材料 */
+    async recommendRecipes(): Promise<RecoRecipe[]> {
+      const [latest, rows] = await Promise.all([
+        latestVersionsInGroup(),
+        db
+          .select({
+            id: s.recipes.id,
+            title: s.recipes.title,
+            category: s.recipes.category,
+            updatedAt: s.recipes.updatedAt,
+          })
+          .from(s.recipes)
+          .where(inGroup),
+      ]);
+      return rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        category: r.category,
+        updatedAt: r.updatedAt.getTime(),
         ingredients: latest.get(r.id)?.ingredients ?? [],
       }));
     },

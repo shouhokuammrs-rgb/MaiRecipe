@@ -98,21 +98,24 @@ const MEAT_FISH_EGG =
 const VEG =
   /野菜|ねぎ|玉ねぎ|にんじん|じゃがいも|キャベツ|白菜|大根|なす|ピーマン|パプリカ|トマト|きゅうり|ほうれん草|小松菜|ブロッコリー|もやし|レタス|かぼちゃ|ごぼう|れんこん|さつまいも|里芋|しょうが|にんにく|きのこ|しめじ|えのき|しいたけ|舞茸|まいたけ|エリンギ|アボカド|オクラ|ニラ|にら|水菜|セロリ|アスパラ|豆苗|大葉|みょうが|レモン|りんご|バナナ/;
 
-export function shopSection(name: string): ShopSection {
-  const n = canonicalName(name);
+/** 名寄せ済みの名前から売り場を判定する（canonicalName をやり直さない） */
+export function sectionOfCanonical(n: string): ShopSection {
   if (SEASONINGS.includes(n)) return "調味料";
   if (MEAT_FISH_EGG.test(n)) return "肉・魚・卵";
   if (VEG.test(n)) return "野菜・きのこ";
   return "その他";
 }
 
+export function shopSection(name: string): ShopSection {
+  return sectionOfCanonical(canonicalName(name));
+}
+
 /**
  * 「材料から探す」で入れた言葉が、レシピの材料名に当たるか。
  * 部分一致に加え、「鶏肉」は「鶏むね肉」「鶏もも肉」にも当てる。
  */
-export function matchesIngredient(term: string, name: string): boolean {
-  const t = canonicalName(term);
-  const n = canonicalName(name);
+/** 名寄せ済みの名前どうしで判定する（canonicalName をやり直さない） */
+export function matchesCanonical(t: string, n: string): boolean {
   if (!t || !n) return false;
   if (n.includes(t) || t.includes(n)) return true;
   if (t.length >= 2 && t.endsWith("肉")) {
@@ -120,4 +123,8 @@ export function matchesIngredient(term: string, name: string): boolean {
     if (n.startsWith(head) && n.includes("肉")) return true;
   }
   return false;
+}
+
+export function matchesIngredient(term: string, name: string): boolean {
+  return matchesCanonical(canonicalName(term), canonicalName(name));
 }
