@@ -40,7 +40,7 @@ const RECENT_PENALTY = 25;
 const PLANNED_PENALTY = 60;
 
 export function slotOf(category: string): RecoSlot | null {
-  if (category === "主菜" || category === "丼") return "main";
+  if (category === "主菜" || category === "主食") return "main";
   if (category === "副菜") return "side";
   if (category === "汁物") return "soup";
   return null;

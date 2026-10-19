@@ -148,11 +148,11 @@ export function guessCategory(hints: string[]): Category {
   )
     return "デザート";
   if (
-    /丼|どんぶり|カレー|チャーハン|炒飯|オムライス|ご飯もの|パスタ|麺|うどん|そば|ラーメン/i.test(
+    /丼|どんぶり|カレー|チャーハン|炒飯|オムライス|ご飯もの|炊き込み|混ぜご飯|おにぎり|リゾット|カオマンガイ|ガパオ|ナシゴレン|ビリヤニ|パスタ|スパゲ|ナポリタン|麺|うどん|そば|ラーメン|焼きそば|パン|トースト|サンド|ピザ/i.test(
       s,
     )
   )
-    return "丼";
+    return "主食";
   if (/汁|スープ|味噌汁|みそ汁|ポタージュ|soup/i.test(s)) return "汁物";
   if (/副菜|サラダ|和え|おひたし|小鉢|漬け|salad|side/i.test(s)) return "副菜";
   if (/主菜|メイン|main/i.test(s)) return "主菜";

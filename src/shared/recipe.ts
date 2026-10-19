@@ -3,6 +3,12 @@ import { z } from "zod";
 import { formatAmount, parseAmount } from "./amount";
 import { CATEGORIES, GENRES, LIMITS, MEALS } from "./constants";
 
+/** 古い画面（キャッシュされた PWA）から「丼」が来ても受け取り、主食にする（DEC-020） */
+const categorySchema = z.preprocess(
+  (v) => (v === "丼" ? "主食" : v),
+  z.enum(CATEGORIES),
+);
+
 export const ingredientSchema = z.object({
   name: z.string().trim().min(1).max(LIMITS.ingredientNameMax),
   amount: z.string().trim().max(LIMITS.amountMax).default(""),
@@ -24,7 +30,7 @@ const videoUrl = z
 /** 新しくレシピを作るとき（取り込み・手入力のどちらも） */
 export const createRecipeSchema = z.object({
   title: z.string().trim().min(1).max(LIMITS.titleMax),
-  category: z.enum(CATEGORIES),
+  category: categorySchema,
   genre: z.enum(GENRES),
   timeLabel: z.string().trim().max(20).default(""),
   sourceUrl: videoUrl.nullable().default(null),
@@ -38,7 +44,7 @@ export type CreateRecipeInput = z.infer<typeof createRecipeSchema>;
 /** 編集して新しい版を作るとき。出典（sourceUrl）は変えられない */
 export const newVersionSchema = z.object({
   title: z.string().trim().min(1).max(LIMITS.titleMax),
-  category: z.enum(CATEGORIES),
+  category: categorySchema,
   genre: z.enum(GENRES),
   timeLabel: z.string().trim().max(20).default(""),
   ingredients: ingredientsSchema,

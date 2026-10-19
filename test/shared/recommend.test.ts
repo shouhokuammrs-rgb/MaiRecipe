@@ -23,9 +23,9 @@ const r = (
 });
 
 describe("分類", () => {
-  it("主菜と丼は main、副菜は side、汁物は soup、ほかは出さない", () => {
+  it("主菜と主食は main、副菜は side、汁物は soup、ほかは出さない", () => {
     expect(slotOf("主菜")).toBe("main");
-    expect(slotOf("丼")).toBe("main");
+    expect(slotOf("主食")).toBe("main");
     expect(slotOf("副菜")).toBe("side");
     expect(slotOf("汁物")).toBe("soup");
     expect(slotOf("デザート")).toBeNull();
@@ -133,7 +133,7 @@ describe("分類ごとの並び", () => {
     const recipes = [
       r("古い主菜", "主菜", ["鮭"], 1),
       r("新しい主菜", "主菜", ["鮭"], 2),
-      r("丼", "丼", ["玉ねぎ"], 3),
+      r("丼", "主食", ["玉ねぎ"], 3),
       r("副菜", "副菜", ["ほうれん草"], 0),
       r("プリン", "デザート", ["卵"], 9),
       ...Array.from({ length: 12 }, (_, i) =>

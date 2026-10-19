@@ -164,7 +164,7 @@ describe("recipeFromSections", () => {
       ],
       steps: ["しめじをほぐす。", "スパゲッティを&ゆでる。"],
       timeLabel: "",
-      category: "主菜",
+      category: "主食",
       genre: "その他",
       videoUrl: null,
     });
@@ -535,5 +535,23 @@ describe("見出しの無い読み取り：本番で読めなかった形", () =
       "【ダミー】\n魚 4尾\n塩 少々\n油 大さじ1\n＝A＝\n魚 1尾\n＝B＝\n魚 1尾\n焼く",
     );
     expect(r?.overlaps).toEqual([]);
+  });
+});
+
+describe("カテゴリの推測（DEC-020：丼は主食にまとめる）", () => {
+  it("ご飯もの・麺・パンは主食", async () => {
+    const { guessCategory } = await import("../../src/shared/importer");
+    for (const t of [
+      "親子丼",
+      "ナポリタン（パスタ）",
+      "焼きうどん",
+      "炊き込みご飯",
+      "カオマンガイ",
+      "ホットサンド",
+      "ピザトースト",
+    ])
+      expect(guessCategory([t])).toBe("主食");
+    expect(guessCategory(["鮭のホイル焼き"])).toBe("主菜");
+    expect(guessCategory(["かぼちゃのスープ"])).toBe("汁物");
   });
 });
