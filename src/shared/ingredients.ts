@@ -58,6 +58,17 @@ export function canonicalName(raw: string): string {
   return ALIASES[s] ?? s;
 }
 
+/** 同じ食材として扱う書き方を全部返す（「玉ねぎ」→ 玉ねぎ・たまねぎ・玉葱・タマネギ） */
+export function aliasesOf(raw: string): string[] {
+  const c = canonicalName(raw);
+  return [
+    c,
+    ...Object.entries(ALIASES)
+      .filter(([, v]) => v === c)
+      .map(([k]) => k),
+  ];
+}
+
 const SEASONINGS = [
   "醤油",
   "砂糖",

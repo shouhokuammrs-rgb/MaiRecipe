@@ -2,7 +2,7 @@
 // サイトは JSON-LD の Recipe から、無ければ「材料」「作り方」の見出しの後から読む。
 // YouTube は概要欄の【材料】【作り方】から、無ければ概要欄に貼られたレシピページ、
 // それも無ければ動画のコメント（投稿者本人のものを先に）から読む。AI は使わない。
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   cleanSourceUrl,
   extractRecipeFromJsonLd,
@@ -17,6 +17,17 @@ import {
   type ImportedRecipe,
 } from "../../shared/importer";
 import { LIMITS } from "../../shared/constants";
+import {
+  aiReadSchema,
+  findUnverified,
+  unverifiedNotice,
+} from "../../shared/ai-read";
+import {
+  AiBadOutput,
+  AiQuotaExceeded,
+  AiUnavailable,
+  readRecipeWithAi,
+} from "../ai";
 import { importSchema } from "../../shared/recipe";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
@@ -115,10 +126,57 @@ async function readLinks(
   return null;
 }
 
+type RuleBody = {
+  kind: "video" | "page";
+  found: boolean;
+  draft: {
+    title: string;
+    ingredients: unknown[];
+    steps: unknown[];
+    sourceUrl: string;
+  } & Record<string, unknown>;
+  message: string;
+  notice?: string | null;
+};
+
+/**
+ * 規則で読めなかった（材料か手順が 0）ときは、自動で AI（無料）に回す（DEC-017）。
+ * AI でも読めなければ、規則の結果をそのまま返し、AI で読めなかった理由を添える
+ */
+async function finishWithAi(c: Context<AppEnv>, body: RuleBody, url: string) {
+  const complete =
+    body.found &&
+    body.draft.ingredients.length > 0 &&
+    body.draft.steps.length > 0;
+  if (complete || !c.env.AI) return c.json(body);
+  const ai = await readWithAi(c, { url, title: body.draft.title });
+  if (ai.ok) {
+    const aiDraft = ai.body.draft as {
+      ingredients: unknown[];
+      steps: unknown[];
+    };
+    // 規則で一部は読めていて、AI の方が少なければ規則の方を残す
+    const aiScore = aiDraft.ingredients.length + aiDraft.steps.length;
+    const ruleScore = body.draft.ingredients.length + body.draft.steps.length;
+    if (aiScore > ruleScore)
+      return c.json({
+        ...ai.body,
+        message: body.found
+          ? "規則では一部しか読めなかったので、AI（無料）で読み直しました。分量と手順を確かめてから保存してください。"
+          : (ai.body.message as string),
+      });
+  }
+  return c.json({
+    ...body,
+    message: ai.ok ? body.message : `${body.message}（${ai.error}）`,
+  });
+}
+
 importer.post("/", async (c) => {
   const parsed = importSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);
   const url = parsed.data.url;
+  const finish = (body: RuleBody) => finishWithAi(c, body, url);
 
   const video = parseVideoUrl(url);
   if (video) {
@@ -134,7 +192,7 @@ importer.post("/", async (c) => {
       // ① 概要欄の【材料】【作り方】の区切り、無ければ「名前...分量」の行の塊から
       const fromDesc = readText(snip.description, title);
       if (fromDesc) {
-        return c.json({
+        return finish({
           kind: "video",
           found: true,
           draft: videoDraft(fromDesc.recipe),
@@ -147,7 +205,7 @@ importer.post("/", async (c) => {
       const descLinks = pickRecipeUrls(snip.description, 3);
       const fromLink = await readLinks(descLinks, deadline);
       if (fromLink) {
-        return c.json({
+        return finish({
           kind: "video",
           found: true,
           draft: { ...fromLink, videoUrl: video.watchUrl },
@@ -160,7 +218,7 @@ importer.post("/", async (c) => {
       for (const comment of comments) {
         const fromComment = readText(comment.text, title);
         if (!fromComment) continue;
-        return c.json({
+        return finish({
           kind: "video",
           found: true,
           draft: videoDraft(fromComment.recipe),
@@ -185,7 +243,7 @@ importer.post("/", async (c) => {
         .slice(0, 3);
       const fromOwnerLink = await readLinks(ownerLinks, deadline);
       if (fromOwnerLink) {
-        return c.json({
+        return finish({
           kind: "video",
           found: true,
           draft: { ...fromOwnerLink, videoUrl: video.watchUrl },
@@ -195,7 +253,7 @@ importer.post("/", async (c) => {
       }
     }
     const title = snip?.title || (await youtubeTitle(video.watchUrl));
-    return c.json({
+    return finish({
       kind: "video",
       found: false,
       draft: {
@@ -216,7 +274,7 @@ importer.post("/", async (c) => {
   const page = await scanPage(url);
   const { recipe, via } = readPage(page);
   if (!recipe) {
-    return c.json({
+    return finish({
       kind: "page",
       found: false,
       draft: {
@@ -232,7 +290,7 @@ importer.post("/", async (c) => {
       message: NOT_FOUND_MESSAGE,
     });
   }
-  return c.json({
+  return finish({
     kind: "page",
     found: true,
     draft: { ...recipe, sourceUrl: url },
@@ -241,4 +299,109 @@ importer.post("/", async (c) => {
         ? "ページの構造化データから読み取りました（AI なし）。"
         : "ページの「材料」「作り方」の見出しから読み取りました（AI なし）。内容を確かめてから保存してください。",
   });
+});
+
+/**
+ * AI で読み取る（押した時だけ。DEC-012 / #36）。規則で読めなかったときに画面から呼ぶ。
+ * 文章が来ればそれを、URL だけならページの本文・動画の概要欄とコメントを AI に渡す。
+ * 保存はしない（画面で確かめてから POST /api/recipes）。元の文に無い材料は消さずに知らせる
+ */
+type AiInput = { url?: string; text?: string; title?: string };
+type AiOutcome =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: 422 | 429 | 503; error: string };
+
+/** AI（無料）で読み取った下書きを作る。ボタンからも、規則で読めなかったときの自動の予備からも使う */
+async function readWithAi(
+  c: Context<AppEnv>,
+  input: AiInput,
+): Promise<AiOutcome> {
+  const { url, text } = input;
+  let title = input.title ?? "";
+  let source = text ?? "";
+  let sourceUrl: string | null = url ? cleanSourceUrl(url) : null;
+  const video = url ? parseVideoUrl(url) : null;
+
+  if (!source && video) {
+    const snip = await youtubeSnippet(c.env, video.id);
+    if (!snip)
+      return {
+        ok: false,
+        status: 422,
+        error: "動画の説明を取れませんでした。概要欄を貼って試してください。",
+      };
+    title = title || snip.title;
+    const comments = await youtubeComments(c.env, video.id, snip.channelId);
+    source = [
+      snip.description,
+      ...comments.filter((cm) => cm.byOwner).map((cm) => cm.text),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  } else if (!source && url) {
+    const page = await scanPage(url, { collectText: true });
+    title = title || page.title;
+    source = page.bodyText;
+    sourceUrl = cleanSourceUrl(page.url) ?? sourceUrl;
+  }
+  if (source.trim().length < 20)
+    return {
+      ok: false,
+      status: 422,
+      error: "読み取れる文章がありませんでした。",
+    };
+
+  let recipe;
+  try {
+    recipe = await readRecipeWithAi(c.env, source, title);
+  } catch (e) {
+    if (e instanceof AiQuotaExceeded)
+      return {
+        ok: false,
+        status: 429,
+        error: "今日の AI の無料分を使い切りました。明日また使えます。",
+      };
+    if (e instanceof AiUnavailable)
+      return {
+        ok: false,
+        status: 503,
+        error: "今は AI を使えません。少し待ってからもう一度試してください。",
+      };
+    if (e instanceof AiBadOutput)
+      return {
+        ok: false,
+        status: 422,
+        error: "AI でもレシピを読み取れませんでした。手で入れてください。",
+      };
+    throw e;
+  }
+  const finalTitle = recipe.title || title || "AI で読み取ったレシピ";
+  const hints = [finalTitle, ...recipe.ingredients.map((i) => i.name)];
+  return {
+    ok: true,
+    body: {
+      kind: video ? "video" : "page",
+      found: true,
+      draft: {
+        title: finalTitle.slice(0, LIMITS.titleMax),
+        ingredients: recipe.ingredients,
+        steps: recipe.steps,
+        timeLabel: recipe.timeLabel,
+        category: guessCategory(hints),
+        genre: guessGenre(hints),
+        sourceUrl: video?.watchUrl ?? sourceUrl ?? url ?? "",
+        videoUrl: video?.watchUrl ?? null,
+      },
+      message:
+        "AI（無料）で読み取りました。AI は間違えることがあるので、分量と手順を確かめてから保存してください。",
+      notice: unverifiedNotice(findUnverified(recipe.ingredients, source)),
+    },
+  };
+}
+
+importer.post("/ai", async (c) => {
+  const parsed = aiReadSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return badRequest(c, parsed.error);
+  const r = await readWithAi(c, parsed.data);
+  return r.ok ? c.json(r.body) : c.json({ error: r.error }, r.status);
 });

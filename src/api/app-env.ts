@@ -1,5 +1,6 @@
 import type { GroupRepo } from "./data";
 import type { membershipFor } from "./data/membership";
+import type { WorkersAiBinding } from "./platform/workers-ai";
 
 export type AppBindings = {
   DB: D1Database;
@@ -10,6 +11,8 @@ export type AppBindings = {
   DEV_LOGIN?: string;
   /** YouTube Data API v3 の鍵（任意。無ければ動画は題名だけ）。使うのは platform/ だけ。DEC-014 */
   YOUTUBE_API_KEY?: string;
+  /** Workers AI（鍵不要・無料枠）。「AI で読み取る」だけが src/api/ai/ 経由で使う。#36 */
+  AI?: WorkersAiBinding;
 };
 
 export type SessionUser = {

@@ -69,7 +69,11 @@ export type ScanOptions = {
   timeoutMs?: number;
   maxRedirects?: number;
   maxBytes?: number;
+  /** 本文の文字も集める（「AI で読み取る」用。上限 BODY_TEXT_MAX 文字） */
+  collectText?: boolean;
 };
+
+const BODY_TEXT_MAX = 12_000;
 
 /** リダイレクトは自分でたどり、行き先ごとに assertPublicHttpUrl（と allowHost）を通す */
 async function fetchPublic(
@@ -121,6 +125,8 @@ export type PageScan = {
   sections: { ingredients: RawIngredient[]; steps: string[] };
   /** 転送をたどった後の URL */
   url: string;
+  /** 本文の文字（collectText のときだけ。ヘッダー・メニュー・script は除く） */
+  bodyText: string;
 };
 
 const HEADINGS =
@@ -211,6 +217,8 @@ export async function scanPage(
   } | null = null;
   let listOpen = false;
   let chromeDepth = 0;
+  let skipDepth = 0;
+  let bodyText = "";
   const openHeadings: { text: string }[] = [];
   let item: { tag: string; text: string } | null = null;
   let itemDepth = 0;
@@ -461,12 +469,39 @@ export async function scanPage(
     })
     .onDocument({
       text(t) {
+        if (
+          opts.collectText &&
+          skipDepth === 0 &&
+          chromeDepth === 0 &&
+          bodyText.length < BODY_TEXT_MAX
+        )
+          bodyText += t.text;
         if (!item && openHeadings.length === 0) return;
         for (const h of openHeadings)
           if (h.text.length < MAX_HEADING_CHARS) h.text += t.text;
         if (item && item.text.length < MAX_ITEM_CHARS) item.text += t.text;
       },
     });
+
+  // 本文を集めるのは「AI で読み取る」のときだけ（ふだんの取り込みの CPU を増やさない）
+  if (opts.collectText)
+    rewriter
+      .on("script, style, noscript, svg, template, iframe", {
+        element(el) {
+          skipDepth++;
+          if (
+            !onEnd(el, () => {
+              skipDepth = Math.max(0, skipDepth - 1);
+            })
+          )
+            skipDepth--;
+        },
+      })
+      .on("p, li, dt, dd, td, th, h1, h2, h3, h4, h5, h6, br, div", {
+        element() {
+          if (bodyText && !bodyText.endsWith("\n")) bodyText += "\n";
+        },
+      });
 
   const reader = rewriter.transform(res).body?.getReader();
   let total = 0;
@@ -486,6 +521,11 @@ export async function scanPage(
     title: (ogTitle || title).trim().slice(0, 100),
     sections: { ingredients, steps },
     url: finalUrl,
+    bodyText: bodyText
+      .replace(/[ \t\u3000]+/g, " ")
+      .replace(/\n\s*\n+/g, "\n")
+      .trim()
+      .slice(0, BODY_TEXT_MAX),
   };
 }
 
