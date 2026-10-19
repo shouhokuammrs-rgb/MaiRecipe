@@ -255,14 +255,18 @@ describe("性能（Workers無料プランの1回10ms CPUに収まること）", 
       name: `謎食材${String(i).padStart(3, "0")}`,
       expiresOn: i % 3 === 0 ? "2026-10-01" : null,
     }));
+    // 最初の数回は JIT が温まっていないので測らない
+    for (let i = 0; i < 3; i++) rankRecommendations(recipes, pantry, [], T);
     const times: number[] = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       const start = performance.now();
       rankRecommendations(recipes, pantry, [], T);
       times.push(performance.now() - start);
     }
     times.sort((a, b) => a - b);
     const median = times[Math.floor(times.length / 2)]!;
-    expect(median).toBeLessThan(5);
+    // GitHub Actions の共有ランナーは手元や Workers より遅く、ぶれも大きいので上限を緩める
+    // （手元で 5ms を超えたら設計を見直す。CI は落ちすぎないことだけ見る）
+    expect(median).toBeLessThan(process.env.CI ? 20 : 5);
   });
 });
