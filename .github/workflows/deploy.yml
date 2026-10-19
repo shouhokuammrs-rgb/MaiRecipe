@@ -1,0 +1,97 @@
+# main にマージされたら、チェック → （マイグレーションがあれば）バックアップと件数確認 → 本番 D1 に適用 → デプロイ → 動作確認 を自動で行う。
+# 鍵は GitHub の Secrets にだけ置く（リポジトリ・チャットには書かない）。
+#   CLOUDFLARE_API_TOKEN … Cloudflare の API トークン（このアカウントだけ。Workers Scripts:Edit・D1:Edit・Workers AI:Read）
+# Worker の秘密の値（Google・BETTER_AUTH・YouTube）は登録済みのものをそのまま使う（ここでは触らない）。
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: 4b59d0ad7c190f86ae3a8fb4a6df50eb
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  D1_NAME: mairecipe
+  APP_URL: https://mairecipe.shouhoku-ammrs.workers.dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: チェック（lint / 型 / テスト）
+        run: npm run lint && npm run typecheck && npm run test
+
+      - name: 鍵があるか確かめる
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::GitHub の Secrets に CLOUDFLARE_API_TOKEN がありません（README の手順）"
+            exit 1
+          fi
+
+      - name: 適用していないマイグレーションがあるか
+        id: pending
+        run: |
+          OUT=$(npx wrangler d1 migrations list "$D1_NAME" --remote 2>&1)
+          echo "$OUT"
+          if echo "$OUT" | grep -q "No migrations to apply"; then
+            echo "has=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 本番 D1 をバックアップして件数を控える（マイグレーションがあるときだけ）
+        if: steps.pending.outputs.has == 'true'
+        run: |
+          npx wrangler d1 time-travel info "$D1_NAME" | tee time-travel.txt
+          npx wrangler d1 export "$D1_NAME" --remote --output=backup.sql
+          npx wrangler d1 execute "$D1_NAME" --remote --json --command "select (select count(*) from recipes) as recipes, (select count(*) from meal_plans) as meal_plans" | tee before.json
+
+      - name: バックアップを保存（30日）
+        if: steps.pending.outputs.has == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-backup-${{ github.sha }}
+          path: |
+            backup.sql
+            time-travel.txt
+            before.json
+          retention-days: 30
+
+      - name: 本番 D1 にマイグレーションを適用し、件数が減っていないか確かめる
+        if: steps.pending.outputs.has == 'true'
+        run: |
+          npx wrangler d1 migrations apply "$D1_NAME" --remote
+          npx wrangler d1 execute "$D1_NAME" --remote --json --command "select (select count(*) from recipes) as recipes, (select count(*) from meal_plans) as meal_plans" | tee after.json
+          node -e '
+            const pick = (f) => JSON.parse(require("fs").readFileSync(f, "utf8"))[0].results[0];
+            const b = pick("before.json"), a = pick("after.json");
+            for (const k of Object.keys(b)) if (a[k] < b[k]) { console.error(`::error::${k} が ${b[k]} → ${a[k]} に減りました。デプロイを止めます（バックアップは artifact、戻し先は time-travel.txt）`); process.exit(1); }
+            console.log("件数 OK", b, "→", a);
+          '
+
+      - name: デプロイ
+        run: npm run build && npx wrangler deploy
+
+      - name: 動いているか確かめる
+        run: |
+          sleep 5
+          curl -fsS "$APP_URL/api/health"
+          echo
+          curl -fsS "$APP_URL/api/config"
