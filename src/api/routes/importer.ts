@@ -100,12 +100,32 @@ function readText(
   return { recipe, notice: overlapNotice(parsed.overlaps) };
 }
 
+type LinkHit = ImportedRecipe & {
+  sourceUrl: string;
+  via: "jsonld" | "sections";
+};
+
 /** 貼られたリンクを上から順に読み、最初に取れたものを出典つきで返す（締め切りまで） */
 async function readLinks(
   links: string[],
   deadline: number,
-  opts: { jsonLdOnly?: boolean } = {},
 ): Promise<(ImportedRecipe & { sourceUrl: string }) | null> {
+  const hits = await scanLinks(links, deadline, { stopAtFirst: true });
+  if (!hits[0]) return null;
+  const { via: _via, ...r } = hits[0];
+  return r;
+}
+
+/**
+ * リンクを上から順に読み、読めたものを全部返す（締め切りまで）。
+ * stopAtFirst なら最初の1件で、jsonLdFirst なら構造化データが取れた時点でやめる
+ */
+async function scanLinks(
+  links: string[],
+  deadline: number,
+  opts: { stopAtFirst?: boolean; stopAtJsonLd?: boolean } = {},
+): Promise<LinkHit[]> {
+  const hits: LinkHit[] = [];
   for (const link of links) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
@@ -120,15 +140,15 @@ async function readLinks(
     }
     const { recipe: r, via } = readPage(page);
     if (!r) continue;
-    if (opts.jsonLdOnly && via !== "jsonld") continue;
     // 見出しから読んだときは、材料と手順の両方が取れたページだけ（商品ページなどを避ける）
     if (via === "sections" && (!r.ingredients.length || !r.steps.length))
       continue;
     const sourceUrl = cleanSourceUrl(page.url) ?? cleanSourceUrl(link);
     if (!sourceUrl) continue; // 長すぎて保存できない URL
-    return { ...r, sourceUrl };
+    hits.push({ ...r, sourceUrl, via });
+    if (opts.stopAtFirst || (opts.stopAtJsonLd && via === "jsonld")) break;
   }
-  return null;
+  return hits;
 }
 
 type RuleBody = {
@@ -182,8 +202,10 @@ importer.post("/", async (c) => {
         ...ownerTexts.flatMap((t) => pickRecipeUrls(t, 3)),
       ]),
     ].slice(0, 4);
-    const fromLink = await readLinks(links, deadline, { jsonLdOnly: true });
-    if (fromLink)
+    const linkHits = await scanLinks(links, deadline, { stopAtJsonLd: true });
+    const ld = linkHits.find((h) => h.via === "jsonld");
+    if (ld) {
+      const { via: _via, ...fromLink } = ld;
       return c.json({
         kind: "video",
         found: true,
@@ -191,26 +213,27 @@ importer.post("/", async (c) => {
         message:
           "動画の投稿者が載せたレシピのページから読み取りました（AI なし）。",
       });
+    }
 
     // ② AI（動画を見る → だめなら概要欄と投稿者のコメントを読む）
-    let reason: string | null = null;
-    if (hasAnyAi(c)) {
-      const source = [snip?.description ?? "", ...ownerTexts]
-        .filter(Boolean)
-        .join("\n\n");
-      const ai = await readWithAi(c, { url }, { source, title });
-      if (ai.ok) return c.json(ai.body);
-      // 「AI でも読めなかった」は規則の結果で十分。上限・不通のときだけ理由を添える
-      reason = ai.status === 422 ? null : ai.error;
-    }
+    const source = [snip?.description ?? "", ...ownerTexts]
+      .filter(Boolean)
+      .join("\n\n");
+    const ai = await readWithAi(c, { url }, { source, title });
+    if (ai.ok) return c.json(ai.body);
+    // 「AI でも読めなかった」は規則の結果で十分。上限・不通のときだけ理由を添える
+    const reason = ai.status === 422 ? null : ai.error;
 
     // ③ 規則
     return c.json(
-      withReason(await videoByRules(c, video, snip, title, comments), reason),
+      withReason(
+        await videoByRules(c, video, snip, title, { comments, linkHits }),
+        reason,
+      ),
     );
   }
 
-  const page = await scanPage(url, { collectText: hasAnyAi(c) });
+  const page = await scanPage(url, { collectText: Boolean(c.env.AI) });
   const { recipe, via } = readPage(page);
   // ① 構造化データ
   if (recipe && via === "jsonld")
@@ -227,7 +250,11 @@ importer.post("/", async (c) => {
     const ai = await readWithAi(
       c,
       { url },
-      { source: page.bodyText, title: page.title },
+      {
+        source: page.bodyText,
+        title: page.title,
+        sourceUrl: cleanSourceUrl(page.url) ?? undefined,
+      },
     );
     if (ai.ok) return c.json(ai.body);
     reason = ai.status === 422 ? null : ai.error;
@@ -275,8 +302,11 @@ async function videoByRules(
   video: NonNullable<ReturnType<typeof parseVideoUrl>>,
   snip: Awaited<ReturnType<typeof youtubeSnippet>>,
   rawTitle: string,
-  /** 既に取ってあればそれを使う。無ければ要るときだけ取りに行く */
-  fetched?: Awaited<ReturnType<typeof youtubeComments>>,
+  /** AI の前に取ってあればそれを使う（もう一度取りに行かない）。無ければ要るときだけ取りに行く */
+  fetched?: {
+    comments: Awaited<ReturnType<typeof youtubeComments>>;
+    linkHits: LinkHit[];
+  },
 ): Promise<RuleBody> {
   const title = rawTitle || "動画のレシピ";
   const videoDraft = (recipe: ImportedRecipe) => ({
@@ -297,7 +327,10 @@ async function videoByRules(
       };
     const deadline = Date.now() + LINKS_DEADLINE_MS;
     const descLinks = pickRecipeUrls(snip.description, 3);
-    const fromLink = await readLinks(descLinks, deadline);
+    // 既に読んだリンクは、材料と手順の両方が取れたもの（readLinks と同じ基準）を使う
+    const fromLink = fetched
+      ? (fetched.linkHits.map(({ via: _via, ...r }) => r)[0] ?? null)
+      : await readLinks(descLinks, deadline);
     if (fromLink)
       return {
         kind: "video",
@@ -307,7 +340,8 @@ async function videoByRules(
           "動画の概要欄にあるレシピのページから読み取りました（AI なし）。",
       };
     const comments =
-      fetched ?? (await youtubeComments(c.env, video.id, snip.channelId));
+      fetched?.comments ??
+      (await youtubeComments(c.env, video.id, snip.channelId));
     for (const comment of comments) {
       const fromComment = readText(comment.text, title);
       if (!fromComment) continue;
@@ -333,7 +367,10 @@ async function videoByRules(
     ]
       .filter((l) => !tried.has(l))
       .slice(0, 3);
-    const fromOwnerLink = await readLinks(ownerLinks, deadline);
+    // AI の前に投稿者のリンクも読んであるので、ここでは読み直さない
+    const fromOwnerLink = fetched
+      ? null
+      : await readLinks(ownerLinks, deadline);
     if (fromOwnerLink)
       return {
         kind: "video",
@@ -376,13 +413,14 @@ async function readWithAi(
   c: Context<AppEnv>,
   input: AiInput,
   /** 取り込みで既に取ってきた文章（もう一度取りに行かない） */
-  pre?: { source: string; title: string },
+  pre?: { source: string; title: string; sourceUrl?: string },
 ): Promise<AiOutcome> {
   const { url, text } = input;
   let title = input.title ?? pre?.title ?? "";
   let source = text ?? pre?.source ?? "";
   const prefetched = Boolean(pre);
-  let sourceUrl: string | null = url ? cleanSourceUrl(url) : null;
+  let sourceUrl: string | null =
+    pre?.sourceUrl ?? (url ? cleanSourceUrl(url) : null);
   const video = url ? parseVideoUrl(url) : null;
 
   if (!source && !prefetched && video) {

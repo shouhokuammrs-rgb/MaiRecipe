@@ -315,6 +315,46 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
     expect(j.draft.videoUrl).toBe(WATCH);
     expect(j.message).toContain("AI なし");
   });
+
+  it("AI が使えず規則に戻るとき、投稿者のリンクは読み直さない（1回だけ）", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    E.AI = {
+      run: vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    };
+    const page = `<html><head><title>ダミー</title></head><body>
+      <h2>材料</h2><ul><li>米 2合</li><li>鶏もも肉 1枚</li></ul>
+      <h2>作り方</h2><ol><li>米を研ぐ</li><li>炊く</li></ol></body></html>`;
+    mockFetch(
+      () => json({ error: {} }, 503),
+      "作り方はこちら https://recipe.example.com/r/2",
+    );
+    const original = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    let linkFetches = 0;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const raw =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (new URL(raw).hostname === "recipe.example.com") {
+        linkFetches++;
+        return new Response(page, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return original(input, init);
+    });
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", { method: "POST", body: { url: WATCH } })
+    ).json()) as { message: string; draft: { steps: string[] } };
+    expect(linkFetches).toBe(1);
+    expect(j.draft.steps).toEqual(["米を研ぐ", "炊く"]);
+    expect(j.message).toContain("AI を使えません");
+  });
 });
 
 describe("ページは構造化データが無ければ最初から AI で読む（DEC-019）", () => {

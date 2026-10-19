@@ -322,8 +322,8 @@ export async function scanPage(
       element(el) {
         current = "";
         truncated = false;
-        // 本文には入れない（下の script の handler とは別にここで数える。
-        // 同じ要素に終わりの handler を2つ付けると、後のものしか動かないため）
+        // 本文には入れない。下の script の handler からは外し、ここで数える
+        // （同じ要素に終わりの handler を2つ付けない）
         if (opts.collectText) skipDepth++;
         onEnd(el, () => {
           if (opts.collectText) skipDepth = Math.max(0, skipDepth - 1);
@@ -517,7 +517,8 @@ export async function scanPage(
       const { done, value } = await reader.read();
       if (done) break;
       total += value?.byteLength ?? 0;
-      if (foundRecipe || total > maxBytes) {
+      // 本文を集めるときは最後まで読む（構造化データが Recipe でも使えないことがあり、そのとき AI に本文が要る）
+      if ((foundRecipe && !opts.collectText) || total > maxBytes) {
         await reader.cancel();
         break;
       }
