@@ -552,6 +552,14 @@ describe("カテゴリの推測（DEC-020：丼は主食にまとめる）", () 
     ])
       expect(guessCategory([t])).toBe("主食");
     expect(guessCategory(["鮭のホイル焼き"])).toBe("主菜");
+    // 材料・紛らわしい言葉では主食にしない
+    expect(guessCategory(["とんかつ", "豚ロース", "パン粉"])).toBe("主菜");
+    expect(guessCategory(["チキングラタン", "ピザ用チーズ"])).toBe("主菜");
+    expect(guessCategory(["肉じゃが", "麺つゆ"])).toBe("主菜");
+    expect(guessCategory(["フライパンで焼くハンバーグ"])).toBe("主菜");
+    expect(guessCategory(["ミルフィーユサンドかつ"])).toBe("主菜");
+    expect(guessCategory(["パンケーキ"])).toBe("デザート");
+    expect(guessCategory(["そうめん"])).toBe("主食");
     expect(guessCategory(["かぼちゃのスープ"])).toBe("汁物");
   });
 });

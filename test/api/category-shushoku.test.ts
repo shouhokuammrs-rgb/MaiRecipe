@@ -51,4 +51,20 @@ describe("カテゴリ「主食」", () => {
     };
     expect(r.recipe.category).toBe("主食");
   });
+
+  it("古い画面の「丼」で絞ると、主食で絞った結果を返す", async () => {
+    const me = await signUp();
+    await api(me, "/recipes", {
+      method: "POST",
+      body: { ...sampleRecipe, title: "親子丼", category: "主食" },
+    });
+    await api(me, "/recipes", {
+      method: "POST",
+      body: { ...sampleRecipe, title: "鮭", category: "主菜" },
+    });
+    const r = (await (
+      await api(me, "/recipes?category=" + encodeURIComponent("丼"))
+    ).json()) as { recipes: { title: string }[] };
+    expect(r.recipes.map((x) => x.title)).toEqual(["親子丼"]);
+  });
 });
