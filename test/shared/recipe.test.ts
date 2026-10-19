@@ -88,6 +88,11 @@ describe("名寄せと売り場", () => {
   it("表記ゆれを1つにそろえる", () => {
     expect(canonicalName("たまねぎ")).toBe("玉ねぎ");
     expect(canonicalName("◎しょうゆ")).toBe("醤油");
+    // 括弧が2つ以上でも全部落とす。2回かけても同じ結果（#45：買い物のチェックがずれない）
+    expect(canonicalName("卵(大)(小)")).toBe("卵");
+    expect(canonicalName("鶏もも肉（皮なし）（300g）")).toBe("鶏もも肉");
+    for (const n of ["卵(大)(小)", "◎たまねぎ（中）(1個)", "しょうゆ"])
+      expect(canonicalName(canonicalName(n))).toBe(canonicalName(n));
     expect(canonicalName("人参（中）")).toBe("にんじん");
   });
   it("売り場を判定する", () => {
