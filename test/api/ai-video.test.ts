@@ -216,4 +216,68 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
     expect(res.status).toBe(200);
     expect(seen).toHaveLength(0);
   });
+
+  it("YouTube の説明が取れなくても、鍵があれば動画を見て読む", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    const seen = mockFetch(() => geminiReply(GEMINI_RECIPE));
+    // 説明（videos）を取れないようにする
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const raw =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (new URL(raw).hostname === "generativelanguage.googleapis.com") {
+        seen.push({
+          url: raw,
+          key: null,
+          body: JSON.parse(String(init?.body)),
+        });
+        return geminiReply(GEMINI_RECIPE);
+      }
+      return new Response("not found", { status: 404 });
+    });
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", { method: "POST", body: { url: WATCH } })
+    ).json()) as { found: boolean; draft: { steps: string[] } };
+    expect(seen).toHaveLength(1);
+    expect(j.found).toBe(true);
+    expect(j.draft.steps).toHaveLength(3);
+  });
+
+  it("Workers AI が無いとき、Gemini の上限の理由をそのまま伝える", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    mockFetch(() => json({ error: { code: 429 } }, 429));
+    const me = await signUp();
+    const res = await api(me, "/import/ai", {
+      method: "POST",
+      body: { url: WATCH },
+    });
+    expect(res.status).toBe(429);
+  });
+
+  it("ページ（動画でない）は、Workers AI が無ければ AI に回さない", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    let pageFetches = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      pageFetches++;
+      return new Response(
+        "<html><head><title>ただの記事</title></head><body><p>こんにちは</p></body></html>",
+        {
+          headers: { "content-type": "text/html" },
+        },
+      );
+    });
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", {
+        method: "POST",
+        body: { url: "https://example.com/a" },
+      })
+    ).json()) as { message: string };
+    expect(pageFetches).toBe(1);
+    expect(j.message).not.toContain("AI を使えません");
+  });
 });

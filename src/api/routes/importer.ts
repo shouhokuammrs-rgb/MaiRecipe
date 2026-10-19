@@ -151,7 +151,9 @@ async function finishWithAi(c: Context<AppEnv>, body: RuleBody, url: string) {
     body.found &&
     body.draft.ingredients.length > 0 &&
     body.draft.steps.length > 0;
-  if (complete || (!c.env.AI && !canWatchVideo(c.env))) return c.json(body);
+  const canAi =
+    Boolean(c.env.AI) || (body.kind === "video" && canWatchVideo(c.env));
+  if (complete || !canAi) return c.json(body);
   const ai = await readWithAi(c, { url, title: body.draft.title });
   if (ai.ok) {
     const aiDraft = ai.body.draft as {
@@ -175,7 +177,15 @@ async function finishWithAi(c: Context<AppEnv>, body: RuleBody, url: string) {
         message: ai.body.watched
           ? "材料は概要欄から、手順は AI（無料）が動画を見て書き出しました。手順を確かめてから保存してください。"
           : "材料は概要欄から、手順は AI（無料）で読み取りました。手順を確かめてから保存してください。",
-        notice: body.notice ?? null,
+        notice:
+          [
+            body.notice,
+            /投稿者以外/.test(body.message)
+              ? "材料は投稿者以外の人のコメントから読んだので、分量を確かめてください。"
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" ") || null,
       });
     // 規則で一部は読めていて、AI の方が少なければ規則の方を残す
     const aiScore = aiDraft.ingredients.length + aiDraft.steps.length;
@@ -346,20 +356,23 @@ async function readWithAi(
 
   if (!source && video) {
     const snip = await youtubeSnippet(c.env, video.id);
-    if (!snip)
+    // 説明が取れなくても、動画を見る AI は URL だけで読める
+    if (!snip && !canWatchVideo(c.env))
       return {
         ok: false,
         status: 422,
         error: "動画の説明を取れませんでした。概要欄を貼って試してください。",
       };
-    title = title || snip.title;
-    const comments = await youtubeComments(c.env, video.id, snip.channelId);
-    source = [
-      snip.description,
-      ...comments.filter((cm) => cm.byOwner).map((cm) => cm.text),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    if (snip) {
+      title = title || snip.title;
+      const comments = await youtubeComments(c.env, video.id, snip.channelId);
+      source = [
+        snip.description,
+        ...comments.filter((cm) => cm.byOwner).map((cm) => cm.text),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
   } else if (!source && url) {
     const page = await scanPage(url, { collectText: true });
     title = title || page.title;
@@ -383,7 +396,7 @@ async function readWithAi(
       watchError = aiError(e);
     }
   }
-  if (source.trim().length < 20)
+  if (source.trim().length < 20 || (watchError && !c.env.AI))
     return (
       watchError ?? {
         ok: false,
@@ -414,7 +427,8 @@ function aiError(e: unknown): AiOutcome {
     return {
       ok: false,
       status: 429,
-      error: "今日の AI の無料分を使い切りました。明日また使えます。",
+      error:
+        "AI の無料分の上限に当たりました。少し待ってから、それでも駄目なら明日また試してください。",
     };
   if (e instanceof AiUnavailable)
     return {

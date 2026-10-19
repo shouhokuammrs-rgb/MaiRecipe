@@ -62,7 +62,9 @@ export async function runGeminiVideo(
     throw new AiUnavailable(String((e as Error)?.message ?? e));
   }
   if (res.status === 429)
-    throw new AiQuotaExceeded("Gemini の無料枠を超えました");
+    throw new AiQuotaExceeded(
+      "Gemini の無料枠の上限（1分あたり・1日あたり）に当たりました",
+    );
   if (!res.ok) {
     // 鍵や中身はログに出さない。状態の番号だけ
     throw new AiUnavailable(`Gemini がエラーを返しました（${res.status}）`);
