@@ -35,6 +35,32 @@ export function buildReadPrompt(source: string, title: string) {
   return { system, user };
 }
 
+/**
+ * 動画を見て読むときの指示（Gemini に動画と一緒に渡す）。
+ * 概要欄があれば手がかりとして添える（材料と分量は概要欄の方が正確なことが多い）
+ */
+export function buildVideoPrompt(title: string, description: string): string {
+  return [
+    "この料理動画を見て、材料と作り方を取り出してください。",
+    "必ず次の JSON だけを返してください。前後に説明や ``` を付けないでください。",
+    '{"title":"料理名","ingredients":[{"name":"材料名","amount":"分量"}],"steps":["手順1","手順2"],"time":"調理時間（分かれば。例：20分）"}',
+    "決まり：",
+    "- 動画の中で実際に話している・映っている・字幕に出ている内容だけを使う。想像で足さない",
+    "- 手順は動画の順に、短い文に分ける。番号は付けない。火加減・時間・目安（「きつね色になるまで」など）は残す",
+    "- 分量が分からなければ amount は空文字にする",
+    "- 宣伝・あいさつ・雑談は無視する",
+    "- 料理が複数あるときは、いちばん主な料理を1つだけ取り出す",
+    "- レシピの動画でなければ ingredients と steps を空の配列にする",
+    "",
+    `料理名の手がかり：${title || "（なし）"}`,
+    description
+      ? `--- 概要欄（参考） ---\n${description.slice(0, AI_SOURCE_MAX)}`
+      : "",
+  ]
+    .filter((l, i, a) => l || a[i - 1])
+    .join("\n");
+}
+
 const aiRecipeSchema = z.object({
   title: z.string().optional().default(""),
   ingredients: z

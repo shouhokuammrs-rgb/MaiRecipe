@@ -157,7 +157,7 @@ export function Import() {
                   >
                     <Sparkles className="size-4" />
                     {aiRead.isPending
-                      ? "AI が読み取り中…（10〜30秒）"
+                      ? "AI が読み取り中…（10秒〜1分）"
                       : "AI で読み取る（無料）"}
                   </PrimaryButton>
                   {aiRead.isError && (
@@ -272,7 +272,7 @@ export function Import() {
               disabled={read.isPending || !url.trim()}
             >
               {read.isPending
-                ? "読み取り中…（AI を使うときは30秒ほど）"
+                ? "読み取り中…（AI を使うときは30秒〜1分ほど）"
                 : "読み取る"}
             </PrimaryButton>
             {read.isError && (
@@ -355,7 +355,7 @@ export function Import() {
               >
                 <Sparkles className="size-4" />
                 {aiRead.isPending
-                  ? "AI が読み取り中…（10〜30秒）"
+                  ? "AI が読み取り中…（10秒〜1分）"
                   : "AI で読み取る（無料）"}
               </SecondaryButton>
             )}

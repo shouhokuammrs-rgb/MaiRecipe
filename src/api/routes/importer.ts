@@ -26,8 +26,11 @@ import {
   AiBadOutput,
   AiQuotaExceeded,
   AiUnavailable,
+  canWatchVideo,
   readRecipeWithAi,
+  watchVideoWithAi,
 } from "../ai";
+import type { AiRecipe } from "../../shared/ai-read";
 import { importSchema } from "../../shared/recipe";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
@@ -148,13 +151,32 @@ async function finishWithAi(c: Context<AppEnv>, body: RuleBody, url: string) {
     body.found &&
     body.draft.ingredients.length > 0 &&
     body.draft.steps.length > 0;
-  if (complete || !c.env.AI) return c.json(body);
+  if (complete || (!c.env.AI && !canWatchVideo(c.env))) return c.json(body);
   const ai = await readWithAi(c, { url, title: body.draft.title });
   if (ai.ok) {
     const aiDraft = ai.body.draft as {
       ingredients: unknown[];
       steps: unknown[];
     };
+    // 動画で、材料は概要欄から読めていて AI が手順を取れたときは、
+    // 材料は概要欄（投稿者が書いた分量）を、手順は AI のものを使う
+    if (
+      body.kind === "video" &&
+      body.draft.ingredients.length > 0 &&
+      aiDraft.steps.length > 0
+    )
+      return c.json({
+        ...ai.body,
+        draft: {
+          ...(ai.body.draft as Record<string, unknown>),
+          title: body.draft.title,
+          ingredients: body.draft.ingredients,
+        },
+        message: ai.body.watched
+          ? "材料は概要欄から、手順は AI（無料）が動画を見て書き出しました。手順を確かめてから保存してください。"
+          : "材料は概要欄から、手順は AI（無料）で読み取りました。手順を確かめてから保存してください。",
+        notice: body.notice ?? null,
+      });
     // 規則で一部は読めていて、AI の方が少なければ規則の方を残す
     const aiScore = aiDraft.ingredients.length + aiDraft.steps.length;
     const ruleScore = body.draft.ingredients.length + body.draft.steps.length;
@@ -344,44 +366,89 @@ async function readWithAi(
     source = page.bodyText;
     sourceUrl = cleanSourceUrl(page.url) ?? sourceUrl;
   }
+  // 動画は、鍵があれば動画そのものを AI に見せる（手順が話すだけで書かれていない動画が多い）。
+  // 失敗したら、文章（概要欄・投稿者のコメント）を読む AI に回す
+  let watchError: AiOutcome | null = null;
+  if (video && !text && canWatchVideo(c.env)) {
+    try {
+      const recipe = await watchVideoWithAi(
+        c.env,
+        video.watchUrl,
+        title,
+        source,
+      );
+      if (recipe.steps.length > 0 || source.trim().length < 20)
+        return aiDraftBody(recipe, title, video.watchUrl, null, true);
+    } catch (e) {
+      watchError = aiError(e);
+    }
+  }
   if (source.trim().length < 20)
-    return {
-      ok: false,
-      status: 422,
-      error: "読み取れる文章がありませんでした。",
-    };
+    return (
+      watchError ?? {
+        ok: false,
+        status: 422,
+        error: "読み取れる文章がありませんでした。",
+      }
+    );
 
   let recipe;
   try {
     recipe = await readRecipeWithAi(c.env, source, title);
   } catch (e) {
-    if (e instanceof AiQuotaExceeded)
-      return {
-        ok: false,
-        status: 429,
-        error: "今日の AI の無料分を使い切りました。明日また使えます。",
-      };
-    if (e instanceof AiUnavailable)
-      return {
-        ok: false,
-        status: 503,
-        error: "今は AI を使えません。少し待ってからもう一度試してください。",
-      };
-    if (e instanceof AiBadOutput)
-      return {
-        ok: false,
-        status: 422,
-        error: "AI でもレシピを読み取れませんでした。手で入れてください。",
-      };
-    throw e;
+    return aiError(e);
   }
+  return aiDraftBody(
+    recipe,
+    title,
+    video?.watchUrl ?? sourceUrl ?? url ?? "",
+    unverifiedNotice(findUnverified(recipe.ingredients, source)),
+    false,
+    video ? "video" : "page",
+  );
+}
+
+/** AI の失敗を、画面に出す日本語の理由にする */
+function aiError(e: unknown): AiOutcome {
+  if (e instanceof AiQuotaExceeded)
+    return {
+      ok: false,
+      status: 429,
+      error: "今日の AI の無料分を使い切りました。明日また使えます。",
+    };
+  if (e instanceof AiUnavailable)
+    return {
+      ok: false,
+      status: 503,
+      error: "今は AI を使えません。少し待ってからもう一度試してください。",
+    };
+  if (e instanceof AiBadOutput)
+    return {
+      ok: false,
+      status: 422,
+      error: "AI でもレシピを読み取れませんでした。手で入れてください。",
+    };
+  throw e;
+}
+
+/** AI の結果を、画面で確かめる下書きにする（保存はしない） */
+function aiDraftBody(
+  recipe: AiRecipe,
+  title: string,
+  sourceUrl: string,
+  notice: string | null,
+  watched: boolean,
+  kind: "video" | "page" = "video",
+): AiOutcome {
   const finalTitle = recipe.title || title || "AI で読み取ったレシピ";
   const hints = [finalTitle, ...recipe.ingredients.map((i) => i.name)];
+  const isVideo = kind === "video";
   return {
     ok: true,
     body: {
-      kind: video ? "video" : "page",
+      kind,
       found: true,
+      watched,
       draft: {
         title: finalTitle.slice(0, LIMITS.titleMax),
         ingredients: recipe.ingredients,
@@ -389,12 +456,13 @@ async function readWithAi(
         timeLabel: recipe.timeLabel,
         category: guessCategory(hints),
         genre: guessGenre(hints),
-        sourceUrl: video?.watchUrl ?? sourceUrl ?? url ?? "",
-        videoUrl: video?.watchUrl ?? null,
+        sourceUrl,
+        videoUrl: isVideo ? sourceUrl : null,
       },
-      message:
-        "AI（無料）で読み取りました。AI は間違えることがあるので、分量と手順を確かめてから保存してください。",
-      notice: unverifiedNotice(findUnverified(recipe.ingredients, source)),
+      message: watched
+        ? "AI（無料）が動画を見て読み取りました。AI は聞き間違えることがあるので、分量と手順を確かめてから保存してください。"
+        : "AI（無料）で読み取りました。AI は間違えることがあるので、分量と手順を確かめてから保存してください。",
+      notice,
     },
   };
 }
