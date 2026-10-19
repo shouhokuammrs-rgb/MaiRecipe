@@ -1,4 +1,13 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { env } from "cloudflare:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   DESCRIPTION_LOOSE,
   DESCRIPTION_WITH_LINKS,
@@ -46,6 +55,10 @@ const snippet = (description: string) =>
 let cookie: string;
 beforeAll(async () => {
   cookie = await signUp();
+});
+// ここは「AI が無い設定」の規則での読み方を確かめる（AI を使う流れは ai-read / ai-video）
+beforeEach(() => {
+  delete (env as unknown as { AI?: unknown }).AI;
 });
 afterEach(() => {
   vi.restoreAllMocks();
