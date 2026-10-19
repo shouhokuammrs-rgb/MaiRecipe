@@ -14,9 +14,12 @@ import { apiClient } from "@/api/client";
 import { ErrorState, Loading } from "@/components/common";
 import {
   listenForCommands,
+  recentlySpoke,
+  ringAlarm,
   speak,
   speechSupported,
   stopSpeaking,
+  unlockAlarm,
 } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 import {
@@ -54,7 +57,8 @@ export function CookMode() {
   );
 }
 
-type RunningTimer = { label: string; endsAt: number; total: number };
+type RunningTimer = { id: number; label: string; endsAt: number };
+let timerSeq = 0;
 
 function CookView({
   recipeId,
@@ -94,18 +98,26 @@ function CookView({
   // 画面を点けたままにする（対応していない端末では知らせるだけ）
   useEffect(() => {
     const nav2 = navigator as Navigator & {
-      wakeLock?: { request: (t: "screen") => Promise<{ release: () => void }> };
+      wakeLock?: { request: (t: "screen") => Promise<unknown> };
     };
     if (!nav2.wakeLock) return;
-    let lock: { release: () => void } | null = null;
+    type Lock = {
+      release: () => Promise<void> | void;
+      addEventListener?: (t: "release", f: () => void) => void;
+    };
+    let lock: Lock | null = null;
     let alive = true;
     const acquire = () =>
-      nav2
-        .wakeLock!.request("screen")
+      (nav2.wakeLock!.request("screen") as Promise<Lock>)
         .then((l) => {
-          if (!alive) return l.release();
+          if (!alive) return void l.release();
+          // 前のものは放してから持ち替える
+          void lock?.release();
           lock = l;
           setAwake("on");
+          l.addEventListener?.("release", () => {
+            if (lock === l) setAwake("off");
+          });
         })
         .catch(() => setAwake("off"));
     void acquire();
@@ -117,7 +129,7 @@ function CookView({
     return () => {
       alive = false;
       document.removeEventListener("visibilitychange", onVis);
-      lock?.release();
+      void lock?.release();
     };
   }, []);
 
@@ -135,8 +147,12 @@ function CookView({
       setNow(n);
       const done = timers.filter((x) => x.endsAt <= n);
       if (done.length) {
-        navigator.vibrate?.([300, 150, 300]);
-        speak(`${done.map((d) => d.label).join("と")}のタイマーが終わりました`);
+        ringAlarm();
+        // 読み上げの途中なら邪魔しない（音と振動で知らせる）
+        if (!window.speechSynthesis?.speaking)
+          speak(
+            `${done.map((d) => d.label).join("と")}のタイマーが終わりました`,
+          );
         setTimers((ts) => ts.filter((x) => x.endsAt > n));
       }
     }, 1000);
@@ -144,21 +160,19 @@ function CookView({
   }, [timers]);
 
   const startTimer = useCallback((t: CookTimer) => {
+    unlockAlarm();
     setNow(Date.now());
     setTimers((ts) => [
       ...ts,
-      {
-        label: t.label,
-        endsAt: Date.now() + t.seconds * 1000,
-        total: t.seconds,
-      },
+      { id: ++timerSeq, label: t.label, endsAt: Date.now() + t.seconds * 1000 },
     ]);
   }, []);
 
   // 声での操作。読み上げ中の自分の声は拾わない。長い言葉は会話とみなして無視
   const onPhrase = useRef<(text: string) => void>(() => {});
   const handlePhrase = (text: string) => {
-    if (window.speechSynthesis?.speaking) return;
+    // 読み上げ中・読み終えてすぐは、自分の声を拾っているかもしれないので無視
+    if (recentlySpoke()) return;
     const t = text.trim();
     if (!t || t.length > 12) return;
     const cmd = voiceCommand(t);
@@ -180,15 +194,18 @@ function CookView({
       setListening(false);
       return;
     }
-    const stop = listenForCommands(
+    // 前の聞き取りの「終わった」知らせで、今の聞き取りの表示を消さないよう、回ごとに区別する
+    const session: { stop: (() => void) | null } = { stop: null };
+    session.stop = listenForCommands(
       (t) => onPhrase.current(t),
       () => {
+        if (stopListenRef.current !== session.stop) return;
         stopListenRef.current = null;
         setListening(false);
       },
     );
-    if (stop) {
-      stopListenRef.current = stop;
+    if (session.stop) {
+      stopListenRef.current = session.stop;
       setListening(true);
     }
   };
@@ -228,10 +245,7 @@ function CookView({
           <X className="size-6" />
         </button>
         <div className="min-w-0 flex-1 truncate text-sm font-bold">{title}</div>
-        <div
-          className="pr-3 text-sm font-bold text-accent-deep"
-          aria-live="polite"
-        >
+        <div className="pr-3 text-sm font-bold text-accent-deep">
           {idx + 1} / {count}
         </div>
       </header>
@@ -288,9 +302,9 @@ function CookView({
 
         {timers.length > 0 && (
           <ul className="flex flex-col gap-2" aria-label="動いているタイマー">
-            {timers.map((t, k) => (
+            {timers.map((t) => (
               <li
-                key={k}
+                key={t.id}
                 className="flex items-center gap-3 rounded-2xl bg-herb-soft px-4 py-2.5 text-herb"
               >
                 <Timer className="size-5" />
@@ -302,7 +316,7 @@ function CookView({
                   type="button"
                   aria-label={`${t.label}のタイマーを止める`}
                   onClick={() =>
-                    setTimers((ts) => ts.filter((_, j) => j !== k))
+                    setTimers((ts) => ts.filter((x) => x.id !== t.id))
                   }
                   className="-mr-2 flex size-11 items-center justify-center"
                 >
@@ -390,7 +404,11 @@ function CookView({
         >
           <div
             role="dialog"
+            aria-modal="true"
             aria-label="材料"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setShowIngs(false);
+            }}
             className="mx-auto max-h-[75dvh] w-full max-w-[480px] overflow-y-auto rounded-t-3xl bg-card px-5 pt-4 pb-[max(env(safe-area-inset-bottom),20px)]"
             onClick={(e) => e.stopPropagation()}
           >
@@ -401,6 +419,7 @@ function CookView({
               <button
                 type="button"
                 aria-label="材料を閉じる"
+                autoFocus
                 onClick={() => setShowIngs(false)}
                 className="-mr-2 flex size-11 items-center justify-center text-sub"
               >
@@ -448,7 +467,7 @@ function ToolButton({
       className={cn(
         "flex h-11 items-center gap-1.5 rounded-full border px-4 text-[13px] font-bold",
         on
-          ? "border-[#e3b7a5] bg-accent-soft text-accent-deep"
+          ? "border-accent/30 bg-accent-soft text-accent-deep"
           : "border-field bg-card text-ink",
       )}
     >

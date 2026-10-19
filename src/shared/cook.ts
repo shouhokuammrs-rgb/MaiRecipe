@@ -5,19 +5,30 @@ export type CookTimer = { label: string; seconds: number };
 const toHalf = (s: string) =>
   s.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
 
+const NUM = "([0-9０-９]+(?:[.．][0-9０-９]+)?)";
+const num = (t: string) => Number(toHalf(t).replace("．", "."));
+
 /**
- * 手順の文から「3分」「10〜15分」「1時間半」「2分30秒」のような時間を拾う。
- * 範囲は長いほう（焦がさないよう、短いほうは画面の文で分かる）
+ * 手順の文から「3分」「10〜15分」「1時間半」「1時間30分」「2分30秒」のような時間を拾う。
+ * 範囲は長いほう（焦がさないよう、短いほうは画面の文で分かる）。
+ * 「2分割」「8分目」「3分の1」は時間ではないので拾わない
  */
 export function findTimers(step: string): CookTimer[] {
-  const re =
-    /([0-9０-９]+(?:[.．][0-9０-９]+)?)(?:\s*[〜~～\-－]\s*([0-9０-９]+(?:[.．][0-9０-９]+)?))?\s*(時間半|時間|分|秒)(?:\s*([0-9０-９]+)\s*秒)?/g;
+  const re = new RegExp(
+    `${NUM}(?:\\s*[〜~～\\-－]\\s*${NUM})?\\s*(時間半|時間|分|秒)(?:\\s*${NUM}\\s*(分|秒))?`,
+    "g",
+  );
   const out: CookTimer[] = [];
   for (const m of step.matchAll(re)) {
-    const a = Number(toHalf(m[1]!).replace("．", "."));
-    const b = m[2] ? Number(toHalf(m[2]).replace("．", ".")) : a;
-    const n = Math.max(a, b);
+    const n = Math.max(num(m[1]!), m[2] ? num(m[2]) : 0);
     const unit = m[3]!;
+    const subN = m[4] ? num(m[4]) : 0;
+    const subUnit = m[5];
+    // 続きの単位は、時間 → 分、分 → 秒 の組だけ
+    const subOk =
+      subUnit &&
+      ((unit === "時間" && subUnit === "分") ||
+        (unit === "分" && subUnit === "秒"));
     let seconds =
       unit === "時間半"
         ? n * 3600 + 1800
@@ -26,28 +37,54 @@ export function findTimers(step: string): CookTimer[] {
           : unit === "分"
             ? n * 60
             : n;
-    if (unit === "分" && m[4]) seconds += Number(toHalf(m[4]));
-    // 「分」の直後が「け」（2分け）などは時間ではない
-    const after = step.slice((m.index ?? 0) + m[0].length);
-    if (unit === "分" && /^[けの]/.test(after) && !m[4]) continue;
+    let label = m[0].trim();
+    if (subOk) seconds += subUnit === "分" ? subN * 60 : subN;
+    else if (subUnit) {
+      // 続きが別の時間（「30秒ゆでて、1時間」など）は、最初の部分だけにする
+      label = step
+        .slice(m.index ?? 0)
+        .match(
+          new RegExp(
+            `^${NUM}(?:\\s*[〜~～\\-－]\\s*${NUM})?\\s*(時間半|時間|分|秒)`,
+          ),
+        )![0];
+    }
+    const rest = step.slice((m.index ?? 0) + label.length);
+    // 「2分割」「8分目」「3分の1」「2分け」は時間ではない
+    if (unit === "分" && !subOk && /^[割目のけ]/.test(rest)) continue;
     if (seconds > 0 && seconds <= 24 * 3600)
-      out.push({ label: m[0].trim(), seconds: Math.round(seconds) });
+      out.push({ label, seconds: Math.round(seconds) });
   }
   return out;
 }
 
 export type VoiceCommand = "next" | "prev" | "repeat" | "ingredients" | "timer";
 
-/** 聞き取った言葉を料理モードの操作にする。当てはまらなければ null */
+const COMMANDS: [VoiceCommand, RegExp][] = [
+  [
+    "repeat",
+    /^(?:(?:もう一[回度]|もういっかい|もういちど)(?:読んで|言って)?|繰り返して?|くりかえして?|リピート)$/,
+  ],
+  [
+    "prev",
+    /^(?:戻って|もどって|戻る|もどる|前|まえ|前へ|まえへ|前の手順|一つ前|ひとつまえ|バック)$/,
+  ],
+  ["next", /^(?:次|つぎ|次へ|つぎへ|次の手順|ネクスト|進んで|すすんで|進む)$/],
+  ["ingredients", /^(?:材料|ざいりょう)(?:を?見せて)?$/],
+  ["timer", /^タイマー(?:スタート|開始)?$/],
+];
+
+/**
+ * 聞き取った言葉を料理モードの操作にする。言葉の全体が合うときだけ（「次に肉を焼く」「名前」では動かない）。
+ * 当てはまらなければ null
+ */
 export function voiceCommand(text: string): VoiceCommand | null {
-  const t = text.replace(/\s/g, "");
+  const t = text
+    .replace(/[\s。、！!？?]/g, "")
+    .replace(/^(?:オッケー|OK|ok|はい|えっと|じゃあ)+/, "")
+    .replace(/(?:ください|お願いします|お願い)$/, "");
   if (!t) return null;
-  if (/もう一[回度]|もういっかい|もういちど|繰り返|くりかえ|リピート/.test(t))
-    return "repeat";
-  if (/戻|もど|前|まえ|バック/.test(t)) return "prev";
-  if (/次|つぎ|ネクスト|進んで|すすんで/.test(t)) return "next";
-  if (/材料|ざいりょう/.test(t)) return "ingredients";
-  if (/タイマー/.test(t)) return "timer";
+  for (const [cmd, re] of COMMANDS) if (re.test(t)) return cmd;
   return null;
 }
 

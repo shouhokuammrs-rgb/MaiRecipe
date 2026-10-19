@@ -20,7 +20,15 @@ describe("findTimers（手順の中の時間をタイマーにする）", () => 
       { label: "２分３０秒", seconds: 150 },
     ]);
   });
+  it("「1時間30分」は1つのタイマー", () => {
+    expect(findTimers("1時間30分煮込む")).toEqual([
+      { label: "1時間30分", seconds: 5400 },
+    ]);
+  });
   it("時間でないものは拾わない", () => {
+    expect(findTimers("生地を2分割する")).toEqual([]);
+    expect(findTimers("鍋の8分目まで水を入れる")).toEqual([]);
+    expect(findTimers("3分の1量を加える")).toEqual([]);
     expect(findTimers("2人分の材料を用意する")).toEqual([]);
     expect(findTimers("半分に切る")).toEqual([]);
     expect(findTimers("5mm幅に切る")).toEqual([]);
@@ -40,6 +48,13 @@ describe("voiceCommand（声での操作）", () => {
     ["タイマー", "timer"],
   ] as const)("「%s」→ %s", (text, cmd) => {
     expect(voiceCommand(text)).toBe(cmd);
+  });
+  it("手順の文や、言葉の一部では動かない（読み上げを拾っても進まない）", () => {
+    expect(voiceCommand("次に肉を焼く")).toBeNull();
+    expect(voiceCommand("名前")).toBeNull();
+    expect(voiceCommand("手前に置く")).toBeNull();
+    expect(voiceCommand("次第に色が変わる")).toBeNull();
+    expect(voiceCommand("バックアップ")).toBeNull();
   });
   it("関係ない言葉は何もしない", () => {
     expect(voiceCommand("おいしそう")).toBeNull();
