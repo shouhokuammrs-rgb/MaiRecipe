@@ -322,7 +322,11 @@ export async function scanPage(
       element(el) {
         current = "";
         truncated = false;
+        // 本文には入れない。下の script の handler からは外し、ここで数える
+        // （同じ要素に終わりの handler を2つ付けない）
+        if (opts.collectText) skipDepth++;
         onEnd(el, () => {
+          if (opts.collectText) skipDepth = Math.max(0, skipDepth - 1);
           // 上限で途中まで切れたものは JSON として読めないので捨てる
           if (current !== null && !truncated) {
             jsonLd.push(current);
@@ -486,17 +490,20 @@ export async function scanPage(
   // 本文を集めるのは「AI で読み取る」のときだけ（ふだんの取り込みの CPU を増やさない）
   if (opts.collectText)
     rewriter
-      .on("script, style, noscript, svg, template, iframe", {
-        element(el) {
-          skipDepth++;
-          if (
-            !onEnd(el, () => {
-              skipDepth = Math.max(0, skipDepth - 1);
-            })
-          )
-            skipDepth--;
+      .on(
+        'script:not([type="application/ld+json"]), style, noscript, svg, template, iframe',
+        {
+          element(el) {
+            skipDepth++;
+            if (
+              !onEnd(el, () => {
+                skipDepth = Math.max(0, skipDepth - 1);
+              })
+            )
+              skipDepth--;
+          },
         },
-      })
+      )
       .on("p, li, dt, dd, td, th, h1, h2, h3, h4, h5, h6, br, div", {
         element() {
           if (bodyText && !bodyText.endsWith("\n")) bodyText += "\n";
@@ -510,7 +517,8 @@ export async function scanPage(
       const { done, value } = await reader.read();
       if (done) break;
       total += value?.byteLength ?? 0;
-      if (foundRecipe || total > maxBytes) {
+      // 本文を集めるときは最後まで読む（構造化データが Recipe でも使えないことがあり、そのとき AI に本文が要る）
+      if ((foundRecipe && !opts.collectText) || total > maxBytes) {
         await reader.cancel();
         break;
       }
