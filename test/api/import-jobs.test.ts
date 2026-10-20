@@ -93,14 +93,14 @@ describe("POST /api/import/jobs（裏で読み取る）", () => {
       return fn();
     });
     const [job] = await jobsOf(me);
-    expect(job!.status === "failed" || job!.status === "done").toBe(true);
+    expect(job!.status).toBe("failed");
   });
 
   it("長く止まったままの読み取りは「読めなかった」として返す", async () => {
     const me = await signUp();
     const id = await start(me);
     await E.DB.prepare("UPDATE import_jobs SET updated_at = ? WHERE id = ?")
-      .bind(Date.now() - 11 * 60_000, id)
+      .bind(Date.now() - 16 * 60_000, id)
       .run();
     const [job] = await jobsOf(me);
     expect(job!.status).toBe("failed");
@@ -123,6 +123,33 @@ describe("POST /api/import/jobs（裏で読み取る）", () => {
       (await api(me, "/import/jobs", { method: "POST", body: {} })).status,
     ).toBe(400);
     expect((await api(null, "/import/jobs")).status).toBe(401);
+  });
+});
+
+describe("止まった読み取り・始められなかった読み取り", () => {
+  it("止まったまま残ったものは、5件の上限に数えない", async () => {
+    const me = await signUp();
+    for (let i = 0; i < 5; i++) {
+      const id = await start(me, `https://example.com/s/${i}`);
+      await E.DB.prepare("UPDATE import_jobs SET updated_at = ? WHERE id = ?")
+        .bind(Date.now() - 16 * 60_000, id)
+        .run();
+    }
+    await start(me, "https://example.com/s/new");
+  });
+
+  it("Workflow を始められなければ 503 で、読み取り中のまま残さない", async () => {
+    create.mockImplementationOnce(async () => {
+      throw new Error("workflow down");
+    });
+    const me = await signUp();
+    const res = await api(me, "/import/jobs", {
+      method: "POST",
+      body: { url: "https://example.com/r/1" },
+    });
+    expect(res.status).toBe(503);
+    const [job] = await jobsOf(me);
+    expect(job!.status).toBe("failed");
   });
 });
 

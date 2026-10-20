@@ -55,7 +55,18 @@ importJobs.post("/", async (c) => {
     );
   const params: ImportJobParams = { jobId, groupId: c.var.groupId, url };
   if (c.env.IMPORT_WORKFLOW) {
-    await c.env.IMPORT_WORKFLOW.create({ id: jobId, params });
+    try {
+      await c.env.IMPORT_WORKFLOW.create({ id: jobId, params });
+    } catch {
+      // 始められなかったら「読み取り中」のまま残さない
+      await c.var.repo.finishImportJob(jobId, {
+        error: "読み取りを始められませんでした。もう一度試してください。",
+      });
+      return c.json(
+        { error: "読み取りを始められませんでした。もう一度試してください。" },
+        503,
+      );
+    }
   } else {
     // Workflow が無い環境（テスト・一部のローカル）では、返したあとに続けて読む
     c.executionCtx.waitUntil(runImportJob(c.env, params, c.var.repo));

@@ -18,8 +18,11 @@ export type Db = DrizzleD1Database<typeof s>;
 
 /** 同時に読み取れる数（グループごと）。AI の無料枠を一度に使い切らないため */
 const IMPORT_JOBS_RUNNING_MAX = 5;
-/** これより長く「読み取り中」のままなら、止まったとみなす */
-const IMPORT_JOB_STUCK_MS = 10 * 60_000;
+/**
+ * これより長く「読み取り中」のままなら、止まったとみなす。
+ * Workflow の読み取り（5分まで × やり直し1回 ＋ 待ち）より長くする
+ */
+const IMPORT_JOB_STUCK_MS = 15 * 60_000;
 
 export function openDb(d1: D1Database): Db {
   return drizzle(d1, { schema: s });
@@ -921,6 +924,11 @@ export function forGroup(db: Db, groupId: string) {
           and(
             eq(s.importJobs.groupId, groupId),
             eq(s.importJobs.status, "running"),
+            // 止まったまま残ったものは数えない（いつまでも始められなくならないように）
+            gte(
+              s.importJobs.updatedAt,
+              new Date(Date.now() - IMPORT_JOB_STUCK_MS),
+            ),
           ),
         );
       if ((row?.n ?? 0) >= IMPORT_JOBS_RUNNING_MAX) return null;

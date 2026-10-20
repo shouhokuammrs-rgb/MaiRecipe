@@ -91,7 +91,12 @@ function ImportJobsStrip() {
       {show ? (
         <>
           <span className="min-w-0 flex-1 truncate">
-            {done ? "読み取れました" : "読み取れませんでした"}：{jobLabel(show)}
+            {done
+              ? done.result?.found
+                ? "読み取れました"
+                : "材料と作り方が見つかりませんでした"
+              : "読み取れませんでした"}
+            ：{jobLabel(show)}
           </span>
           <Link
             to={`/import?job=${show.id}`}

@@ -21,7 +21,7 @@ export class ImportWorkflow extends WorkflowEntrypoint<
       step.do(
         name,
         // 読み取りは1回だけやり直す（AI の無料枠を何度も使わない）
-        { retries: { limit: 1, delay: "10 seconds" }, timeout: "10 minutes" },
+        { retries: { limit: 1, delay: "10 seconds" }, timeout: "5 minutes" },
         // Workflow の手順の結果は JSON にできる値。取り込みの結果はそのまま渡せる
         fn as () => Promise<never>,
       ),

@@ -140,6 +140,7 @@ export function Import() {
               className="h-11 px-3 text-sm text-sub"
               onClick={() => {
                 setResult(null);
+                setActiveJob(null);
                 report.reset();
               }}
             >
@@ -208,6 +209,7 @@ export function Import() {
                       setUrl(d.sourceUrl);
                       setFallbackTitle(d.title);
                       setResult(null);
+                      setActiveJob(null);
                       report.reset();
                       switchMode("text");
                     }}
