@@ -87,8 +87,9 @@ const KANJI: Record<string, number> = {
   九: 9,
   十: 10,
 };
+// 分数を先に試す（「1/2」を「1」と読まないように）
 const AMOUNT =
-  "(\\d+(?:\\.\\d+)?(?:と\\d+/\\d+)?|\\d+/\\d+|[一二三四五六七八九十]|半分|半)";
+  "(\\d+と\\d+/\\d+|\\d+/\\d+|\\d+(?:\\.\\d+)?|[一二三四五六七八九十]|半分|半)";
 
 function amountOf(s: string): number | null {
   if (s === "半分" || s === "半") return 0.5;
@@ -125,38 +126,60 @@ const unitLabel = (u: Unit, n: number) =>
       ? `${friendly(n)}カップ`
       : `${u}${friendly(n)}`;
 
+const UNITS: Unit[] = ["大さじ", "小さじ", "カップ", "ml"];
+const ASK = /何|いくつ|どのくらい|どれくらい|どれだけ/;
+
+/** 質問の中の量（大さじ1・1/2カップ・50ml…）を全部拾う */
+function quantities(q: string) {
+  const res = [
+    new RegExp(`(大さじ|小さじ|カップ)${AMOUNT}`, "g"),
+    new RegExp(`${AMOUNT}(カップ|ml)`, "g"),
+  ];
+  const found: { unit: Unit; amount: number; start: number; end: number }[] =
+    [];
+  for (const re of res)
+    for (const m of q.matchAll(re)) {
+      const start = m.index ?? 0;
+      const end = start + m[0].length;
+      // 同じところを2回数えない（「カップ1」と「1カップ」が重なるとき）
+      if (found.some((f) => start < f.end && end > f.start)) continue;
+      const unitFirst = (UNITS as string[]).includes(m[1]!);
+      const unit = (unitFirst ? m[1] : m[2]) as Unit;
+      const amount = amountOf((unitFirst ? m[2] : m[1])!);
+      if (amount != null && amount > 0)
+        found.push({ unit, amount, start, end });
+    }
+  return found;
+}
+
 /**
  * 「大さじ1って小さじ何杯？」「50mlは大さじ何杯？」に計算で答える。
- * 重さ（g）や、換算を聞いていない質問は null（AI に任せる）
+ * 重さ（g）・量が2つ以上ある・換算を聞いていない質問は null（AI に任せる）
  */
 export function measureAnswer(question: string): string | null {
   const q = toHalf(question)
     .replace(/\s/g, "")
-    .replace(/cc|ミリリットル|ミリ/g, "ml");
+    .replace(/cc|ミリリットル|ミリ/g, "ml")
+    .replace(/(\d)杯半/g, "$1と1/2")
+    .replace(/(\d)と半分?(?![0-9])/g, "$1と1/2");
   if (/グラム|\d+g|何g/.test(q)) return null;
-  if (!/何|いくつ|どのくらい|どれくらい|どれだけ/.test(q)) return null;
+  if (!ASK.test(q)) return null;
 
-  const src =
-    q.match(new RegExp(`(大さじ|小さじ)${AMOUNT}`)) ??
-    q.match(new RegExp(`${AMOUNT}(カップ|ml)`)) ??
-    q.match(new RegExp(`(カップ)${AMOUNT}`));
-  if (!src) return null;
-  let unit: Unit;
-  let amountText: string;
-  if (src[1] === "大さじ" || src[1] === "小さじ" || src[1] === "カップ") {
-    unit = src[1] as Unit;
-    amountText = src[2]!;
-  } else {
-    unit = src[2] as Unit;
-    amountText = src[1]!;
-  }
-  const amount = amountOf(amountText);
-  if (amount == null || amount <= 0) return null;
+  const found = quantities(q);
+  if (found.length !== 1) return null;
+  const { unit, amount, end } = found[0]!;
 
-  const after = q.slice((src.index ?? 0) + src[0].length);
-  const target = (["大さじ", "小さじ", "カップ", "ml"] as Unit[]).find(
-    (u) => u !== unit && after.includes(u),
-  );
+  // 聞かれた単位：「何ml」のように問いの直後、なければ「小さじ何杯」のように問いの直前
+  const after = q.slice(end);
+  const ai = after.search(ASK);
+  if (ai < 0) return null;
+  const right = after.slice(ai).replace(ASK, "");
+  const left = after.slice(0, ai);
+  const target =
+    UNITS.find((u) => u !== unit && right.startsWith(u)) ??
+    UNITS.filter((u) => u !== unit && left.includes(u)).sort(
+      (a, b) => left.lastIndexOf(b) - left.lastIndexOf(a),
+    )[0];
   if (!target) return null;
 
   const ml = amount * ML[unit];
@@ -283,5 +306,7 @@ export function parseAssistReply(raw: string): AssistReply | null {
     }
   }
   const text = clean(raw);
-  return text ? { answer: text, action: null } : null;
+  // 途中で切れた JSON（「{"answer":"火を弱めて」）は読み上げない
+  if (!text || text.startsWith("{") || text.includes('"answer"')) return null;
+  return { answer: text, action: null };
 }

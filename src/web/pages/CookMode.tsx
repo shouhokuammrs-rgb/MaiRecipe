@@ -159,8 +159,13 @@ function CookView({
     };
   }, []);
 
-  // 読み上げ：手順が変わったら読む
+  // 読み上げ：手順が変わったら読む（アシスタントの答えで移ったときは、答えを読み切らせる）
+  const skipReadRef = useRef(false);
   useEffect(() => {
+    if (skipReadRef.current) {
+      skipReadRef.current = false;
+      return;
+    }
     if (reading && step) speak(`${idx + 1}。${step}`);
   }, [reading, idx, step]);
   useEffect(() => () => stopSpeaking(), []);
@@ -220,9 +225,12 @@ function CookView({
   };
 
   /** アシスタントに相談する。計量の換算は計算で、ほかは AI に聞く */
+  // 続けて何度も AI を呼ばない（同じ時に2つ聞こえても1つだけ・声の相談は4秒あける）
+  const askingRef = useRef(false);
+  const lastVoiceAskRef = useRef(0);
   const ask = async (question: string, aloud: boolean) => {
     const q = question.trim();
-    if (!q || asking) return;
+    if (!q || askingRef.current) return;
     const history = chat
       .filter((m) => m.source !== "error")
       .slice(-6)
@@ -235,9 +243,13 @@ function CookView({
     const quick = parseQuick(q);
     if (quick) {
       runQuick(quick);
+      const timer =
+        quick.kind === "timer" ? (quick.timer ?? stepTimers[0]) : null;
       const done =
         quick.kind === "timer"
-          ? `${(quick.timer ?? stepTimers[0])?.label ?? ""}のタイマーをかけました。`
+          ? timer
+            ? `${timer.label}のタイマーをかけました。`
+            : "この手順には時間がありません。「5分のタイマー」のように入れてください。"
           : quick.kind === "goto"
             ? `手順${quick.step}にしました。`
             : quick.kind === "next"
@@ -258,6 +270,7 @@ function CookView({
       say(calc);
       return;
     }
+    askingRef.current = true;
     setAsking(true);
     try {
       const r = await apiClient.assist({
@@ -277,16 +290,24 @@ function CookView({
           label: r.action.label ?? "タイマー",
           seconds: r.action.seconds,
         });
-      if (r.action?.type === "step") go(r.action.number - 1);
+      if (r.action?.type === "step") {
+        skipReadRef.current = true;
+        go(r.action.number - 1);
+      }
     } catch (e) {
       const msg =
         e instanceof ApiError ? e.message : "答えを受け取れませんでした。";
       setChat((c) => [...c, { role: "assistant", text: msg, source: "error" }]);
       say(msg);
     } finally {
+      askingRef.current = false;
       setAsking(false);
     }
   };
+  const askRef = useRef(ask);
+  useEffect(() => {
+    askRef.current = ask;
+  });
 
   // 声での操作。読み上げ中の自分の声は拾わない。
   // 短い決まった言葉はすぐ動かし、「ねえ、〜」は相談として聞く。ほかの会話は聞き流す
@@ -299,7 +320,11 @@ function CookView({
     const quick = parseQuick(t);
     if (quick) return runQuick(quick);
     const question = wakeQuestion(t);
-    if (question) void ask(question, true);
+    if (question) {
+      if (Date.now() - lastVoiceAskRef.current < 4000) return;
+      lastVoiceAskRef.current = Date.now();
+      void ask(question, true);
+    }
   };
   // 最新の手順で判断できるよう、描画のあとで差し替える
   useEffect(() => {
@@ -328,6 +353,10 @@ function CookView({
     }
   };
   useEffect(() => () => stopListenRef.current?.(), []);
+  const toggleListenRef = useRef(toggleListen);
+  useEffect(() => {
+    toggleListenRef.current = toggleListen;
+  });
 
   // 相談の入力欄：話して入れる（1回だけ聞く）。話し終わったら送る
   const stopDictRef = useRef<(() => void) | null>(null);
@@ -336,26 +365,36 @@ function CookView({
       stopDictRef.current?.();
       return;
     }
+    // 聞き続けている声の操作とマイクを取り合わないよう、聞いているあいだは止めておく
+    const resumeVoice = listening;
+    if (resumeVoice) toggleListen();
     let said = "";
+    let ended = false;
     const stop = startListening(
       (t) => {
         said = t;
         setDraft(t);
       },
       () => {
+        // 終わりとエラーの両方が来ても、1回だけ送る
+        if (ended) return;
+        ended = true;
         stopDictRef.current = null;
         setDictating(false);
         if (said.trim()) {
           setDraft("");
-          void ask(said, true);
+          void askRef.current(said, true);
         }
+        if (resumeVoice) setTimeout(() => toggleListenRef.current(), 500);
       },
     );
     if (stop) {
       stopDictRef.current = stop;
       setDictating(true);
       // 一言で終わるように、少し待って止める
-      setTimeout(() => stop(), 8000);
+      setTimeout(() => {
+        if (!ended) stop();
+      }, 8000);
     }
   };
   useEffect(() => () => stopDictRef.current?.(), []);

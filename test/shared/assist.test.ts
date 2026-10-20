@@ -61,6 +61,18 @@ describe("measureAnswer（計量の換算は AI なしで）", () => {
   ])("「%s」", (q, a) => {
     expect(measureAnswer(q)).toBe(a);
   });
+  it.each([
+    ["大さじ1/2は小さじ何杯？", "大さじ1/2は小さじ1と1/2杯です（7.5ml）。"],
+    ["小さじ1/2は何ml", "小さじ1/2は2.5mlです。"],
+    ["大さじ1杯半は小さじ何杯", "大さじ1と1/2は小さじ4と1/2杯です（22.5ml）。"],
+    ["大さじ1は何mlで小さじだと", "大さじ1は15mlです。"],
+  ])("分数・聞かれた単位を正しく「%s」", (q, a) => {
+    expect(measureAnswer(q)).toBe(a);
+  });
+  it("量が2つ以上ある質問は AI に任せる（取り違えない）", () => {
+    expect(measureAnswer("大さじ3と小さじ1は何ml？")).toBeNull();
+    expect(measureAnswer("小さじ1しかないけど、大さじ1は何杯分？")).toBeNull();
+  });
   it("重さ（g）や、換算でない質問は AI に任せる", () => {
     expect(measureAnswer("砂糖大さじ1って何グラム")).toBeNull();
     expect(measureAnswer("大さじ1入れていい？")).toBeNull();
@@ -123,6 +135,8 @@ describe("AI への頼み方と返事", () => {
       ),
     ).toEqual({ answer: "はい", action: null });
     expect(parseAssistReply("")).toBeNull();
+    // 途中で切れた JSON は答えにしない（記号ごと読み上げない）
+    expect(parseAssistReply('{"answer":"火を弱めて')).toBeNull();
   });
   it("入力の上限", () => {
     const ok = assistInputSchema.safeParse({

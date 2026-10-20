@@ -108,5 +108,11 @@ export async function runGeminiText(
     );
   if (!res.ok)
     throw new AiUnavailable(`Gemini がエラーを返しました（${res.status}）`);
-  return extractGeminiText(await res.json().catch(() => null));
+  const body = (await res.json().catch(() => null)) as {
+    candidates?: { finishReason?: string }[];
+  } | null;
+  // 長さの上限で切れた返事は使わない（予備の AI に回す）
+  if (body?.candidates?.[0]?.finishReason === "MAX_TOKENS")
+    throw new AiUnavailable("Gemini の返事が途中で切れました");
+  return extractGeminiText(body);
 }

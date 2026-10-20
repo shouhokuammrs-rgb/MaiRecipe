@@ -76,6 +76,39 @@ describe("POST /api/assist（お料理アシスタント）", () => {
     });
   });
 
+  it("Gemini の返事が途中で切れたら、Workers AI で答え直す", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: "MAX_TOKENS",
+                content: { parts: [{ text: '{"answer":"火を弱め' }] },
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    E.AI = {
+      run: vi.fn(async () => ({
+        response:
+          '{"answer":"火を弱めて水を少し足してください。","action":null}',
+      })),
+    };
+    const me = await signUp();
+    const id = await recipeOf(me);
+    const r = (await (
+      await api(me, "/assist", {
+        method: "POST",
+        body: { recipeId: id, stepIndex: 0, question: "焦げそう" },
+      })
+    ).json()) as { answer: string };
+    expect(r.answer).toBe("火を弱めて水を少し足してください。");
+  });
+
   it("どちらも上限なら 429 で日本語の理由", async () => {
     E.GEMINI_API_KEY = "test-gemini-key";
     vi.spyOn(globalThis, "fetch").mockImplementation(

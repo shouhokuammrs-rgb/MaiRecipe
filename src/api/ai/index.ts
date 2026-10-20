@@ -34,7 +34,8 @@ const TASKS = {
   cook_assist: {
     provider: "gemini",
     model: "gemini-3.8-flash",
-    maxTokens: 1024,
+    // 考える分も上限に数えられるので、短い答えでも余裕を持たせる
+    maxTokens: 4096,
     /** Gemini が使えないときの予備 */
     fallback: "@cf/openai/gpt-oss-120b",
   },
@@ -99,18 +100,24 @@ export async function assistCooking(
 ): Promise<AssistReply> {
   const task = TASKS.cook_assist;
   const { system, user } = buildAssistPrompt(input);
-  let raw: string;
+  // Gemini で答えられなければ（上限・不通・読めない返事）、Workers AI に回す
+  let reply: AssistReply | null = null;
+  let geminiError: unknown = null;
   if (hasGemini(env)) {
     try {
-      raw = await runGeminiText(env, task.model, system, user, task.maxTokens);
+      reply = parseAssistReply(
+        await runGeminiText(env, task.model, system, user, task.maxTokens),
+      );
     } catch (e) {
-      if (!env.AI) throw e;
-      raw = await runWorkersAi(env.AI, task.fallback, system, user, 1500);
+      geminiError = e;
     }
-  } else {
-    raw = await runWorkersAi(env.AI, task.fallback, system, user, 1500);
   }
-  const reply = parseAssistReply(raw);
+  if (!reply) {
+    if (!env.AI && geminiError) throw geminiError;
+    reply = parseAssistReply(
+      await runWorkersAi(env.AI, task.fallback, system, user, 1500),
+    );
+  }
   if (!reply) throw new AiBadOutput("答えを作れませんでした");
   return reply;
 }
