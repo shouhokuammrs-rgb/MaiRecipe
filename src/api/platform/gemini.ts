@@ -54,6 +54,8 @@ export async function runGeminiVideo(
           responseMimeType: "application/json",
           // 料理の手順を読むだけなので、画は粗くてよい（使う量が3分の1ほどになる）
           mediaResolution: "MEDIA_RESOLUTION_LOW",
+          // 長い動画で考えすぎると、答えを書く前に上限に当たる。考える量は少なめに
+          thinkingConfig: { thinkingLevel: "low" },
         },
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -69,7 +71,15 @@ export async function runGeminiVideo(
     // 鍵や中身はログに出さない。状態の番号だけ
     throw new AiUnavailable(`Gemini がエラーを返しました（${res.status}）`);
   }
-  return extractGeminiText(await res.json().catch(() => null));
+  const body = (await res.json().catch(() => null)) as {
+    candidates?: { finishReason?: string }[];
+  } | null;
+  const finish = body?.candidates?.[0]?.finishReason;
+  if (finish === "MAX_TOKENS")
+    throw new AiUnavailable("動画が長く、答えが途中で切れました");
+  if (finish && finish !== "STOP")
+    throw new AiUnavailable(`動画を読めませんでした（${finish}）`);
+  return extractGeminiText(body);
 }
 
 /** 文章だけで頼む（お料理アシスタント）。返事は JSON の文字 */

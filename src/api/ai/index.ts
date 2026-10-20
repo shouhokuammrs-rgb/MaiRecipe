@@ -44,7 +44,8 @@ const TASKS = {
   watch_video: {
     provider: "gemini",
     model: "gemini-3.8-flash",
-    maxTokens: 8192,
+    // 15分ほどの動画でも手順まで書き切れるように
+    maxTokens: 16384,
   },
 } as const;
 

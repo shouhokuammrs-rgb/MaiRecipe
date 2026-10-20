@@ -355,6 +355,33 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
     expect(j.draft.steps).toEqual(["米を研ぐ", "炊く"]);
     expect(j.message).toContain("AI を使えません");
   });
+
+  it("長い動画で Gemini の答えが途中で切れたら、文章の AI に回し、理由を知らせる", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    E.AI = {
+      run: vi.fn(async () => ({
+        response:
+          '{"title":"きのこご飯","ingredients":[{"name":"米","amount":"2合"}],"steps":[]}',
+      })),
+    };
+    const seen = mockFetch(() =>
+      json({
+        candidates: [
+          {
+            finishReason: "MAX_TOKENS",
+            content: { parts: [{ text: '{"title":"きのこ' }] },
+          },
+        ],
+      }),
+    );
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", { method: "POST", body: { url: WATCH } })
+    ).json()) as { notice: string | null; draft: { steps: string[] } };
+    expect(JSON.stringify(seen[0]!.body)).toContain('"thinkingLevel":"low"');
+    expect(j.draft.steps).toEqual([]);
+    expect(j.notice).toContain("途中で切れました");
+  });
 });
 
 describe("ページは構造化データが無ければ最初から AI で読む（DEC-019）", () => {
