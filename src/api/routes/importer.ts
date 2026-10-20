@@ -451,6 +451,8 @@ async function readWithAi(
   // 動画は、鍵があれば動画そのものを AI に見せる（手順が話すだけで書かれていない動画が多い）。
   // 失敗したら、文章（概要欄・投稿者のコメント）を読む AI に回す
   let watchError: AiOutcome | null = null;
+  // 動画を見る AI がだめだった理由（文章を読む AI に回したとき、画面で知らせる）
+  let watchNote: string | null = null;
   if (video && !text && canWatchVideo(c.env)) {
     try {
       const recipe = await watchVideoWithAi(
@@ -461,8 +463,11 @@ async function readWithAi(
       );
       if (recipe.steps.length > 0 || source.trim().length < 20)
         return aiDraftBody(recipe, title, video.watchUrl, null, true);
+      watchNote = "動画を見ても手順が見つかりませんでした";
     } catch (e) {
       watchError = aiError(e);
+      watchNote =
+        e instanceof Error && e.message ? e.message : "動画を読めませんでした";
     }
   }
   if (source.trim().length < 20 || (watchError && !c.env.AI))
@@ -480,11 +485,17 @@ async function readWithAi(
   } catch (e) {
     return aiError(e);
   }
+  const notices = [
+    unverifiedNotice(findUnverified(recipe.ingredients, source)),
+    watchNote && !recipe.steps.length
+      ? `手順は動画の中で話しているだけのようです。動画を見る AI では読めませんでした（${watchNote}）。手順は手で入れてください。`
+      : null,
+  ].filter(Boolean);
   return aiDraftBody(
     recipe,
     title,
     video?.watchUrl ?? sourceUrl ?? url ?? "",
-    unverifiedNotice(findUnverified(recipe.ingredients, source)),
+    notices.length ? notices.join(" ") : null,
     false,
     video ? "video" : "page",
   );
