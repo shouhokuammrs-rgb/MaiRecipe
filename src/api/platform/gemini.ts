@@ -61,7 +61,13 @@ export async function runGeminiVideo(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
-    throw new AiUnavailable(String((e as Error)?.message ?? e));
+    // 画面に出るので、決まった日本語にする（英語の生のエラーを出さない）
+    const timeout = (e as Error)?.name === "TimeoutError";
+    throw new AiUnavailable(
+      timeout
+        ? "動画を見るのに時間がかかりすぎました"
+        : "Gemini につながりませんでした",
+    );
   }
   if (res.status === 429)
     throw new AiQuotaExceeded(
