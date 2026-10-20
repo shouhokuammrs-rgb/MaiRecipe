@@ -3,17 +3,20 @@ import {
   ChevronLeft,
   ChevronRight,
   ListChecks,
+  MessageCircle,
   Mic,
+  Send,
   Timer,
   Volume2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { apiClient } from "@/api/client";
+import { apiClient, ApiError } from "@/api/client";
 import { ErrorState, Loading } from "@/components/common";
 import {
   listenForCommands,
+  startListening,
   recentlySpoke,
   ringAlarm,
   speak,
@@ -22,12 +25,13 @@ import {
   unlockAlarm,
 } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+import { findTimers, formatClock, type CookTimer } from "../../shared/cook";
 import {
-  findTimers,
-  formatClock,
-  voiceCommand,
-  type CookTimer,
-} from "../../shared/cook";
+  measureAnswer,
+  parseQuick,
+  wakeQuestion,
+  type QuickAction,
+} from "../../shared/assist";
 
 /**
  * 料理モード（#26）。手順を1つずつ大きく出し、画面を点けたままにする。
@@ -50,6 +54,7 @@ export function CookMode() {
   return (
     <CookView
       recipeId={r.id}
+      versionId={v.id}
       title={v.title}
       steps={v.steps}
       ingredients={v.ingredients}
@@ -60,13 +65,29 @@ export function CookMode() {
 type RunningTimer = { id: number; label: string; endsAt: number };
 let timerSeq = 0;
 
+type ChatMessage = {
+  role: "user" | "assistant";
+  text: string;
+  /** assistant だけ：AI の答えか、計算した答えか */
+  source?: "ai" | "calc" | "done" | "error";
+};
+
+const SUGGESTIONS = [
+  "大さじ1は小さじ何杯？",
+  "代わりになる材料は？",
+  "3人分にするには？",
+  "焦げそうなときは？",
+];
+
 function CookView({
   recipeId,
+  versionId,
   title,
   steps,
   ingredients,
 }: {
   recipeId: string;
+  versionId: string;
   title: string;
   steps: string[];
   ingredients: { name: string; amount: string }[];
@@ -84,6 +105,11 @@ function CookView({
   );
   const stopListenRef = useRef<(() => void) | null>(null);
   const [voiceOk] = useState(() => speechSupported());
+  const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [asking, setAsking] = useState(false);
+  const [showAssist, setShowAssist] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [dictating, setDictating] = useState(false);
 
   const count = steps.length;
   const last = idx >= count - 1;
@@ -168,20 +194,112 @@ function CookView({
     ]);
   }, []);
 
-  // 声での操作。読み上げ中の自分の声は拾わない。長い言葉は会話とみなして無視
+  const readStep = (i: number) => {
+    const at = Math.max(0, Math.min(count - 1, i));
+    if (steps[at]) speak(`${at + 1}。${steps[at]}`);
+  };
+
+  /** その場ですぐ動く言葉を実行する */
+  const runQuick = (q: QuickAction) => {
+    if (q.kind === "next" || q.kind === "prev") {
+      const to = idx + (q.kind === "next" ? 1 : -1);
+      go(to);
+      // 読み上げがオンなら手順が変わったときに読むので、ここでは読まない
+      if (q.read && !reading) readStep(to);
+    } else if (q.kind === "repeat") readStep(idx);
+    else if (q.kind === "ingredients") setShowIngs(true);
+    else if (q.kind === "goto") go(q.step - 1);
+    else if (q.kind === "timer") {
+      const t = q.timer ?? stepTimers[0];
+      if (t) startTimer(t);
+      else
+        speak(
+          "この手順には時間が書いてありません。「5分のタイマー」のように言ってください",
+        );
+    }
+  };
+
+  /** アシスタントに相談する。計量の換算は計算で、ほかは AI に聞く */
+  const ask = async (question: string, aloud: boolean) => {
+    const q = question.trim();
+    if (!q || asking) return;
+    const history = chat
+      .filter((m) => m.source !== "error")
+      .slice(-6)
+      .map((m) => ({ role: m.role, text: m.text }));
+    setChat((c) => [...c, { role: "user", text: q }]);
+    const say = (text: string) => {
+      if (aloud || reading) speak(text);
+    };
+    // 「次読んで」「5分のタイマー」は文字で打っても動かす
+    const quick = parseQuick(q);
+    if (quick) {
+      runQuick(quick);
+      const done =
+        quick.kind === "timer"
+          ? `${(quick.timer ?? stepTimers[0])?.label ?? ""}のタイマーをかけました。`
+          : quick.kind === "goto"
+            ? `手順${quick.step}にしました。`
+            : quick.kind === "next"
+              ? "次の手順にしました。"
+              : quick.kind === "prev"
+                ? "前の手順にしました。"
+                : null;
+      if (done)
+        setChat((c) => [
+          ...c,
+          { role: "assistant", text: done, source: "done" },
+        ]);
+      return;
+    }
+    const calc = measureAnswer(q);
+    if (calc) {
+      setChat((c) => [...c, { role: "assistant", text: calc, source: "calc" }]);
+      say(calc);
+      return;
+    }
+    setAsking(true);
+    try {
+      const r = await apiClient.assist({
+        recipeId,
+        versionId,
+        stepIndex: idx,
+        question: q,
+        history,
+      });
+      setChat((c) => [
+        ...c,
+        { role: "assistant", text: r.answer, source: "ai" },
+      ]);
+      say(r.answer);
+      if (r.action?.type === "timer")
+        startTimer({
+          label: r.action.label ?? "タイマー",
+          seconds: r.action.seconds,
+        });
+      if (r.action?.type === "step") go(r.action.number - 1);
+    } catch (e) {
+      const msg =
+        e instanceof ApiError ? e.message : "答えを受け取れませんでした。";
+      setChat((c) => [...c, { role: "assistant", text: msg, source: "error" }]);
+      say(msg);
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  // 声での操作。読み上げ中の自分の声は拾わない。
+  // 短い決まった言葉はすぐ動かし、「ねえ、〜」は相談として聞く。ほかの会話は聞き流す
   const onPhrase = useRef<(text: string) => void>(() => {});
   const handlePhrase = (text: string) => {
-    // 読み上げ中・読み終えてすぐは、自分の声を拾っているかもしれないので無視
     if (recentlySpoke()) return;
     const t = text.trim();
-    if (!t || t.length > 12) return;
-    const cmd = voiceCommand(t);
+    if (!t) return;
     setHeard(t);
-    if (cmd === "next") go(idx + 1);
-    else if (cmd === "prev") go(idx - 1);
-    else if (cmd === "repeat") speak(`${idx + 1}。${step}`);
-    else if (cmd === "ingredients") setShowIngs(true);
-    else if (cmd === "timer" && stepTimers[0]) startTimer(stepTimers[0]);
+    const quick = parseQuick(t);
+    if (quick) return runQuick(quick);
+    const question = wakeQuestion(t);
+    if (question) void ask(question, true);
   };
   // 最新の手順で判断できるよう、描画のあとで差し替える
   useEffect(() => {
@@ -210,6 +328,39 @@ function CookView({
     }
   };
   useEffect(() => () => stopListenRef.current?.(), []);
+
+  // 相談の入力欄：話して入れる（1回だけ聞く）。話し終わったら送る
+  const stopDictRef = useRef<(() => void) | null>(null);
+  const dictate = () => {
+    if (dictating) {
+      stopDictRef.current?.();
+      return;
+    }
+    let said = "";
+    const stop = startListening(
+      (t) => {
+        said = t;
+        setDraft(t);
+      },
+      () => {
+        stopDictRef.current = null;
+        setDictating(false);
+        if (said.trim()) {
+          setDraft("");
+          void ask(said, true);
+        }
+      },
+    );
+    if (stop) {
+      stopDictRef.current = stop;
+      setDictating(true);
+      // 一言で終わるように、少し待って止める
+      setTimeout(() => stop(), 8000);
+    }
+  };
+  useEffect(() => () => stopDictRef.current?.(), []);
+
+  const lastAnswer = [...chat].reverse().find((m) => m.role === "assistant");
 
   // 左右のスワイプで手順を切り替える
   const touchX = useRef<number | null>(null);
@@ -326,13 +477,37 @@ function CookView({
             ))}
           </ul>
         )}
+        {(asking || lastAnswer) && !showAssist && (
+          <button
+            type="button"
+            onClick={() => setShowAssist(true)}
+            className="flex flex-col gap-1 rounded-2xl border border-line-soft bg-card px-4 py-3 text-left"
+            aria-live="polite"
+          >
+            <span className="flex items-center gap-1.5 text-xs font-bold text-sub">
+              <MessageCircle className="size-4 text-herb" />
+              {asking
+                ? "アシスタントが考え中…"
+                : lastAnswer?.source === "calc"
+                  ? "計算した答え"
+                  : lastAnswer?.source === "ai"
+                    ? "AI の答え（間違えることがあります）"
+                    : "アシスタント"}
+            </span>
+            {!asking && lastAnswer && (
+              <span className="line-clamp-3 text-[15px] leading-relaxed">
+                {lastAnswer.text}
+              </span>
+            )}
+          </button>
+        )}
       </main>
 
       {/* 下：道具と、戻る・次へ（片手で押せる位置） */}
       <div className="flex flex-col gap-3 px-4 pb-[max(env(safe-area-inset-bottom),16px)]">
         {listening && (
           <p className="text-center text-xs text-sub" aria-live="polite">
-            「次」「戻って」「もう一回」「材料」「タイマー」で操作できます
+            「次読んで」「戻って」「5分のタイマー」で操作。相談は「ねえ、〜」と話しかけてください
             {heard ? `（聞こえた言葉：${heard}）` : ""}
           </p>
         )}
@@ -341,7 +516,7 @@ function CookView({
             この端末では画面を点けたままにできません。設定の自動ロックを長めにしてください
           </p>
         )}
-        <div className="flex justify-center gap-2">
+        <div className="flex items-center justify-center gap-2">
           <ToolButton
             on={showIngs}
             onClick={() => setShowIngs(true)}
@@ -349,21 +524,29 @@ function CookView({
             label="材料"
           />
           <ToolButton
+            on={showAssist}
+            onClick={() => setShowAssist(true)}
+            icon={<MessageCircle className="size-4" />}
+            label="相談"
+          />
+          <IconToggle
             on={reading}
             onClick={() => {
               if (reading) stopSpeaking();
               setReading(!reading);
             }}
-            icon={<Volume2 className="size-4" />}
-            label={reading ? "読み上げ中" : "読み上げ"}
-          />
+            label={reading ? "読み上げを止める" : "手順を読み上げる"}
+          >
+            <Volume2 className="size-5" />
+          </IconToggle>
           {voiceOk && (
-            <ToolButton
+            <IconToggle
               on={listening}
               onClick={toggleListen}
-              icon={<Mic className="size-4" />}
-              label={listening ? "声で操作中" : "声で操作"}
-            />
+              label={listening ? "声での操作を止める" : "声で操作する"}
+            >
+              <Mic className="size-5" />
+            </IconToggle>
           )}
         </div>
         <div className="grid grid-cols-[1fr_2fr] gap-2.5">
@@ -396,6 +579,131 @@ function CookView({
           )}
         </div>
       </div>
+
+      {showAssist && (
+        <div
+          className="fixed inset-0 z-20 flex flex-col justify-end bg-ink/40"
+          onClick={() => setShowAssist(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="アシスタントに相談"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setShowAssist(false);
+            }}
+            className="mx-auto flex max-h-[85dvh] w-full max-w-[480px] flex-col rounded-t-3xl bg-card pb-[max(env(safe-area-inset-bottom),12px)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 pt-4">
+              <h2 className="text-base font-bold">アシスタントに相談</h2>
+              <button
+                type="button"
+                aria-label="相談を閉じる"
+                autoFocus
+                onClick={() => setShowAssist(false)}
+                className="-mr-2 flex size-11 items-center justify-center text-sub"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="flex min-h-[120px] flex-1 flex-col gap-2.5 overflow-y-auto px-5 py-3">
+              {chat.length === 0 && (
+                <p className="text-sm leading-7 text-sub">
+                  料理中に困ったことを聞いてください。今のレシピと手順を見て答えます。
+                  計量の換算は計算で、ほかは AI（無料）が答えます。
+                </p>
+              )}
+              {chat.map((m, k) =>
+                m.role === "user" ? (
+                  <p
+                    key={k}
+                    className="max-w-[85%] self-end rounded-2xl rounded-br-md bg-accent-soft px-3.5 py-2 text-[15px]"
+                  >
+                    {m.text}
+                  </p>
+                ) : (
+                  <div key={k} className="flex max-w-[90%] flex-col gap-0.5">
+                    <span className="text-[11px] text-sub">
+                      {m.source === "calc"
+                        ? "計算した答え"
+                        : m.source === "done"
+                          ? "操作しました"
+                          : m.source === "ai"
+                            ? "AI の答え（間違えることがあります）"
+                            : "うまく答えられませんでした"}
+                    </span>
+                    <p
+                      className={cn(
+                        "rounded-2xl rounded-bl-md px-3.5 py-2 text-[15px] leading-relaxed",
+                        m.source === "error"
+                          ? "bg-memo text-memo-ink"
+                          : "bg-herb-soft text-ink",
+                      )}
+                    >
+                      {m.text}
+                    </p>
+                  </div>
+                ),
+              )}
+              {asking && (
+                <p className="text-sm text-sub" role="status">
+                  考え中…
+                </p>
+              )}
+            </div>
+            {chat.length === 0 && (
+              <div className="flex gap-2 overflow-x-auto px-5 pb-2">
+                {SUGGESTIONS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => void ask(q, false)}
+                    className="h-11 shrink-0 rounded-full border border-field bg-paper px-3.5 text-[13px]"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+            <form
+              className="flex items-center gap-2 px-4 pt-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const q = draft;
+                setDraft("");
+                void ask(q, false);
+              }}
+            >
+              <input
+                aria-label="相談したいこと"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={dictating ? "聞き取り中…" : "例：落とし蓋がない"}
+                maxLength={300}
+                className="h-11 min-w-0 flex-1 rounded-xl border border-field bg-paper px-3 text-[15px]"
+              />
+              {voiceOk && (
+                <IconToggle
+                  on={dictating}
+                  onClick={dictate}
+                  label={dictating ? "聞き取りを止める" : "話して聞く"}
+                >
+                  <Mic className="size-5" />
+                </IconToggle>
+              )}
+              <button
+                type="submit"
+                aria-label="送る"
+                disabled={!draft.trim() || asking}
+                className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white disabled:opacity-40"
+              >
+                <Send className="size-4" />
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showIngs && (
         <div
@@ -473,6 +781,36 @@ function ToolButton({
     >
       {icon}
       {label}
+    </button>
+  );
+}
+
+function IconToggle({
+  on,
+  onClick,
+  label,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        "flex size-11 shrink-0 items-center justify-center rounded-full border",
+        on
+          ? "border-accent/30 bg-accent-soft text-accent-deep"
+          : "border-field bg-card text-ink",
+      )}
+    >
+      {children}
     </button>
   );
 }

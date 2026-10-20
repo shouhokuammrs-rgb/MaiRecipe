@@ -71,3 +71,42 @@ export async function runGeminiVideo(
   }
   return extractGeminiText(await res.json().catch(() => null));
 }
+
+/** 文章だけで頼む（お料理アシスタント）。返事は JSON の文字 */
+export async function runGeminiText(
+  env: GeminiEnv,
+  model: string,
+  system: string,
+  user: string,
+  maxTokens: number,
+): Promise<string> {
+  const key = env.GEMINI_API_KEY;
+  if (!key) throw new AiUnavailable("Gemini の鍵がありません");
+  let res: Response;
+  try {
+    res = await fetch(`${ENDPOINT}/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: maxTokens,
+          responseMimeType: "application/json",
+        },
+      }),
+      // 料理中に待たせすぎない
+      signal: AbortSignal.timeout(25_000),
+    });
+  } catch (e) {
+    throw new AiUnavailable(String((e as Error)?.message ?? e));
+  }
+  if (res.status === 429)
+    throw new AiQuotaExceeded(
+      "Gemini の無料枠の上限（1分あたり・1日あたり）に当たりました",
+    );
+  if (!res.ok)
+    throw new AiUnavailable(`Gemini がエラーを返しました（${res.status}）`);
+  return extractGeminiText(await res.json().catch(() => null));
+}

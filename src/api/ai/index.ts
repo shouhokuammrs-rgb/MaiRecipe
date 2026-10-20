@@ -4,12 +4,22 @@
 // （無料のまま枠を超えるとエラーになり、請求は起きない）。
 // 使用量の記録と「9割で止める」見張りは、利用が増えたら D1 に記録して足す（#36 の残り）。
 import {
+  buildAssistPrompt,
+  parseAssistReply,
+  type AssistReply,
+} from "../../shared/assist";
+import {
   buildReadPrompt,
   buildVideoPrompt,
   parseAiRecipe,
   type AiRecipe,
 } from "../../shared/ai-read";
-import { hasGemini, runGeminiVideo, type GeminiEnv } from "../platform/gemini";
+import {
+  hasGemini,
+  runGeminiText,
+  runGeminiVideo,
+  type GeminiEnv,
+} from "../platform/gemini";
 import { runWorkersAi, type WorkersAiBinding } from "../platform/workers-ai";
 
 export { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
@@ -20,6 +30,13 @@ const TASKS = {
     provider: "workers-ai",
     model: "@cf/openai/gpt-oss-120b",
     maxTokens: 2000,
+  },
+  cook_assist: {
+    provider: "gemini",
+    model: "gemini-3.8-flash",
+    maxTokens: 1024,
+    /** Gemini が使えないときの予備 */
+    fallback: "@cf/openai/gpt-oss-120b",
   },
   watch_video: {
     provider: "gemini",
@@ -73,4 +90,27 @@ export async function watchVideoWithAi(
   const recipe = parseAiRecipe(raw);
   if (!recipe) throw new AiBadOutput("動画からレシピを読み取れませんでした");
   return recipe;
+}
+
+/** 料理中の相談に答える。Gemini が使えなければ Workers AI。読めなければ AiBadOutput */
+export async function assistCooking(
+  env: AiEnv,
+  input: Parameters<typeof buildAssistPrompt>[0],
+): Promise<AssistReply> {
+  const task = TASKS.cook_assist;
+  const { system, user } = buildAssistPrompt(input);
+  let raw: string;
+  if (hasGemini(env)) {
+    try {
+      raw = await runGeminiText(env, task.model, system, user, task.maxTokens);
+    } catch (e) {
+      if (!env.AI) throw e;
+      raw = await runWorkersAi(env.AI, task.fallback, system, user, 1500);
+    }
+  } else {
+    raw = await runWorkersAi(env.AI, task.fallback, system, user, 1500);
+  }
+  const reply = parseAssistReply(raw);
+  if (!reply) throw new AiBadOutput("答えを作れませんでした");
+  return reply;
 }
