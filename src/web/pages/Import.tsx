@@ -4,11 +4,13 @@ import {
   ClipboardPaste,
   Flag,
   Info,
+  Loader2,
   Sparkles,
   TriangleAlert,
+  X,
 } from "lucide-react";
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   cleanSourceUrl,
   overlapNotice,
@@ -16,7 +18,8 @@ import {
   parseVideoUrl,
   recipeFromSections,
 } from "../../shared/importer";
-import { apiClient, type ImportResult } from "@/api/client";
+import { apiClient, type ImportJob, type ImportResult } from "@/api/client";
+import { jobLabel, jobResult, useImportJobs } from "@/lib/importJobs";
 import { PrimaryButton, SecondaryButton, SubHeader } from "@/components/common";
 import { RecipeEditor } from "@/components/RecipeEditor";
 import { VideoEmbed } from "@/components/VideoEmbed";
@@ -61,11 +64,42 @@ export function Import() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const nav = useNavigate();
   const qc = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  /** いま確かめている、裏の読み取り（保存したら消す） */
+  const [activeJob, setActiveJob] = useState<string | null>(null);
+  const jobs = useImportJobs();
 
-  const read = useMutation({
-    mutationFn: (u: string) => apiClient.importUrl(u),
-    onSuccess: (r) => setResult(r),
+  // 裏で始める（すぐ返る）。読み終わったら下の一覧と、ほかの画面の上の知らせで分かる
+  const start = useMutation({
+    mutationFn: (u: string) => apiClient.startImport(u),
+    onSuccess: () => {
+      setUrl("");
+      void qc.invalidateQueries({ queryKey: ["import-jobs"] });
+    },
   });
+  const dismiss = useMutation({
+    mutationFn: (id: string) => apiClient.dismissImportJob(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["import-jobs"] }),
+  });
+  const openJob = (j: ImportJob) => {
+    if (j.status === "running") return;
+    setActiveJob(j.id);
+    setResult(jobResult(j));
+  };
+  // 上の知らせから来たとき（/import?job=…）は、その結果を開く（描画中に1回だけ移す）
+  const wanted = params.get("job");
+  const wantedJob =
+    wanted && result === null
+      ? jobs.data?.find((x) => x.id === wanted && x.status !== "running")
+      : undefined;
+  if (wantedJob) {
+    setActiveJob(wantedJob.id);
+    setResult(jobResult(wantedJob));
+  }
+  // URL の ?job= は、読み終えた一覧が来たら外す（戻ったときに開き直さない）
+  useEffect(() => {
+    if (wanted && jobs.data) setParams({}, { replace: true });
+  }, [wanted, jobs.data, setParams]);
   const aiRead = useMutation({
     mutationFn: apiClient.importAi,
     onSuccess: (r) => {
@@ -80,6 +114,10 @@ export function Import() {
   const save = useMutation({
     mutationFn: apiClient.createRecipe,
     onSuccess: async ({ id }) => {
+      // 保存した読み取りは一覧から消す
+      if (activeJob)
+        await apiClient.dismissImportJob(activeJob).catch(() => {});
+      void qc.invalidateQueries({ queryKey: ["import-jobs"] });
       await qc.invalidateQueries({ queryKey: ["recipes"] });
       nav(`/recipes/${id}`, { replace: true });
     },
@@ -102,6 +140,7 @@ export function Import() {
               className="h-11 px-3 text-sm text-sub"
               onClick={() => {
                 setResult(null);
+                setActiveJob(null);
                 report.reset();
               }}
             >
@@ -170,6 +209,7 @@ export function Import() {
                       setUrl(d.sourceUrl);
                       setFallbackTitle(d.title);
                       setResult(null);
+                      setActiveJob(null);
                       report.reset();
                       switchMode("text");
                     }}
@@ -247,7 +287,7 @@ export function Import() {
               e.preventDefault();
               if (url.trim()) {
                 setFallbackTitle("");
-                read.mutate(url.trim());
+                start.mutate(url.trim());
               }
             }}
           >
@@ -269,17 +309,25 @@ export function Import() {
             </label>
             <PrimaryButton
               type="submit"
-              disabled={read.isPending || !url.trim()}
+              disabled={start.isPending || !url.trim()}
             >
-              {read.isPending
-                ? "AI が読み取り中…（長い動画は1〜2分）"
-                : "読み取る"}
+              {start.isPending ? "始めています…" : "読み取る"}
             </PrimaryButton>
-            {read.isError && (
+            {start.isError && (
               <p role="alert" className="text-sm text-danger">
-                {read.error.message}
+                {start.error.message}
               </p>
             )}
+            {start.isSuccess && (
+              <p role="status" className="text-sm leading-6 text-herb">
+                読み取りを始めました。長い動画は1〜3分かかります。ほかの画面に移っても大丈夫です（終わったら上に知らせが出ます）。
+              </p>
+            )}
+            <JobList
+              jobs={jobs.data ?? []}
+              onOpen={openJob}
+              onDismiss={(id) => dismiss.mutate(id)}
+            />
             <p className="text-xs leading-6 text-sub">
               サイトのレシピ情報があればそれを使い、無ければ
               AI（無料）が読みます。動画は AI
@@ -374,5 +422,70 @@ export function Import() {
         )}
       </div>
     </>
+  );
+}
+
+/** 裏で読み取っているもの・読み終わったものの一覧（DEC-022） */
+function JobList({
+  jobs,
+  onOpen,
+  onDismiss,
+}: {
+  jobs: ImportJob[];
+  onOpen: (j: ImportJob) => void;
+  onDismiss: (id: string) => void;
+}) {
+  if (!jobs.length) return null;
+  return (
+    <section className="flex flex-col gap-2" aria-label="読み取りの様子">
+      <h2 className="text-[13px] font-bold">読み取りの様子</h2>
+      <ul className="flex flex-col gap-2">
+        {jobs.map((j) => (
+          <li
+            key={j.id}
+            className="flex items-center gap-2 rounded-xl border border-line-soft bg-card py-1.5 pr-1 pl-3"
+          >
+            {j.status === "running" ? (
+              <Loader2 className="size-4 shrink-0 animate-spin text-sub" />
+            ) : j.status === "done" ? (
+              <Check className="size-4 shrink-0 text-herb" />
+            ) : (
+              <TriangleAlert className="size-4 shrink-0 text-danger" />
+            )}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm">{jobLabel(j)}</span>
+              <span className="text-xs text-sub">
+                {j.status === "running"
+                  ? "読み取り中…"
+                  : j.status === "done"
+                    ? j.result?.found
+                      ? "読み取れました"
+                      : "材料と作り方は見つかりませんでした"
+                    : (j.error ?? "読み取れませんでした")}
+              </span>
+            </div>
+            {j.status !== "running" && (
+              <button
+                type="button"
+                onClick={() => onOpen(j)}
+                className={`h-11 shrink-0 rounded-lg px-3 text-sm font-bold ${j.status === "done" ? "bg-accent text-white" : "border border-field bg-card text-ink"}`}
+              >
+                {j.status === "done" ? "確かめる" : "手で入れる"}
+              </button>
+            )}
+            {j.status !== "running" && (
+              <button
+                type="button"
+                aria-label={`「${jobLabel(j)}」を一覧から消す`}
+                onClick={() => onDismiss(j.id)}
+                className="flex size-11 shrink-0 items-center justify-center text-faint"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

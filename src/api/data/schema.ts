@@ -320,3 +320,26 @@ export const importReports = sqliteTable(
   },
   (t) => [uniqueIndex("import_reports_url_uq").on(t.groupId, t.url)],
 );
+
+// ---- 裏で進める取り込み（DEC-022）。URL を入れたら作り、Workflow が読み終えたら結果を入れる。
+// 結果は画面で確かめてから保存する下書き（保存したら消す）。読めた中身は材料と手順だけ（DEC-011）
+export const importJobs = sqliteTable(
+  "import_jobs",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    url: text("url").notNull(),
+    status: text("status", { enum: ["running", "done", "failed"] }).notNull(),
+    /** 読み取りの結果（POST /api/import と同じ形の JSON）。done のときだけ */
+    result: text("result"),
+    error: text("error"),
+    createdAt: createdAt(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("import_jobs_group_idx").on(t.groupId, t.createdAt)],
+);

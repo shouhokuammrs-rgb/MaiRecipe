@@ -19,6 +19,7 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   };
   c.set("userId", user.id);
   c.set("user", sessionUser);
+  c.set("groupId", groupId);
   c.set("repo", forGroup(db, groupId));
   c.set("membership", membershipFor(db, sessionUser));
   await next();

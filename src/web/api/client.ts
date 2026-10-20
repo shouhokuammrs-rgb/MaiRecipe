@@ -107,6 +107,16 @@ export type ImportResult = {
   notice?: string | null;
 };
 
+/** 裏で進める取り込み（DEC-022） */
+export type ImportJob = {
+  id: string;
+  url: string;
+  status: "running" | "done" | "failed";
+  result: ImportResult | null;
+  error: string | null;
+  createdAt: number;
+};
+
 export type PlanEntry = {
   id: string;
   date: string;
@@ -202,6 +212,12 @@ export const apiClient = {
 
   importUrl: (url: string) =>
     call<ImportResult>("/import", { method: "POST", json: { url } }),
+  /** 裏で読み取りを始める（すぐ返る。DEC-022） */
+  startImport: (url: string) =>
+    call<{ id: string }>("/import/jobs", { method: "POST", json: { url } }),
+  importJobs: () => call<{ jobs: ImportJob[] }>("/import/jobs"),
+  dismissImportJob: (id: string) =>
+    call<null>(`/import/jobs/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** お料理アシスタントに相談する（DEC-021）。保存はしない */
   assist: (input: {
     recipeId: string;
