@@ -202,6 +202,21 @@ export const apiClient = {
 
   importUrl: (url: string) =>
     call<ImportResult>("/import", { method: "POST", json: { url } }),
+  /** お料理アシスタントに相談する（DEC-021）。保存はしない */
+  assist: (input: {
+    recipeId: string;
+    versionId?: string;
+    stepIndex: number;
+    question: string;
+    history: { role: "user" | "assistant"; text: string }[];
+  }) =>
+    call<{
+      answer: string;
+      action:
+        | { type: "timer"; seconds: number; label?: string }
+        | { type: "step"; number: number }
+        | null;
+    }>("/assist", { method: "POST", json: input }),
   /** AI（無料）で読み取る。押した時だけ（DEC-012）。保存はしない */
   importAi: (input: { url?: string; text?: string; title?: string }) =>
     call<ImportResult>("/import/ai", { method: "POST", json: input }),

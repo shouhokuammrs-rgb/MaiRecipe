@@ -53,6 +53,24 @@ test("料理モードで作る", async ({ page }) => {
   await page.getByRole("button", { name: "材料を閉じる" }).click();
   await page.screenshot({ path: "test-results/05-cook.png" });
 
+  // アシスタント：換算は計算で即答、「5分のタイマー」は打っても動く、AI が無いときは理由
+  await page.getByRole("button", { name: "相談" }).click();
+  const sheet = page.getByRole("dialog", { name: "アシスタントに相談" });
+  await sheet.getByRole("button", { name: "大さじ1は小さじ何杯？" }).click();
+  await expect(sheet).toContainText("大さじ1は小さじ3杯です（15ml）。");
+  await expect(sheet).toContainText("計算した答え");
+  await sheet.getByLabel("相談したいこと").fill("5分のタイマー");
+  await sheet.getByRole("button", { name: "送る" }).click();
+  await expect(sheet).toContainText("5分のタイマーをかけました。");
+  await sheet.getByLabel("相談したいこと").fill("落とし蓋がないときは？");
+  await sheet.getByRole("button", { name: "送る" }).click();
+  await expect(sheet).toContainText("うまく答えられませんでした");
+  await page.screenshot({ path: "test-results/06-assist.png" });
+  await sheet.getByRole("button", { name: "相談を閉じる" }).click();
+  await expect(
+    page.getByRole("list", { name: "動いているタイマー" }),
+  ).toContainText("5分");
+
   await page.getByRole("button", { name: "次へ" }).click();
   await page.getByRole("button", { name: "できあがり" }).click();
   await expect(

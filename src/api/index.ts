@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "./app-env";
 import { createAuth, hasGoogle, isDevLogin } from "./auth";
 import { handleError } from "./errors";
+import { assist } from "./routes/assist";
 import { group, invites } from "./routes/group";
 import { importer } from "./routes/importer";
 import { pantry } from "./routes/pantry";
@@ -35,6 +36,7 @@ api.route("/pantry", pantry);
 api.route("/recommend", recommend);
 api.route("/group", group);
 api.route("/invites", invites);
+api.route("/assist", assist);
 
 app.route("/api", api);
 
