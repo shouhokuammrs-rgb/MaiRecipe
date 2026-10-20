@@ -16,6 +16,11 @@ import * as s from "./schema";
 
 export type Db = DrizzleD1Database<typeof s>;
 
+/** 同時に読み取れる数（グループごと）。AI の無料枠を一度に使い切らないため */
+const IMPORT_JOBS_RUNNING_MAX = 5;
+/** これより長く「読み取り中」のままなら、止まったとみなす */
+const IMPORT_JOB_STUCK_MS = 10 * 60_000;
+
 export function openDb(d1: D1Database): Db {
   return drizzle(d1, { schema: s });
 }
@@ -904,6 +909,97 @@ export function forGroup(db: Db, groupId: string) {
         url: r.url,
         createdAt: r.createdAt.getTime(),
       }));
+    },
+
+    // ---- 裏で進める取り込み（DEC-022）
+    /** 読み取りを始める。動いているものが多すぎるときは null */
+    async createImportJob(url: string, userId: string): Promise<string | null> {
+      const [row] = await db
+        .select({ n: count() })
+        .from(s.importJobs)
+        .where(
+          and(
+            eq(s.importJobs.groupId, groupId),
+            eq(s.importJobs.status, "running"),
+          ),
+        );
+      if ((row?.n ?? 0) >= IMPORT_JOBS_RUNNING_MAX) return null;
+      const id = newId();
+      await db.insert(s.importJobs).values({
+        id,
+        groupId,
+        url,
+        createdBy: userId,
+        status: "running",
+        updatedAt: new Date(),
+      });
+      return id;
+    },
+
+    /** 読み終えた（または読めなかった）結果を入れる。他のグループの id なら何もしない */
+    async finishImportJob(
+      id: string,
+      outcome: { result: unknown } | { error: string },
+    ) {
+      await db
+        .update(s.importJobs)
+        .set(
+          "result" in outcome
+            ? {
+                status: "done",
+                result: JSON.stringify(outcome.result),
+                updatedAt: new Date(),
+              }
+            : {
+                status: "failed",
+                error: outcome.error.slice(0, 300),
+                updatedAt: new Date(),
+              },
+        )
+        .where(
+          and(
+            eq(s.importJobs.id, id),
+            eq(s.importJobs.groupId, groupId),
+            eq(s.importJobs.status, "running"),
+          ),
+        );
+    },
+
+    /** 最近の読み取り（1日以内）。長く止まったままのものは「読めなかった」として返す */
+    async listImportJobs(now = Date.now()) {
+      const rows = await db
+        .select()
+        .from(s.importJobs)
+        .where(
+          and(
+            eq(s.importJobs.groupId, groupId),
+            gte(s.importJobs.createdAt, new Date(now - 24 * 3600_000)),
+          ),
+        )
+        .orderBy(desc(s.importJobs.createdAt))
+        .limit(20);
+      return rows.map((r) => {
+        const stuck =
+          r.status === "running" &&
+          now - r.updatedAt.getTime() > IMPORT_JOB_STUCK_MS;
+        return {
+          id: r.id,
+          url: r.url,
+          status: stuck ? ("failed" as const) : r.status,
+          result: r.result ? (JSON.parse(r.result) as unknown) : null,
+          error: stuck
+            ? "時間がかかりすぎたので止めました。もう一度試してください。"
+            : r.error,
+          createdAt: r.createdAt.getTime(),
+        };
+      });
+    },
+
+    /** 確かめ終わった（保存した・やめた）読み取りを消す */
+    async deleteImportJob(id: string) {
+      await db
+        .delete(s.importJobs)
+        .where(and(eq(s.importJobs.id, id), eq(s.importJobs.groupId, groupId)));
     },
 
     // ---- いっしょに使う人（グループのメンバーと招待）

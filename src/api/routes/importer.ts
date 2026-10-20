@@ -2,7 +2,7 @@
 // サイトは JSON-LD の Recipe から、無ければ「材料」「作り方」の見出しの後から読む。
 // YouTube は概要欄の【材料】【作り方】から、無ければ概要欄に貼られたレシピページ、
 // それも無ければ動画のコメント（投稿者本人のものを先に）から読む。AI は使わない。
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import {
   cleanSourceUrl,
   extractRecipeFromJsonLd,
@@ -32,7 +32,7 @@ import {
 } from "../ai";
 import type { AiRecipe } from "../../shared/ai-read";
 import { importSchema } from "../../shared/recipe";
-import type { AppEnv } from "../app-env";
+import type { AppBindings, AppEnv } from "../app-env";
 import { badRequest } from "../errors";
 import {
   scanPage,
@@ -165,8 +165,7 @@ type RuleBody = {
 };
 
 /** AI が1つでも使える設定か（鍵・バインディングがあるか） */
-const hasAnyAi = (c: Context<AppEnv>) =>
-  Boolean(c.env.AI) || canWatchVideo(c.env);
+const hasAnyAi = (env: AppBindings) => Boolean(env.AI) || canWatchVideo(env);
 
 /** AI が使えなかったとき、規則の結果に理由を添える */
 const withReason = (body: RuleBody, reason: string | null) =>
@@ -181,16 +180,27 @@ const withReason = (body: RuleBody, reason: string | null) =>
 importer.post("/", async (c) => {
   const parsed = importSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);
-  const url = parsed.data.url;
+  return c.json(await importFromUrl(c.env, parsed.data.url));
+});
 
+export type ImportBody = RuleBody | Record<string, unknown>;
+
+/**
+ * URL から取り込む本体。画面からの取り込み（裏の読み取り DEC-022）と、すぐ返す POST /api/import の両方で使う。
+ * セッションに依存しない（env だけ）。保存はしない
+ */
+export async function importFromUrl(
+  env: AppBindings,
+  url: string,
+): Promise<ImportBody> {
   const video = parseVideoUrl(url);
   if (video) {
-    const snip = await youtubeSnippet(c.env, video.id);
+    const snip = await youtubeSnippet(env, video.id);
     const title = snip?.title || (await youtubeTitle(video.watchUrl)) || "";
     // AI が無い設定では、今までどおり規則だけ（コメントは要るときだけ取りに行く）
-    if (!hasAnyAi(c)) return c.json(await videoByRules(c, video, snip, title));
+    if (!hasAnyAi(env)) return await videoByRules(env, video, snip, title);
     const comments = snip
-      ? await youtubeComments(c.env, video.id, snip.channelId)
+      ? await youtubeComments(env, video.id, snip.channelId)
       : [];
     const ownerTexts = comments.filter((cm) => cm.byOwner).map((cm) => cm.text);
 
@@ -206,49 +216,47 @@ importer.post("/", async (c) => {
     const ld = linkHits.find((h) => h.via === "jsonld");
     if (ld) {
       const { via: _via, ...fromLink } = ld;
-      return c.json({
+      return {
         kind: "video",
         found: true,
         draft: { ...fromLink, videoUrl: video.watchUrl },
         message:
           "動画の投稿者が載せたレシピのページから読み取りました（AI なし）。",
-      });
+      };
     }
 
     // ② AI（動画を見る → だめなら概要欄と投稿者のコメントを読む）
     const source = [snip?.description ?? "", ...ownerTexts]
       .filter(Boolean)
       .join("\n\n");
-    const ai = await readWithAi(c, { url }, { source, title });
-    if (ai.ok) return c.json(ai.body);
+    const ai = await readWithAi(env, { url }, { source, title });
+    if (ai.ok) return ai.body;
     // 「AI でも読めなかった」は規則の結果で十分。上限・不通のときだけ理由を添える
     const reason = ai.status === 422 ? null : ai.error;
 
     // ③ 規則
-    return c.json(
-      withReason(
-        await videoByRules(c, video, snip, title, { comments, linkHits }),
-        reason,
-      ),
+    return withReason(
+      await videoByRules(env, video, snip, title, { comments, linkHits }),
+      reason,
     );
   }
 
-  const page = await scanPage(url, { collectText: Boolean(c.env.AI) });
+  const page = await scanPage(url, { collectText: Boolean(env.AI) });
   const { recipe, via } = readPage(page);
   // ① 構造化データ
   if (recipe && via === "jsonld")
-    return c.json({
+    return {
       kind: "page",
       found: true,
       draft: { ...recipe, sourceUrl: url },
       message: "ページの構造化データから読み取りました（AI なし）。",
-    });
+    };
 
   // ② AI（ページの本文）
   let reason: string | null = null;
-  if (c.env.AI) {
+  if (env.AI) {
     const ai = await readWithAi(
-      c,
+      env,
       { url },
       {
         source: page.bodyText,
@@ -256,49 +264,45 @@ importer.post("/", async (c) => {
         sourceUrl: cleanSourceUrl(page.url) ?? undefined,
       },
     );
-    if (ai.ok) return c.json(ai.body);
+    if (ai.ok) return ai.body;
     reason = ai.status === 422 ? null : ai.error;
   }
 
   // ③ 規則（見出しの後から）
   if (!recipe)
-    return c.json(
-      withReason(
-        {
-          kind: "page",
-          found: false,
-          draft: {
-            title: page.title || "取り込んだレシピ",
-            ingredients: [],
-            steps: [],
-            timeLabel: "",
-            category: guessCategory([page.title]),
-            genre: guessGenre([page.title]),
-            sourceUrl: url,
-            videoUrl: null,
-          },
-          message: NOT_FOUND_MESSAGE,
-        },
-        reason,
-      ),
-    );
-  return c.json(
-    withReason(
+    return withReason(
       {
         kind: "page",
-        found: true,
-        draft: { ...recipe, sourceUrl: url },
-        message:
-          "ページの「材料」「作り方」の見出しから読み取りました（AI なし）。内容を確かめてから保存してください。",
+        found: false,
+        draft: {
+          title: page.title || "取り込んだレシピ",
+          ingredients: [],
+          steps: [],
+          timeLabel: "",
+          category: guessCategory([page.title]),
+          genre: guessGenre([page.title]),
+          sourceUrl: url,
+          videoUrl: null,
+        },
+        message: NOT_FOUND_MESSAGE,
       },
       reason,
-    ),
+    );
+  return withReason(
+    {
+      kind: "page",
+      found: true,
+      draft: { ...recipe, sourceUrl: url },
+      message:
+        "ページの「材料」「作り方」の見出しから読み取りました（AI なし）。内容を確かめてから保存してください。",
+    },
+    reason,
   );
-});
+}
 
 /** AI が使えないときの、動画の規則での読み方（概要欄 → 貼られたページ → コメント） */
 async function videoByRules(
-  c: Context<AppEnv>,
+  env: AppBindings,
   video: NonNullable<ReturnType<typeof parseVideoUrl>>,
   snip: Awaited<ReturnType<typeof youtubeSnippet>>,
   rawTitle: string,
@@ -341,7 +345,7 @@ async function videoByRules(
       };
     const comments =
       fetched?.comments ??
-      (await youtubeComments(c.env, video.id, snip.channelId));
+      (await youtubeComments(env, video.id, snip.channelId));
     for (const comment of comments) {
       const fromComment = readText(comment.text, title);
       if (!fromComment) continue;
@@ -410,7 +414,7 @@ type AiOutcome =
 
 /** AI（無料）で読み取った下書きを作る。ボタンからも、規則で読めなかったときの自動の予備からも使う */
 async function readWithAi(
-  c: Context<AppEnv>,
+  env: AppBindings,
   input: AiInput,
   /** 取り込みで既に取ってきた文章（もう一度取りに行かない） */
   pre?: { source: string; title: string; sourceUrl?: string },
@@ -424,9 +428,9 @@ async function readWithAi(
   const video = url ? parseVideoUrl(url) : null;
 
   if (!source && !prefetched && video) {
-    const snip = await youtubeSnippet(c.env, video.id);
+    const snip = await youtubeSnippet(env, video.id);
     // 説明が取れなくても、動画を見る AI は URL だけで読める
-    if (!snip && !canWatchVideo(c.env))
+    if (!snip && !canWatchVideo(env))
       return {
         ok: false,
         status: 422,
@@ -434,7 +438,7 @@ async function readWithAi(
       };
     if (snip) {
       title = title || snip.title;
-      const comments = await youtubeComments(c.env, video.id, snip.channelId);
+      const comments = await youtubeComments(env, video.id, snip.channelId);
       source = [
         snip.description,
         ...comments.filter((cm) => cm.byOwner).map((cm) => cm.text),
@@ -453,14 +457,9 @@ async function readWithAi(
   let watchError: AiOutcome | null = null;
   // 動画を見る AI がだめだった理由（文章を読む AI に回したとき、画面で知らせる）
   let watchNote: string | null = null;
-  if (video && !text && canWatchVideo(c.env)) {
+  if (video && !text && canWatchVideo(env)) {
     try {
-      const recipe = await watchVideoWithAi(
-        c.env,
-        video.watchUrl,
-        title,
-        source,
-      );
+      const recipe = await watchVideoWithAi(env, video.watchUrl, title, source);
       if (recipe.steps.length > 0 || source.trim().length < 20)
         return aiDraftBody(recipe, title, video.watchUrl, null, true);
       watchNote = "動画を見ても手順が見つかりませんでした";
@@ -470,7 +469,7 @@ async function readWithAi(
         e instanceof Error && e.message ? e.message : "動画を読めませんでした";
     }
   }
-  if (source.trim().length < 20 || (watchError && !c.env.AI))
+  if (source.trim().length < 20 || (watchError && !env.AI))
     return (
       watchError ?? {
         ok: false,
@@ -481,7 +480,7 @@ async function readWithAi(
 
   let recipe;
   try {
-    recipe = await readRecipeWithAi(c.env, source, title);
+    recipe = await readRecipeWithAi(env, source, title);
   } catch (e) {
     return aiError(e);
   }
@@ -564,6 +563,6 @@ function aiDraftBody(
 importer.post("/ai", async (c) => {
   const parsed = aiReadSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);
-  const r = await readWithAi(c, parsed.data);
+  const r = await readWithAi(c.env, parsed.data);
   return r.ok ? c.json(r.body) : c.json({ error: r.error }, r.status);
 });

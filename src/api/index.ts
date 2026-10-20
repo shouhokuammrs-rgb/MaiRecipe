@@ -5,6 +5,7 @@ import { handleError } from "./errors";
 import { assist } from "./routes/assist";
 import { group, invites } from "./routes/group";
 import { importer } from "./routes/importer";
+import { importJobs } from "./routes/import-jobs";
 import { pantry } from "./routes/pantry";
 import { plans, shopping } from "./routes/plans";
 import { recipes } from "./routes/recipes";
@@ -29,6 +30,7 @@ const api = new Hono<AppEnv>();
 api.use("*", requireUser);
 api.get("/me", (c) => c.json({ userId: c.var.userId }));
 api.route("/recipes", recipes);
+api.route("/import/jobs", importJobs);
 api.route("/import", importer);
 api.route("/plans", plans);
 api.route("/shopping", shopping);
@@ -43,3 +45,6 @@ app.route("/api", api);
 app.all("/api/*", (c) => c.json({ error: "見つかりません" }, 404));
 
 export default app;
+
+// 裏で進める取り込み（DEC-022）。wrangler.jsonc の workflows から呼ばれる
+export { ImportWorkflow } from "./platform/import-workflow";

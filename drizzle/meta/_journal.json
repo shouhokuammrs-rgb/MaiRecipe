@@ -43,6 +43,13 @@
       "when": 1792415000560,
       "tag": "0005_category_shushoku",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792483265896,
+      "tag": "0006_import_jobs",
+      "breakpoints": true
     }
   ]
 }

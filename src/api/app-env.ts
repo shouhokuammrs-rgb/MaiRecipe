@@ -15,6 +15,13 @@ export type AppBindings = {
   AI?: WorkersAiBinding;
   /** Gemini API の鍵（任意・無料枠）。動画を見て手順を読むときだけ platform/gemini.ts が使う。DEC-018 */
   GEMINI_API_KEY?: string;
+  /** 裏で進める取り込み（Cloudflare Workflows・DEC-022）。無いとき（テスト等）はその場で読む */
+  IMPORT_WORKFLOW?: {
+    create: (opts: {
+      id?: string;
+      params: { jobId: string; groupId: string; url: string };
+    }) => Promise<unknown>;
+  };
 };
 
 export type SessionUser = {
@@ -29,6 +36,8 @@ export type AppEnv = {
   Variables: {
     userId: string;
     user: SessionUser;
+    /** セッションから決めたグループ（裏の読み取りに渡すときだけ使う。DB は repo で触る） */
+    groupId: string;
     repo: GroupRepo;
     membership: ReturnType<typeof membershipFor>;
   };

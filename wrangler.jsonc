@@ -13,6 +13,14 @@
   },
   // Workers AI（鍵不要・無料枠 1日 10,000 ニューロン）。「AI で読み取る」だけが使う（#36）
   "ai": { "binding": "AI" },
+  // 裏で進める取り込み（DEC-022）
+  "workflows": [
+    {
+      "name": "mairecipe-import",
+      "binding": "IMPORT_WORKFLOW",
+      "class_name": "ImportWorkflow",
+    },
+  ],
   "d1_databases": [
     {
       "binding": "DB",

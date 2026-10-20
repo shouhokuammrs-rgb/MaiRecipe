@@ -6,9 +6,10 @@ import {
   Settings,
   ShoppingCart,
 } from "lucide-react";
-import { NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { apiClient, ApiError } from "@/api/client";
 import { Loading } from "@/components/common";
+import { jobLabel, useImportJobs } from "@/lib/importJobs";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -40,6 +41,9 @@ export function AppLayout() {
       <main className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Outlet />
       </main>
+      {loc.pathname !== "/import" && !loc.pathname.endsWith("/cook") && (
+        <ImportJobsStrip />
+      )}
       {showTabs && (
         <nav
           aria-label="メイン"
@@ -63,6 +67,48 @@ export function AppLayout() {
             </NavLink>
           ))}
         </nav>
+      )}
+    </div>
+  );
+}
+
+/** 裏で読み取っているレシピの知らせ（DEC-022）。読めたら「確かめる」で取り込み画面へ */
+function ImportJobsStrip() {
+  const { data: jobs } = useImportJobs();
+  const done = jobs?.find((j) => j.status === "done");
+  const failed = jobs?.find((j) => j.status === "failed");
+  const running = jobs?.filter((j) => j.status === "running").length ?? 0;
+  const show = done ?? failed;
+  if (!show && !running) return null;
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex shrink-0 items-center gap-2 border-t border-line-soft px-4 py-1.5 text-[13px]",
+        show && !done ? "bg-memo text-memo-ink" : "bg-herb-soft text-herb",
+      )}
+    >
+      {show ? (
+        <>
+          <span className="min-w-0 flex-1 truncate">
+            {done ? "読み取れました" : "読み取れませんでした"}：{jobLabel(show)}
+          </span>
+          <Link
+            to={`/import?job=${show.id}`}
+            className={cn(
+              "flex h-11 shrink-0 items-center rounded-lg px-3 font-bold",
+              done
+                ? "bg-herb text-white"
+                : "border border-field bg-card text-ink",
+            )}
+          >
+            {done ? "確かめる" : "手で入れる"}
+          </Link>
+        </>
+      ) : (
+        <span className="flex h-11 items-center">
+          レシピを読み取り中…（{running}件）
+        </span>
       )}
     </div>
   );
