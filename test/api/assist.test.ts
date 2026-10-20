@@ -47,11 +47,14 @@ describe("POST /api/assist（お料理アシスタント）", () => {
     expect(await res.json()).toEqual({
       answer: "3分のタイマーをかけます。",
       action: { type: "timer", seconds: 180, label: "3分" },
+      via: "gemini",
     });
     // レシピはサーバーが読んだものを渡している（材料・今の手順）
     expect(bodies[0]).toContain("鶏むね肉 300g");
     expect(bodies[0]).toContain("今の手順：2. 焼く");
     expect(bodies[0]).toContain("前の質問");
+    // 速さのため、考える量を最小にしている
+    expect(bodies[0]).toContain('"thinkingLevel":"minimal"');
   });
 
   it("Gemini が上限なら Workers AI で答える", async () => {
@@ -73,6 +76,7 @@ describe("POST /api/assist（お料理アシスタント）", () => {
     expect(await res.json()).toEqual({
       answer: "アルミホイルで代わりになります。",
       action: null,
+      via: "workers-ai",
     });
   });
 

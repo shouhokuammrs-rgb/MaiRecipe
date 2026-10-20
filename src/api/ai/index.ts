@@ -33,7 +33,9 @@ const TASKS = {
   },
   cook_assist: {
     provider: "gemini",
-    model: "gemini-3.8-flash",
+    // 料理中は速さが大事なので、軽いモデルで考える量を最小にする
+    model: "gemini-3.6-flash",
+    thinkingLevel: "minimal",
     // 考える分も上限に数えられるので、短い答えでも余裕を持たせる
     maxTokens: 4096,
     /** Gemini が使えないときの予備 */
@@ -97,7 +99,7 @@ export async function watchVideoWithAi(
 export async function assistCooking(
   env: AiEnv,
   input: Parameters<typeof buildAssistPrompt>[0],
-): Promise<AssistReply> {
+): Promise<AssistReply & { via: "gemini" | "workers-ai" }> {
   const task = TASKS.cook_assist;
   const { system, user } = buildAssistPrompt(input);
   // Gemini で答えられなければ（上限・不通・読めない返事）、Workers AI に回す
@@ -106,18 +108,25 @@ export async function assistCooking(
   if (hasGemini(env)) {
     try {
       reply = parseAssistReply(
-        await runGeminiText(env, task.model, system, user, task.maxTokens),
+        await runGeminiText(
+          env,
+          task.model,
+          system,
+          user,
+          task.maxTokens,
+          task.thinkingLevel,
+        ),
       );
     } catch (e) {
       geminiError = e;
     }
   }
-  if (!reply) {
-    if (!env.AI && geminiError) throw geminiError;
-    reply = parseAssistReply(
-      await runWorkersAi(env.AI, task.fallback, system, user, 1500),
-    );
-  }
+  if (reply) return { ...reply, via: "gemini" };
+  if (!env.AI && geminiError) throw geminiError;
+  reply = parseAssistReply(
+    await runWorkersAi(env.AI, task.fallback, system, user, 1500),
+  );
   if (!reply) throw new AiBadOutput("答えを作れませんでした");
-  return reply;
+  // どちらが答えたかを返す（遅い・答えが変なときに見分けるため）
+  return { ...reply, via: "workers-ai" };
 }

@@ -79,6 +79,8 @@ export async function runGeminiText(
   system: string,
   user: string,
   maxTokens: number,
+  /** 考える量（少ないほど速い）。料理中の相談は minimal */
+  thinkingLevel?: "minimal" | "low" | "medium" | "high",
 ): Promise<string> {
   const key = env.GEMINI_API_KEY;
   if (!key) throw new AiUnavailable("Gemini の鍵がありません");
@@ -94,10 +96,11 @@ export async function runGeminiText(
           temperature: 0.3,
           maxOutputTokens: maxTokens,
           responseMimeType: "application/json",
+          ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
         },
       }),
-      // 料理中に待たせすぎない
-      signal: AbortSignal.timeout(25_000),
+      // 料理中に待たせすぎない。遅ければ予備の AI に回す
+      signal: AbortSignal.timeout(12_000),
     });
   } catch (e) {
     throw new AiUnavailable(String((e as Error)?.message ?? e));
