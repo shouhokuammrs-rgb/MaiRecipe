@@ -379,6 +379,9 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
       await api(me, "/import", { method: "POST", body: { url: WATCH } })
     ).json()) as { notice: string | null; draft: { steps: string[] } };
     expect(JSON.stringify(seen[0]!.body)).toContain('"thinkingLevel":"low"');
+    expect(JSON.stringify(seen[0]!.body)).toContain(
+      '"videoMetadata":{"fps":0.5}',
+    );
     expect(j.draft.steps).toEqual([]);
     expect(j.notice).toContain("途中で切れました");
   });

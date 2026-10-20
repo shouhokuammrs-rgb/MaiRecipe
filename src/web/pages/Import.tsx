@@ -272,7 +272,7 @@ export function Import() {
               disabled={read.isPending || !url.trim()}
             >
               {read.isPending
-                ? "AI が読み取り中…（動画は1分ほど）"
+                ? "AI が読み取り中…（長い動画は1〜2分）"
                 : "読み取る"}
             </PrimaryButton>
             {read.isError && (

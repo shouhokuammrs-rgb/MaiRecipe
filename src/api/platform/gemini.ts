@@ -3,8 +3,8 @@
 import { AiQuotaExceeded, AiUnavailable } from "./workers-ai";
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
-/** 動画を見るのは時間がかかる（10分の動画で30秒〜1分）。それ以上は待たない */
-const TIMEOUT_MS = 90_000;
+/** 動画を見るのは時間がかかる（15分の動画で1〜2分）。それ以上は待たない */
+const TIMEOUT_MS = 150_000;
 
 export type GeminiEnv = { GEMINI_API_KEY?: string };
 
@@ -45,7 +45,14 @@ export async function runGeminiVideo(
       body: JSON.stringify({
         contents: [
           {
-            parts: [{ file_data: { file_uri: videoUrl } }, { text: prompt }],
+            parts: [
+              {
+                file_data: { file_uri: videoUrl },
+                // 2秒に1コマで十分（手順はほぼ声で分かる）。長い動画でも時間内に読み終える
+                videoMetadata: { fps: 0.5 },
+              },
+              { text: prompt },
+            ],
           },
         ],
         generationConfig: {
