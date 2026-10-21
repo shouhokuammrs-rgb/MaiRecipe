@@ -106,13 +106,41 @@ function decodeEntities(s: string): string {
     .replace(/&#(\d+);/g, (_, d: string) => String.fromCharCode(Number(d)));
 }
 
+/** 手順に入れない行：動画への案内・別のレシピの紹介（「〜 ID12345678」）など */
+const STEP_NOISE =
+  /^(?:まずは動画で|動画で(?:見て|確認)|YouTube\s*で|youtube\s*で)|(?:^|\s)ID\s?\d{6,}\s*$|^【[^】]*(?:シリーズ|おすすめ|関連)[^】]*】/i;
+
+/** 手順の見出しに付いた「ポイント①」などの印を外す */
+const tidyStep = (t: string) =>
+  t.replace(/\s*(?:ポイント|POINT|コツ)\s*[①-⑳0-9]+/gi, "").trim();
+
+/**
+ * 手順を集める。サイトの手順1つ（HowToStep など）は、中に改行があっても1つの手順にする
+ * （「「清酒」ポイント①」と説明の行が別々の手順にならないように）。
+ * 手順全体が1つの文字列のサイトだけ、改行で分ける
+ */
 function collectSteps(v: Json, out: string[], depth = 0) {
   if (depth > 5) return;
   if (typeof v === "string") {
-    // 1つの文字列に改行区切りで手順が入っているサイトもある
-    for (const line of v.replace(/<br\s*\/?>/gi, "\n").split(/\n+/)) {
-      const t = text(line);
-      if (t) out.push(t);
+    const lines = v
+      .replace(/<br\s*\/?>/gi, "\n")
+      .split(/\n+/)
+      .map((l) => text(l))
+      .filter((l) => l && !STEP_NOISE.test(l))
+      .map(tidyStep)
+      .filter(Boolean);
+    if (depth === 0) {
+      for (const l of lines) out.push(tidyStep(l));
+    } else {
+      // 句点・かっこで終わる行はそのままつなぎ、そうでなければ空白をはさむ
+      const joined = tidyStep(
+        lines.reduce(
+          (acc, l) =>
+            !acc ? l : /[。」』！!？?)）]$/.test(acc) ? acc + l : `${acc} ${l}`,
+          "",
+        ),
+      );
+      if (joined) out.push(joined);
     }
     return;
   }
