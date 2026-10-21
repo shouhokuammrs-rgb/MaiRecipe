@@ -106,25 +106,62 @@ function decodeEntities(s: string): string {
     .replace(/&#(\d+);/g, (_, d: string) => String.fromCharCode(Number(d)));
 }
 
-function collectSteps(v: Json, out: string[], depth = 0) {
+/** 手順に入れない行：動画への案内・別のレシピの紹介（「〜シリーズ」「〜ID12345678」） */
+const STEP_NOISE =
+  /^(?:まずは動画で|動画で(?:見て|確認)|YouTube\s*で)|ID\s?\d{6,}\s*$|^【[^】]*シリーズ[^】]*】/i;
+
+/** 手順の見出しに付いた「ポイント①」の印だけ外す（「ポイント2つ」のような文は残す） */
+const tidyStep = (t: string) =>
+  t
+    .replace(/(」)\s*ポイント[①-⑳]/g, "$1")
+    .replace(/\s*ポイント[①-⑳]$/, "")
+    .trim();
+
+/** 「1.」「②」のように番号で始まる行 */
+const NUMBERED = /^(?:\d{1,2}[.．)）]|[①-⑳])\s*/;
+
+/**
+ * 手順を集める。サイトの手順1つ（HowToStep・配列の1要素）は、中に改行があっても1つの手順にする
+ * （「「清酒」ポイント①」と説明の行が別々の手順にならないように）。
+ * ただし、手順全体が1つの文字列のときと、番号の付いた行が並ぶときは、行で分ける
+ */
+function collectSteps(v: Json, out: string[], depth = 0, inStep = false) {
   if (depth > 5) return;
   if (typeof v === "string") {
-    // 1つの文字列に改行区切りで手順が入っているサイトもある
-    for (const line of v.replace(/<br\s*\/?>/gi, "\n").split(/\n+/)) {
-      const t = text(line);
-      if (t) out.push(t);
+    const lines = v
+      .replace(/<br\s*\/?>/gi, "\n")
+      .split(/\n+/)
+      .map((l) => text(l))
+      .filter((l) => l && !STEP_NOISE.test(l))
+      .map(tidyStep)
+      .filter(Boolean);
+    const numbered =
+      lines.length > 1 && lines.filter((l) => NUMBERED.test(l)).length > 1;
+    if (!inStep || numbered) {
+      for (const l of lines) {
+        const t = numbered ? l.replace(NUMBERED, "").trim() : l;
+        if (t) out.push(t);
+      }
+      return;
     }
+    // 句点・かっこで終わる行はそのままつなぎ、そうでなければ空白をはさむ
+    const joined = lines.reduce(
+      (acc, l) =>
+        !acc ? l : /[。」』！!？?)）]$/.test(acc) ? acc + l : `${acc} ${l}`,
+      "",
+    );
+    if (joined) out.push(joined);
     return;
   }
   if (Array.isArray(v)) {
-    v.forEach((x) => collectSteps(x, out, depth + 1));
+    v.forEach((x) => collectSteps(x, out, depth + 1, true));
     return;
   }
   if (v && typeof v === "object") {
     const o = v as Record<string, Json>;
     if (o.itemListElement) collectSteps(o.itemListElement, out, depth + 1);
-    else if (o.text) collectSteps(o.text, out, depth + 1);
-    else if (o.name) collectSteps(o.name, out, depth + 1);
+    else if (o.text) collectSteps(o.text, out, depth + 1, true);
+    else if (o.name) collectSteps(o.name, out, depth + 1, true);
   }
 }
 
