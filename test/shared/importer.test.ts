@@ -610,3 +610,50 @@ describe("構造化データの手順（1つの手順の中の改行・紹介文
     ]);
   });
 });
+
+describe("構造化データの手順（レビューで見つかった点）", () => {
+  const steps = async (recipeInstructions: unknown) => {
+    const { extractRecipeFromJsonLd } =
+      await import("../../src/shared/importer");
+    return extractRecipeFromJsonLd([
+      JSON.stringify({
+        "@type": "Recipe",
+        name: "ダミー",
+        recipeIngredient: ["大根 1/2本"],
+        recipeInstructions,
+      }),
+    ])!.steps;
+  };
+  it("番号の付いた行は、1つの中に入っていても分ける", async () => {
+    expect(await steps(["1. 玉ねぎを切る\n2. 炒める"])).toEqual([
+      "玉ねぎを切る",
+      "炒める",
+    ]);
+    expect(
+      await steps([{ "@type": "HowToStep", text: "①切る<br>②炒める" }]),
+    ).toEqual(["切る", "炒める"]);
+  });
+  it("本当の手順や言葉は消さない", async () => {
+    expect(
+      await steps([
+        {
+          "@type": "HowToStep",
+          text: "【おすすめの切り方】玉ねぎは繊維に沿って切る",
+        },
+        { "@type": "HowToStep", text: "火加減のコツ1つ目は弱火" },
+        { "@type": "HowToStep", text: "ポイント2つを押さえる" },
+      ]),
+    ).toEqual([
+      "【おすすめの切り方】玉ねぎは繊維に沿って切る",
+      "火加減のコツ1つ目は弱火",
+      "ポイント2つを押さえる",
+    ]);
+  });
+  it("「関連レシピID12345678」のような紹介は除く", async () => {
+    expect(
+      await steps([
+        { "@type": "HowToStep", text: "煮る\n関連レシピID12345678" },
+      ]),
+    ).toEqual(["煮る"]);
+  });
+});
