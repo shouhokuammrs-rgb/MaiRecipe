@@ -2,6 +2,7 @@
 // サイトは schema.org の Recipe（JSON-LD）から、無ければ「材料」「作り方」の見出しの後から、
 // YouTube は概要欄の【材料】【作り方】から、材料と手順だけを取り出す。
 // 元の文章・写真はコピーしない（材料と手順は事実として扱う。docs/decisions/DEC-011）。
+import { normalizeGroups } from "./groups";
 import type { Category, Genre } from "./constants";
 import type { Ingredient } from "./recipe";
 import { LIMITS } from "./constants";
@@ -280,7 +281,11 @@ function finishRecipe(input: {
   ];
   return {
     title: input.title.slice(0, 100) || "取り込んだレシピ",
-    ingredients: input.ingredients.slice(0, 60).map((i) => ({
+    // 材料のまとまりの印（(A)・★ など）を【A】の形にそろえる（手順の「Aを」が分かるように）
+    ingredients: normalizeGroups(
+      input.ingredients.slice(0, 60),
+      input.steps,
+    ).map((i) => ({
       name: i.name.slice(0, 60),
       amount: i.amount.slice(0, 30),
     })),
@@ -432,6 +437,17 @@ const DESC_BULLET = /^[・･\-－*＊●○◆◇■□▼▽★☆✅>＞]+\s*
 // URL に使える ASCII の文字だけ（後ろに続く全角の文字・句読点・括弧は含めない）
 const URL_RE = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&*+,;=%]+/g;
 
+/** 手順から「Aを」「タレを」と呼ばれる、材料のまとまりの名前か（料理名のまとまりは違う） */
+function isGroupLabel(label: string): boolean {
+  const l = label.trim();
+  return (
+    /^[A-Za-zＡ-Ｚａ-ｚ★☆◎●○◆◇■□▲△]$/u.test(l) ||
+    /^(?:タレ|たれ|ソース|合わせ調味料|調味料|衣|下味|ドレッシング|つけだれ|つけダレ)$/.test(
+      l,
+    )
+  );
+}
+
 /** 概要欄の1行が区切り（【材料】など）なら、その種類を返す */
 function descMarker(line: string): HeadingKind | null {
   if (line.length > 24) return null;
@@ -454,6 +470,8 @@ export function parseDescriptionRecipe(
   let seenMarker = false;
   let numbered = false;
   let afterBlank = false;
+  /** 今読んでいる材料のまとまり（A・★ など） */
+  let group: string | null = null;
   for (const rawLine of description.split(/\r?\n/).slice(0, 400)) {
     const line = rawLine.trim();
     if (!line) {
@@ -474,12 +492,16 @@ export function parseDescriptionRecipe(
     const bulleted = DESC_BULLET.test(line);
     if (mode === "ingredients") {
       const body = line.replace(DESC_BULLET, "");
-      // ＜タレ＞（A）のような、まとまりの名前だけの行は飛ばす
-      if (/^[<＜(（【[［].{0,6}[>＞)）】\]］]$/u.test(body)) {
+      // ＜タレ＞（A）のような、まとまりの名前だけの行：続く材料の頭に【A】を付ける
+      const head = body.match(/^[<＜(（【[［](.{0,6})[>＞)）】\]］]$/u);
+      if (head) {
+        const label = head[1]!.trim();
+        group = label && isGroupLabel(label) ? label : null;
         afterBlank = false;
         continue;
       }
-      const ing = splitIngredientLine(body);
+      const raw = splitIngredientLine(body);
+      const ing = group ? { ...raw, name: `【${group}】${raw.name}` } : raw;
       // 空行の後は、箇条書きか分量のある行だけ材料の続きとみなす（あいさつ・BGM の行で終わる）
       if (afterBlank && !bulleted && !startsWithAmount(ing.amount)) mode = null;
       else if (body) ingredients.push(ing);
@@ -640,9 +662,15 @@ function finishLoose(
       g.label &&
       (labeled >= 2 || idx > 0) &&
       !(idx === 0 && (headOfOthers || overlaps.length));
+    // 「A」「★」「タレ」のような、手順から呼ばれるまとまりは頭に【A】、料理名のまとまりは後ろに（塩焼き）
+    const asGroup = g.label && isGroupLabel(g.label);
     for (const i of g.items)
       ingredients.push(
-        keepLabel ? { name: `${i.name}（${g.label}）`, amount: i.amount } : i,
+        asGroup
+          ? { name: `【${g.label}】${i.name}`, amount: i.amount }
+          : keepLabel
+            ? { name: `${i.name}（${g.label}）`, amount: i.amount }
+            : i,
       );
   });
   const labels = new Set(

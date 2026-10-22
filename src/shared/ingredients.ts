@@ -48,14 +48,22 @@ const ALIASES: Record<string, string> = {
   しゃけ: "鮭",
 };
 
+/** 名前の頭の印（【A】・(A)・★ など）。1つの正規表現にして速くする（おすすめは何千回も呼ぶ） */
+const GROUP_MARK =
+  /^(?:【[^】]{1,8}】\s*|[(（][A-Za-zＡ-Ｚａ-ｚ][)）]\s*|[◎○●・★☆◆◇■□※\-‐–—*]+)/;
+/** 印の先頭になりうる字（これで始まらない名前は正規表現にかけない） */
+const MARK_START = new Set("【(（◎○●・★☆◆◇■□※-‐–—*");
+
 /** 前後の空白と、よくある飾り（◎ ・ ★ など）を落として、辞書で1つの名前にそろえる */
 export function canonicalName(raw: string): string {
-  const s = raw
-    .trim()
-    .replace(/^[◎○●・★☆◆◇■□※\-‐–—*]+/, "")
-    // 最後の括弧を、続けて付いていれば全部落とす（「卵(大)(小)」→「卵」。2回かけても同じになる）
-    .replace(/(\s*[（(][^）)]*[）)])+$/, "")
-    .trim();
+  let s = raw.trim();
+  // まとまりの印（【A】しょうゆ・(A)しょうゆ・★しょうゆ）は名前ではない
+  if (MARK_START.has(s[0] ?? "")) s = s.replace(GROUP_MARK, "");
+  // 最後の括弧を、続けて付いていれば全部落とす（「卵(大)(小)」→「卵」。2回かけても同じになる）
+  const last = s[s.length - 1];
+  if (last === ")" || last === "）")
+    s = s.replace(/(\s*[（(][^）)]*[）)])+$/, "");
+  s = s.trim();
   return ALIASES[s] ?? s;
 }
 

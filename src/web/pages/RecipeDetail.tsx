@@ -15,7 +15,9 @@ import {
   SecondaryButton,
 } from "@/components/common";
 import { MicButton } from "@/components/MicButton";
+import { IngredientName } from "@/components/IngredientName";
 import { VideoEmbed } from "@/components/VideoEmbed";
+import { explainStep, normalizeGroups } from "../../shared/groups";
 import { shrinkImage } from "@/lib/image";
 import { categoryTint } from "@/lib/tint";
 import { cn } from "@/lib/utils";
@@ -50,6 +52,8 @@ function DetailView({ r }: { r: Detail }) {
   const latest = r.versions[r.versions.length - 1]!;
   const view = r.versions.find((v) => v.id === viewId) ?? latest;
   const viewingOld = view.id !== latest.id;
+  // 保存済みの「★しょうゆ」「(A)しょうゆ」も【A】として見せる
+  const normIngs = normalizeGroups(view.ingredients, view.steps);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["recipe", r.id] });
     void qc.invalidateQueries({ queryKey: ["recipes"] });
@@ -266,7 +270,7 @@ function DetailView({ r }: { r: Detail }) {
                   key={k}
                   className="flex justify-between gap-3 border-b border-line-soft px-0.5 py-2.5 text-sm"
                 >
-                  <span>{i.name}</span>
+                  <IngredientName name={normIngs[k]?.name ?? i.name} />
                   <span className="shrink-0">{i.amount}</span>
                 </li>
               ))}
@@ -285,7 +289,9 @@ function DetailView({ r }: { r: Detail }) {
                 <span className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-[13px] font-bold text-accent-deep">
                   {k + 1}
                 </span>
-                <span className="pt-0.5 text-sm leading-7">{s}</span>
+                <span className="pt-0.5 text-sm leading-7">
+                  {explainStep(s, view.ingredients)}
+                </span>
               </li>
             ))}
           </ol>

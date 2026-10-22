@@ -20,19 +20,21 @@ test("料理モードで作る", async ({ page }) => {
       origin: "own",
       ingredients: [
         { name: "大根", amount: "1/2本" },
-        { name: "しょうゆ", amount: "大さじ2" },
+        { name: "(A)しょうゆ", amount: "大さじ2" },
+        { name: "(A)みりん", amount: "大さじ1" },
       ],
-      steps: [
-        "大根を2cm幅に切る",
-        "弱火で10〜15分煮る",
-        "しょうゆを入れて味を見る",
-      ],
+      steps: ["大根を2cm幅に切る", "弱火で10〜15分煮る", "Aを入れて味を見る"],
     },
   });
   expect(res.ok()).toBeTruthy();
   const { id } = (await res.json()) as { id: string };
 
   await page.goto(`/recipes/${id}`);
+  // 手順の「A」に中身を書き足す（材料は【A】の札で見せる）
+  await expect(
+    page.getByText("A（しょうゆ・みりん）を入れて味を見る"),
+  ).toBeVisible();
+  await page.screenshot({ path: "test-results/08-groups.png", fullPage: true });
   await page.getByRole("button", { name: "料理モードで作る" }).click();
   await expect(page.getByText("1 / 3")).toBeVisible();
   await expect(page.getByText("大根を2cm幅に切る")).toBeVisible();

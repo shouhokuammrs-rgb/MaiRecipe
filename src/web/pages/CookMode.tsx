@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiClient, ApiError } from "@/api/client";
 import { ErrorState, Loading } from "@/components/common";
+import { IngredientName } from "@/components/IngredientName";
 import {
   listenForCommands,
   startListening,
@@ -32,6 +33,7 @@ import {
   wakeQuestion,
   type QuickAction,
 } from "../../shared/assist";
+import { explainStep, normalizeGroups } from "../../shared/groups";
 
 /**
  * 料理モード（#26）。手順を1つずつ大きく出し、画面を点けたままにする。
@@ -56,8 +58,9 @@ export function CookMode() {
       recipeId={r.id}
       versionId={v.id}
       title={v.title}
-      steps={v.steps}
-      ingredients={v.ingredients}
+      // 「Aを加える」→「A（しょうゆ・みりん）を加える」。表示も読み上げも同じ文
+      steps={v.steps.map((s) => explainStep(s, v.ingredients))}
+      ingredients={normalizeGroups(v.ingredients, v.steps)}
     />
   );
 }
@@ -782,7 +785,7 @@ function CookView({
                     key={k}
                     className="flex justify-between gap-3 border-b border-line-soft py-3 text-[17px]"
                   >
-                    <span>{i.name}</span>
+                    <IngredientName name={i.name} />
                     <span className="shrink-0 font-bold">{i.amount}</span>
                   </li>
                 ))}
