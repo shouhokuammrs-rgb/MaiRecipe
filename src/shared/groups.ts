@@ -14,7 +14,9 @@ const toHalfUpper = (s: string) =>
     .toUpperCase();
 /** ⭐️ は ★ にそろえる。全角英字・小文字は半角の大文字に */
 const normLabel = (g: string) =>
-  /^[A-Za-zＡ-Ｚａ-ｚ]$/.test(g) ? toHalfUpper(g) : g.replace(/⭐️?/u, "★");
+  /^[A-Za-zＡ-Ｚａ-ｚ]$/.test(g)
+    ? toHalfUpper(g)
+    : g.replace(/⭐[\uFE0E\uFE0F]?/u, "★");
 
 type Mark = {
   group: string;
@@ -31,7 +33,9 @@ function parseMark(raw: string): Mark | null {
   m = name.match(/^[(（<＜［[]([A-Za-zＡ-Ｚａ-ｚ])[)）>＞］\]]\s*(.+)$/u);
   if (m)
     return { group: normLabel(m[1]!), rest: m[2]!.trim(), kind: "bracket" };
-  m = name.match(new RegExp(`^([${SYMBOLS}]|⭐\\uFE0F?)\\s*(.+)$`, "u"));
+  m = name.match(
+    new RegExp(`^([${SYMBOLS}]|⭐[\\uFE0E\\uFE0F]?)\\s*(.+)$`, "u"),
+  );
   if (m) return { group: normLabel(m[1]!), rest: m[2]!.trim(), kind: "symbol" };
   // 「Aしょうゆ」「A醤油」：かっこの無い英字1文字＋ひらがな・漢字（Tボーン・Lサイズのようなカタカナは名前の一部）
   m = name.match(
@@ -99,14 +103,17 @@ const PARTICLE = "(?=[をのとにはもで、。・,，\\s]|$)";
 const BEFORE = "(?<=^|[\\s、。・,，にをはでともがへ「『(（【［\\[<＜])";
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** 印の字の書き方の揺れ（A・Ａ・a、★・⭐️、かっこ付き）をまとめた正規表現 */
-function tokenPattern(g: string): string {
+/** 印の字の書き方の揺れ（A・Ａ・a、★・⭐️、かっこ付き）をまとめた正規表現。
+ * anyStar：星の印が1種類だけのとき、★・☆・⭐︎ のどれで書いてあっても同じものを指す */
+function tokenPattern(g: string, anyStar = false): string {
   let core: string;
   if (/^[A-Z]$/.test(g)) {
     const lower = g.toLowerCase();
     const full = (c: string) => String.fromCharCode(c.charCodeAt(0) + 0xfee0);
     core = `[${g}${lower}${full(g)}${full(lower)}](?![A-Za-zＡ-Ｚａ-ｚ])`;
-  } else if (g === "★") core = "(?:★|⭐\\uFE0F?)";
+  } else if (anyStar && (g === "★" || g === "☆"))
+    core = "(?:★|☆|⭐[\\uFE0E\\uFE0F]?)";
+  else if (g === "★") core = "(?:★|⭐[\\uFE0E\\uFE0F]?)";
   else core = escape(g);
   // かっこ付き（(A)【A】）か、そのまま
   return `${BEFORE}(?:[(（【［\\[<＜]${core}[)）】］\\]>＞]|${core})`;
@@ -123,6 +130,7 @@ export function explainStep(step: string, ingredients: Ing[]): string {
     if (!group) continue;
     groups.set(group, [...(groups.get(group) ?? []), name]);
   }
+  const stars = [...groups.keys()].filter((g) => g === "★" || g === "☆");
   let out = step;
   for (const [g, names] of groups) {
     const list =
@@ -130,8 +138,78 @@ export function explainStep(step: string, ingredients: Ing[]): string {
         ? `${names.slice(0, 5).join("・")}など`
         : names.join("・");
     // すでに（…）が続いているものは書き足さない。かっこ付きの (A) は A（…）の形にする
-    const re = new RegExp(`${tokenPattern(g)}(?![（(])${PARTICLE}`, "u");
+    const re = new RegExp(
+      `${tokenPattern(g, stars.length === 1)}(?![（(])${PARTICLE}`,
+      "u",
+    );
     out = out.replace(re, () => `${g}（${list}）`);
   }
   return out;
+}
+
+// ---- ページの材料一覧から、まとまりを足す（構造化データに印が無いサイト。クラシルなど） ----
+
+type ListItem = { name: string; amount: string; cls?: string };
+
+/** 一覧の1行が、まとまりの見出し（(A)・【A】・★）なら、その印 */
+function headLabel(text: string): string | null {
+  const m = text
+    .trim()
+    .match(/^[(（【［<＜]?([A-Za-zＡ-Ｚａ-ｚ★☆◎])[)）】］>＞]?$/u);
+  return m ? normLabel(m[1]!) : null;
+}
+
+/**
+ * 材料の一覧（ページの li の並び）から、まとまりに入っている行を見つける。
+ * 見出し（(A)）の後の、ほかの材料と違う class の行がそのまとまり（クラシルは中の行の形を変えている）。
+ * class が無いページは、次の見出しか終わりまで
+ */
+export function groupsFromList(
+  list: ListItem[],
+): { group: string; text: string }[] {
+  const tally = new Map<string, number>();
+  for (const i of list)
+    if (!headLabel(i.name) && i.cls !== undefined)
+      tally.set(i.cls, (tally.get(i.cls) ?? 0) + 1);
+  const normal = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const hasClasses = tally.size > 1;
+  const out: { group: string; text: string }[] = [];
+  let current: string | null = null;
+  for (const i of list) {
+    const label = headLabel(i.name);
+    if (label) {
+      current = label;
+      continue;
+    }
+    if (!current) continue;
+    // ほかの材料と同じ形の行に戻ったら、まとまりは終わり
+    if (hasClasses && i.cls === normal) {
+      current = null;
+      continue;
+    }
+    out.push({ group: current, text: [i.name, i.amount].join("") });
+  }
+  return out;
+}
+
+const squash = (s: string) => s.normalize("NFKC").replace(/\s/g, "");
+
+/**
+ * 構造化データの材料に、ページの一覧から分かったまとまりの印を付ける。
+ * すでに印のある材料があれば、そのまま（サイトが印を付けている）
+ */
+export function addGroupsFromPage<T extends Ing>(
+  ings: T[],
+  list: ListItem[],
+): T[] {
+  if (ings.some((i) => splitGroup(i.name).group)) return ings;
+  const members = groupsFromList(list);
+  if (!members.length) return ings;
+  return ings.map((i) => {
+    const key = squash(i.name);
+    const hit = key
+      ? members.find((m) => squash(m.text).startsWith(key))
+      : undefined;
+    return hit ? { ...i, name: `【${hit.group}】${i.name}` } : i;
+  });
 }

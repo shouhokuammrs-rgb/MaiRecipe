@@ -171,6 +171,9 @@ const NOT_HEADING_TAGS = new Set([
   "base",
 ]);
 
+/** 手順の中の、材料のまとまりへの呼びかけ（(A)を・★を） */
+const GROUP_REF = /[(（【][A-Za-zＡ-Ｚａ-ｚ][)）】][をと]|[★☆⭐][をと]/;
+
 export async function scanPage(
   url: string,
   opts: ScanOptions = {},
@@ -220,7 +223,7 @@ export async function scanPage(
   let skipDepth = 0;
   let bodyText = "";
   const openHeadings: { text: string }[] = [];
-  let item: { tag: string; text: string } | null = null;
+  let item: { tag: string; text: string; cls?: string } | null = null;
   let itemDepth = 0;
   /** 項目の中で開いている一覧の数（入れ子の li と、閉じタグを省いた li を見分ける） */
   let innerLists = 0;
@@ -282,7 +285,7 @@ export async function scanPage(
     paused = null;
   };
 
-  const onItemEnd = (tag: string, raw: string) => {
+  const onItemEnd = (tag: string, raw: string, cls?: string) => {
     const t = raw.trim();
     if (mode === "ingredients" && ingredients.length < MAX_INGREDIENTS) {
       if (tag === "dt") {
@@ -295,7 +298,9 @@ export async function scanPage(
             : { name: t, amount: "" },
         );
         pendingName = null;
-      } else if (tag === "li") ingredients.push({ name: t, amount: "" });
+      } else if (tag === "li")
+        // class も残す（まとまり (A) の中の行は、形を変えているサイトがある）
+        ingredients.push({ name: t, amount: "", cls });
       else rowCells.push({ tag, text: t });
     } else if (mode === "steps" && steps.length < MAX_STEPS) {
       if (tag === "li" || tag === "dd" || tag === "td") steps.push(t);
@@ -330,7 +335,10 @@ export async function scanPage(
           // 上限で途中まで切れたものは JSON として読めないので捨てる
           if (current !== null && !truncated) {
             jsonLd.push(current);
-            if (/"Recipe"/.test(current)) foundRecipe = true;
+            // 手順が「(A)を」「★を」とまとまりを呼んでいるときは、ページの材料一覧も読む
+            // （構造化データの材料に印が無いサイトがある。クラシルなど）
+            if (/"Recipe"/.test(current) && !GROUP_REF.test(current))
+              foundRecipe = true;
           }
           current = null;
         });
@@ -413,7 +421,7 @@ export async function scanPage(
             listOpen = false;
             // 閉じタグを省いた最後の項目が残っていれば、ここで確定させる
             if (item) {
-              onItemEnd(item.tag, item.text);
+              onItemEnd(item.tag, item.text, item.cls);
               item = null;
               itemDepth = 0;
             }
@@ -433,18 +441,19 @@ export async function scanPage(
         const tag = el.tagName.toLowerCase();
         // 閉じタグを省いた <li>a<li>b / <dt>名<dd>量：前の項目がまだ開いていれば、ここで確定させる
         if (item && innerLists === 0 && sameRow(item.tag, tag)) {
-          onItemEnd(item.tag, item.text);
+          onItemEnd(item.tag, item.text, item.cls);
           item = null;
           itemDepth = 0;
         }
         itemDepth++;
         // 入れ子の li は外側の1つとして読む
-        if (itemDepth === 1) item = { tag, text: "" };
+        if (itemDepth === 1)
+          item = { tag, text: "", cls: el.getAttribute("class") ?? undefined };
         if (
           !onEnd(el, () => {
             itemDepth = Math.max(0, itemDepth - 1);
             if (itemDepth === 0 && item) {
-              onItemEnd(item.tag, item.text);
+              onItemEnd(item.tag, item.text, item.cls);
               item = null;
             }
           })

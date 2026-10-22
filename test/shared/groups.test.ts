@@ -192,3 +192,68 @@ describe("レビューで見つかった点", () => {
     expect(canonicalName("Tボーン")).toBe("Tボーン");
   });
 });
+
+describe("ページの材料一覧から、まとまりを足す（構造化データに印が無いサイト）", () => {
+  it("(A) の見出しの後の、ほかと違う形の行だけを A にする", async () => {
+    const { groupsFromList, addGroupsFromPage } =
+      await import("../../src/shared/groups");
+    const list = [
+      { name: "カレー粉大さじ2", amount: "", cls: "item" },
+      { name: "(A)", amount: "", cls: "item head" },
+      { name: "有塩バター25g", amount: "", cls: "item sub" },
+      { name: "サラダ油大さじ1", amount: "", cls: "item sub" },
+      { name: "パセリ (乾燥)適量", amount: "", cls: "item" },
+    ];
+    expect(groupsFromList(list)).toEqual([
+      { group: "A", text: "有塩バター25g" },
+      { group: "A", text: "サラダ油大さじ1" },
+    ]);
+    expect(
+      addGroupsFromPage(
+        [
+          ing("カレー粉", "大さじ2"),
+          ing("有塩バター", "25g"),
+          ing("サラダ油", "大さじ1"),
+          ing("パセリ", "適量"),
+        ],
+        list,
+      ).map((i) => i.name),
+    ).toEqual(["カレー粉", "【A】有塩バター", "【A】サラダ油", "パセリ"]);
+  });
+  it("すでに印があれば何もしない", async () => {
+    const { addGroupsFromPage } = await import("../../src/shared/groups");
+    const ings = [ing("【A】バター")];
+    expect(
+      addGroupsFromPage(ings, [
+        { name: "(A)", amount: "" },
+        { name: "油", amount: "" },
+      ]),
+    ).toEqual(ings);
+  });
+});
+
+describe("☆ と ⭐︎ と ★", () => {
+  it("⭐︎（文字の形）も ★ にそろえる。星の印が1種類なら ☆ と書いた手順も同じものを指す", () => {
+    const ings = [
+      ing("⭐︎水"),
+      ing("⭐︎牛乳"),
+      ing("鶏肉"),
+      ing("白菜"),
+      ing("塩"),
+    ];
+    expect(normalizeGroups(ings).map((i) => i.name)).toEqual([
+      "【★】水",
+      "【★】牛乳",
+      "鶏肉",
+      "白菜",
+      "塩",
+    ]);
+    expect(explainStep("白菜、☆を加えて混ぜる", ings)).toBe(
+      "白菜、★（水・牛乳）を加えて混ぜる",
+    );
+  });
+  it("★ と ☆ の両方があるときは別のまとまり", () => {
+    const ings = [ing("★砂糖"), ing("☆酢"), ing("鶏肉"), ing("塩")];
+    expect(explainStep("☆を加える", ings)).toBe("☆（酢）を加える");
+  });
+});
