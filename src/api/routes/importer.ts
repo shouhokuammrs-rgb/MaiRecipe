@@ -17,6 +17,7 @@ import {
   type ImportedRecipe,
 } from "../../shared/importer";
 import { LIMITS } from "../../shared/constants";
+import { addGroupsFromPage } from "../../shared/groups";
 import {
   aiReadSchema,
   findUnverified,
@@ -81,7 +82,18 @@ function readPage(page: PageScan): {
   via: "jsonld" | "sections";
 } {
   const fromLd = extractRecipeFromJsonLd(page.jsonLd);
-  if (fromLd) return { recipe: fromLd, via: "jsonld" };
+  // 構造化データの材料に (A) の印が無くても、ページの一覧から足す（クラシルなど）
+  if (fromLd)
+    return {
+      recipe: {
+        ...fromLd,
+        ingredients: addGroupsFromPage(
+          fromLd.ingredients,
+          page.sections.ingredients,
+        ),
+      },
+      via: "jsonld",
+    };
   return {
     recipe: recipeFromSections({ title: page.title, ...page.sections }),
     via: "sections",

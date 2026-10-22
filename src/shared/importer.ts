@@ -343,7 +343,12 @@ export function extractRecipeFromJsonLd(
 // ---- JSON-LD が無いページの予備の読み取り（見出しの後の dl / li / table） ----
 
 /** 見出しから拾った材料。分量が別の欄に無いときは amount を空にして、名前側の1行を分ける */
-export type RawIngredient = { name: string; amount: string };
+export type RawIngredient = {
+  name: string;
+  amount: string;
+  /** ページの li の class（まとまりを見分けるときだけ使う） */
+  cls?: string;
+};
 
 export type HeadingKind = "ingredients" | "steps" | "other" | "ignore";
 
