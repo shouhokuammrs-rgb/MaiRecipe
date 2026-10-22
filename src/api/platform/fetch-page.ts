@@ -173,6 +173,8 @@ const NOT_HEADING_TAGS = new Set([
 
 /** 手順の中の、材料のまとまりへの呼びかけ（(A)を・★を） */
 const GROUP_REF = /[(（【][A-Za-zＡ-Ｚａ-ｚ][)）】][をと]|[★☆⭐][をと]/;
+/** 構造化データの材料に、すでに印（(A)・★）が付いている（それなら一覧まで読まなくてよい） */
+const MARKED_INGREDIENTS = /"recipeIngredient"\s*:\s*\[[^\]]*"\s*[(（【★☆⭐]/;
 
 export async function scanPage(
   url: string,
@@ -337,7 +339,10 @@ export async function scanPage(
             jsonLd.push(current);
             // 手順が「(A)を」「★を」とまとまりを呼んでいるときは、ページの材料一覧も読む
             // （構造化データの材料に印が無いサイトがある。クラシルなど）
-            if (/"Recipe"/.test(current) && !GROUP_REF.test(current))
+            if (
+              /"Recipe"/.test(current) &&
+              !(GROUP_REF.test(current) && !MARKED_INGREDIENTS.test(current))
+            )
               foundRecipe = true;
           }
           current = null;

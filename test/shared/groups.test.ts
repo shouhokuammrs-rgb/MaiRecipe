@@ -257,3 +257,57 @@ describe("☆ と ⭐︎ と ★", () => {
     expect(explainStep("☆を加える", ings)).toBe("☆（酢）を加える");
   });
 });
+
+describe("ページの一覧から足すとき（レビューで見つかった点）", () => {
+  it("class で見分けられないページは、推測で印を付けない", async () => {
+    const { groupsFromList } = await import("../../src/shared/groups");
+    expect(
+      groupsFromList([
+        { name: "鶏肉300g", amount: "" },
+        { name: "★", amount: "" },
+        { name: "砂糖大さじ1", amount: "" },
+        { name: "塩少々", amount: "" },
+      ]),
+    ).toEqual([]);
+    expect(
+      groupsFromList([
+        { name: "鶏肉300g", amount: "", cls: "a" },
+        { name: "(A)", amount: "", cls: "a" },
+        { name: "砂糖大さじ1", amount: "", cls: "a" },
+      ]),
+    ).toEqual([]);
+  });
+  it("まとまりの行のほうが多くても、見出しの前の行の形と比べて見分ける", async () => {
+    const { groupsFromList } = await import("../../src/shared/groups");
+    expect(
+      groupsFromList([
+        { name: "鶏肉300g", amount: "", cls: "it" },
+        { name: "(A)", amount: "", cls: "it head" },
+        { name: "しょうゆ大さじ1", amount: "", cls: "it sub" },
+        { name: "みりん大さじ1", amount: "", cls: "it sub" },
+        { name: "酒大さじ1", amount: "", cls: "it sub" },
+        { name: "ねぎ適量", amount: "", cls: "it" },
+      ]).map((m) => m.text),
+    ).toEqual(["しょうゆ大さじ1", "みりん大さじ1", "酒大さじ1"]);
+  });
+  it("名前と分量がそろうものだけ、1つずつ当てる（塩 と 塩こしょう を取り違えない）", async () => {
+    const { addGroupsFromPage } = await import("../../src/shared/groups");
+    const list = [
+      { name: "塩こしょう少々", amount: "", cls: "it" },
+      { name: "(A)", amount: "", cls: "it head" },
+      { name: "塩小さじ1", amount: "", cls: "it sub" },
+      { name: "酒大さじ1", amount: "", cls: "it sub" },
+    ];
+    expect(
+      addGroupsFromPage(
+        [
+          ing("塩こしょう", "少々"),
+          ing("塩", "小さじ1"),
+          ing("酒", "大さじ1"),
+          ing("酒", "大さじ2"),
+        ],
+        list,
+      ).map((i) => i.name),
+    ).toEqual(["塩こしょう", "【A】塩", "【A】酒", "酒"]);
+  });
+});

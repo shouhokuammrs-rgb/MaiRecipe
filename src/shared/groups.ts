@@ -155,40 +155,42 @@ type ListItem = { name: string; amount: string; cls?: string };
 function headLabel(text: string): string | null {
   const m = text
     .trim()
-    .match(/^[(（【［<＜]?([A-Za-zＡ-Ｚａ-ｚ★☆◎])[)）】］>＞]?$/u);
+    .match(
+      /^[(（【［<＜]?([A-Za-zＡ-Ｚａ-ｚ★☆◎]|⭐[\uFE0E\uFE0F]?)[)）】］>＞]?$/u,
+    );
   return m ? normLabel(m[1]!) : null;
 }
 
 /**
  * 材料の一覧（ページの li の並び）から、まとまりに入っている行を見つける。
- * 見出し（(A)）の後の、ほかの材料と違う class の行がそのまとまり（クラシルは中の行の形を変えている）。
- * class が無いページは、次の見出しか終わりまで
+ * 見出し（(A)）の直前の行と違う class の行が、そのまとまり（クラシルは中の行の形を変えている）。
+ * 直前の行と同じ形に戻ったら終わり。class で見分けられないページは推測しない（何も返さない）
  */
 export function groupsFromList(
   list: ListItem[],
 ): { group: string; text: string }[] {
-  const tally = new Map<string, number>();
-  for (const i of list)
-    if (!headLabel(i.name) && i.cls !== undefined)
-      tally.set(i.cls, (tally.get(i.cls) ?? 0) + 1);
-  const normal = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const hasClasses = tally.size > 1;
   const out: { group: string; text: string }[] = [];
   let current: string | null = null;
-  for (const i of list) {
+  let outer: string | undefined;
+  list.forEach((i, k) => {
     const label = headLabel(i.name);
     if (label) {
-      current = label;
-      continue;
+      // 見出しの直前の、まとまりの外の行の形
+      const before = list
+        .slice(0, k)
+        .reverse()
+        .find((x) => !headLabel(x.name));
+      outer = current ? outer : before?.cls;
+      current = outer !== undefined ? label : null;
+      return;
     }
-    if (!current) continue;
-    // ほかの材料と同じ形の行に戻ったら、まとまりは終わり
-    if (hasClasses && i.cls === normal) {
+    if (!current) return;
+    if (i.cls === undefined || i.cls === outer) {
       current = null;
-      continue;
+      return;
     }
     out.push({ group: current, text: [i.name, i.amount].join("") });
-  }
+  });
   return out;
 }
 
@@ -196,6 +198,7 @@ const squash = (s: string) => s.normalize("NFKC").replace(/\s/g, "");
 
 /**
  * 構造化データの材料に、ページの一覧から分かったまとまりの印を付ける。
+ * 名前＋分量がページの行とそろうものだけ、1つずつ当てる（「塩」と「塩こしょう」を取り違えない）。
  * すでに印のある材料があれば、そのまま（サイトが印を付けている）
  */
 export function addGroupsFromPage<T extends Ing>(
@@ -205,11 +208,14 @@ export function addGroupsFromPage<T extends Ing>(
   if (ings.some((i) => splitGroup(i.name).group)) return ings;
   const members = groupsFromList(list);
   if (!members.length) return ings;
+  const used = new Set<number>();
   return ings.map((i) => {
-    const key = squash(i.name);
-    const hit = key
-      ? members.find((m) => squash(m.text).startsWith(key))
-      : undefined;
-    return hit ? { ...i, name: `【${hit.group}】${i.name}` } : i;
+    const key = squash(i.name + i.amount);
+    const at = members.findIndex(
+      (m, k) => !used.has(k) && squash(m.text) === key,
+    );
+    if (at < 0) return i;
+    used.add(at);
+    return { ...i, name: `【${members[at]!.group}】${i.name}` };
   });
 }
