@@ -21,10 +21,13 @@ describe("normalizeGroups（材料の印を【A】の形にそろえる）", () 
   });
   it("★☆◎ も印として残す。ただし全部に同じ印なら、ただの箇条書きとして外す", () => {
     expect(
-      normalizeGroups([ing("★しょうゆ"), ing("★みりん"), ing("鶏肉")]).map(
-        (i) => i.name,
-      ),
-    ).toEqual(["【★】しょうゆ", "【★】みりん", "鶏肉"]);
+      normalizeGroups([
+        ing("★しょうゆ"),
+        ing("★みりん"),
+        ing("鶏肉"),
+        ing("塩"),
+      ]).map((i) => i.name),
+    ).toEqual(["【★】しょうゆ", "【★】みりん", "鶏肉", "塩"]);
     expect(
       normalizeGroups([ing("★しょうゆ"), ing("★みりん")]).map((i) => i.name),
     ).toEqual(["しょうゆ", "みりん"]);
@@ -63,8 +66,8 @@ describe("explainStep（手順の「A」に中身を書き足す）", () => {
   ];
   it.each([
     ["Aを加えて煮る", "A（しょうゆ・みりん）を加えて煮る"],
-    ["(A)を混ぜる", "(A)（しょうゆ・みりん）を混ぜる"],
-    ["Ａを回し入れる", "Ａ（しょうゆ・みりん）を回し入れる"],
+    ["(A)を混ぜる", "A（しょうゆ・みりん）を混ぜる"],
+    ["Ａを回し入れる", "A（しょうゆ・みりん）を回し入れる"],
     ["★を合わせておく", "★（砂糖・酢）を合わせておく"],
     ["タレをかける", "タレ（ごま油）をかける"],
   ])("「%s」", (step, out) => {
@@ -124,5 +127,68 @@ describe("取り込み・買い物とのつながり", () => {
       "【A】しょうゆ",
       "【A】みりん",
     ]);
+  });
+});
+
+describe("レビューで見つかった点", () => {
+  const ings = [
+    ing("鶏肉"),
+    ing("【A】しょうゆ"),
+    ing("【A】みりん"),
+    ing("【調味料】酒"),
+    ing("【ソース】ケチャップ"),
+  ];
+  it("別の言葉の中の A・調味料・ソースには書き足さない", () => {
+    expect(explainStep("ビタミンAをとる", ings)).toBe("ビタミンAをとる");
+    expect(explainStep("合わせ調味料を加える", ings)).toBe(
+      "合わせ調味料を加える",
+    );
+    expect(explainStep("ウスターソースをかける", ings)).toBe(
+      "ウスターソースをかける",
+    );
+    expect(explainStep("最後にソースをかける", ings)).toBe(
+      "最後にソース（ケチャップ）をかける",
+    );
+  });
+  it("(A)【A】ａ も A（…）の形で1回だけ書く", () => {
+    expect(explainStep("(A)を加える", ings)).toBe(
+      "A（しょうゆ・みりん）を加える",
+    );
+    expect(explainStep("【A】を加える", ings)).toBe(
+      "A（しょうゆ・みりん）を加える",
+    );
+    expect(explainStep("aを加える", ings)).toBe(
+      "A（しょうゆ・みりん）を加える",
+    );
+  });
+  it("カタカナが続く英字（Tボーン・Lサイズ）は印にしない", () => {
+    expect(
+      normalizeGroups([
+        ing("Tボーンステーキ"),
+        ing("Tボーン"),
+        ing("Lサイズ卵"),
+        ing("Lサイズ玉ねぎ"),
+      ]).map((i) => i.name),
+    ).toEqual(["Tボーンステーキ", "Tボーン", "Lサイズ卵", "Lサイズ玉ねぎ"]);
+  });
+  it("ほとんどに付いている記号は箇条書き。ただし手順で呼ばれていれば印", () => {
+    expect(
+      normalizeGroups([
+        ing("◎豚肉"),
+        ing("◎玉ねぎ"),
+        ing("◎にんじん"),
+        ing("塩"),
+      ]).map((i) => i.name),
+    ).toEqual(["豚肉", "玉ねぎ", "にんじん", "塩"]);
+    expect(
+      normalizeGroups([ing("★しょうゆ"), ing("★みりん")], ["★を混ぜる"]).map(
+        (i) => i.name,
+      ),
+    ).toEqual(["【★】しょうゆ", "【★】みりん"]);
+  });
+  it("買い物・冷蔵庫では、かっこの無い英字は名前のまま（「Bだけの食材」「B級」を壊さない）", async () => {
+    const { canonicalName } = await import("../../src/shared/ingredients");
+    expect(canonicalName("Bだけの食材")).toBe("Bだけの食材");
+    expect(canonicalName("Tボーン")).toBe("Tボーン");
   });
 });

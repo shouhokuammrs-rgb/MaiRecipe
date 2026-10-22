@@ -53,7 +53,7 @@ function DetailView({ r }: { r: Detail }) {
   const view = r.versions.find((v) => v.id === viewId) ?? latest;
   const viewingOld = view.id !== latest.id;
   // 保存済みの「★しょうゆ」「(A)しょうゆ」も【A】として見せる
-  const normIngs = normalizeGroups(view.ingredients);
+  const normIngs = normalizeGroups(view.ingredients, view.steps);
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["recipe", r.id] });
     void qc.invalidateQueries({ queryKey: ["recipes"] });

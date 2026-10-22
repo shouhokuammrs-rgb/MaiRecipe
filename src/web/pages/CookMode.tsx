@@ -60,7 +60,7 @@ export function CookMode() {
       title={v.title}
       // 「Aを加える」→「A（しょうゆ・みりん）を加える」。表示も読み上げも同じ文
       steps={v.steps.map((s) => explainStep(s, v.ingredients))}
-      ingredients={normalizeGroups(v.ingredients)}
+      ingredients={normalizeGroups(v.ingredients, v.steps)}
     />
   );
 }

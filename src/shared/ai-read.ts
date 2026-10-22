@@ -119,7 +119,7 @@ export function parseAiRecipe(raw: string): AiRecipe | null {
   return {
     title: clip(r.data.title, LIMITS.titleMax),
     // (A)・★ などの書き方の揺れも【A】にそろえる
-    ingredients: normalizeGroups(ingredients),
+    ingredients: normalizeGroups(ingredients, steps),
     steps,
     timeLabel: clip(r.data.time, 20),
   };

@@ -282,7 +282,10 @@ function finishRecipe(input: {
   return {
     title: input.title.slice(0, 100) || "取り込んだレシピ",
     // 材料のまとまりの印（(A)・★ など）を【A】の形にそろえる（手順の「Aを」が分かるように）
-    ingredients: normalizeGroups(input.ingredients.slice(0, 60)).map((i) => ({
+    ingredients: normalizeGroups(
+      input.ingredients.slice(0, 60),
+      input.steps,
+    ).map((i) => ({
       name: i.name.slice(0, 60),
       amount: i.amount.slice(0, 30),
     })),
