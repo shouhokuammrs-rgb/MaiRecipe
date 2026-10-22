@@ -3,6 +3,7 @@
 // DEC-012：押した時だけ動く。DEC-011：保存するのは材料と手順だけ。
 import { z } from "zod";
 import { LIMITS } from "./constants";
+import { normalizeGroups } from "./groups";
 import { aliasesOf } from "./ingredients";
 import type { Ingredient } from "./recipe";
 
@@ -26,6 +27,7 @@ export function buildReadPrompt(source: string, title: string) {
     "決まり：",
     "- 文章に書いてある材料と手順だけを使う。書いていない材料・分量・手順を想像で足さない",
     "- 分量が書いていなければ amount は空文字にする",
+    '- 材料が「A」「B」「★」「タレ」などのまとまりに分かれているときは、材料名の頭に【A】のように付ける（例：{"name":"【A】しょうゆ","amount":"大さじ1"}）。手順の「Aを加える」はそのまま書く',
     "- 手順は短い文に分け、番号は付けない",
     "- 宣伝・リンク・あいさつ・チャプター（00:00 など）は無視する",
     "- 料理が複数あるときは、いちばん主な料理を1つだけ取り出す",
@@ -49,6 +51,7 @@ export function buildVideoPrompt(title: string, description: string): string {
     "- 手順は動画の順に、短い文に分ける。番号は付けない。火加減・時間・目安（「きつね色になるまで」など）は残す",
     "- 材料名と分量は、概要欄に書いてあればそれを使う（投稿者が書いた正確な値）。手順は動画から取る",
     "- 分量が分からなければ amount は空文字にする",
+    '- 材料が「A」「B」「★」「タレ」などのまとまりに分かれているときは、材料名の頭に【A】のように付ける（例：{"name":"【A】しょうゆ","amount":"大さじ1"}）。手順の「Aを加える」はそのまま書く',
     "- 宣伝・あいさつ・雑談は無視する",
     "- 料理が複数あるときは、いちばん主な料理を1つだけ取り出す",
     "- レシピの動画でなければ ingredients と steps を空の配列にする",
@@ -115,7 +118,8 @@ export function parseAiRecipe(raw: string): AiRecipe | null {
   if (!ingredients.length && !steps.length) return null;
   return {
     title: clip(r.data.title, LIMITS.titleMax),
-    ingredients,
+    // (A)・★ などの書き方の揺れも【A】にそろえる
+    ingredients: normalizeGroups(ingredients),
     steps,
     timeLabel: clip(r.data.time, 20),
   };

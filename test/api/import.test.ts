@@ -145,8 +145,8 @@ describe("POST /api/import（YouTube）", () => {
       ingredients: [
         { name: "鶏もも肉", amount: "1枚（300g）" },
         { name: "片栗粉", amount: "大さじ1" },
-        { name: "しょうゆ", amount: "大さじ2" },
-        { name: "みりん", amount: "大さじ2" },
+        { name: "【タレ】しょうゆ", amount: "大さじ2" },
+        { name: "【タレ】みりん", amount: "大さじ2" },
       ],
       sourceUrl: watch,
       videoUrl: watch,

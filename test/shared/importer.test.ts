@@ -204,8 +204,8 @@ describe("parseDescriptionRecipe", () => {
       ingredients: [
         { name: "鶏もも肉", amount: "1枚（300g）" },
         { name: "片栗粉", amount: "大さじ1" },
-        { name: "しょうゆ", amount: "大さじ2" },
-        { name: "みりん", amount: "大さじ2" },
+        { name: "【タレ】しょうゆ", amount: "大さじ2" },
+        { name: "【タレ】みりん", amount: "大さじ2" },
       ],
       steps: [
         "鶏肉に片栗粉をまぶす。",
@@ -354,8 +354,8 @@ describe("見出しの無い概要欄・貼り付けたテキスト（parseRecip
       "＝タレ＝\n醤油：大さじ2\nみりん：大さじ2\n＝仕上げ＝\n醤油：少々\nごま　適量\n焼く\n絡める",
     );
     expect(r?.ingredients).toEqual([
-      { name: "醤油（タレ）", amount: "大さじ2" },
-      { name: "みりん（タレ）", amount: "大さじ2" },
+      { name: "【タレ】醤油", amount: "大さじ2" },
+      { name: "【タレ】みりん", amount: "大さじ2" },
       { name: "醤油（仕上げ）", amount: "少々" },
       { name: "ごま（仕上げ）", amount: "適量" },
     ]);
@@ -428,8 +428,8 @@ describe("見出しの無い読み取り：レビュー指摘の再現", () => {
       "鶏肉",
       "醤油",
       "酒",
-      "醤油（タレ）",
-      "砂糖（タレ）",
+      "【タレ】醤油",
+      "【タレ】砂糖",
     ]);
   });
 
