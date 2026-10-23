@@ -1,0 +1,1 @@
+ALTER TABLE `recipes` ADD `cover_url` text;

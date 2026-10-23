@@ -54,6 +54,8 @@ export type RecipeHeader = {
   genre: Genre;
   timeLabel: string;
   hasImage: boolean;
+  /** 出典の画像の URL（null：まだ探していない・""：無かった）。DEC-023 */
+  coverUrl: string | null;
   videoUrl: string | null;
   sourceUrl: string | null;
   versionCount: number;
@@ -97,6 +99,8 @@ export type RecipeFields = {
 export type ImportDraft = RecipeFields & {
   sourceUrl: string;
   videoUrl: string | null;
+  /** 出典の画像（ページの共有用の画像）。"" は無し */
+  coverUrl?: string | null;
 };
 export type ImportResult = {
   kind: "video" | "page";
@@ -173,9 +177,15 @@ export const apiClient = {
     input: RecipeFields & {
       sourceUrl: string | null;
       videoUrl: string | null;
+      coverUrl?: string | null;
       origin: "import" | "own";
     },
   ) => call<{ id: string }>("/recipes", { method: "POST", json: input }),
+  /** 前に保存したレシピの表紙を、出典のページから一度だけ探す（DEC-023） */
+  findCover: (id: string) =>
+    call<{ coverUrl: string | null }>(`/recipes/${id}/cover`, {
+      method: "POST",
+    }),
   deleteRecipe: (id: string) =>
     call<void>(`/recipes/${id}`, { method: "DELETE" }),
   addVersion: (id: string, input: RecipeFields & { memoId?: string }) =>

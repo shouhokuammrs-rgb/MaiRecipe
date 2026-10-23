@@ -17,6 +17,7 @@ import {
   type ImportedRecipe,
 } from "../../shared/importer";
 import { LIMITS } from "../../shared/constants";
+import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
 import { addGroupsFromPage } from "../../shared/groups";
 import {
   aiReadSchema,
@@ -254,15 +255,24 @@ export async function importFromUrl(
   }
 
   const page = await scanPage(url, { collectText: Boolean(env.AI) });
+  // 表紙は、ページの共有用の画像を元の場所から表示する（保存しない。DEC-023）
+  const cover =
+    cleanImageUrl(page.image, page.url) ??
+    jsonLdImage(page.jsonLd, page.url) ??
+    "";
+  const withCover = (b: ImportBody) => ({
+    ...b,
+    draft: { ...(b as RuleBody).draft, coverUrl: cover },
+  });
   const { recipe, via } = readPage(page);
   // ① 構造化データ
   if (recipe && via === "jsonld")
-    return {
+    return withCover({
       kind: "page",
       found: true,
       draft: { ...recipe, sourceUrl: url },
       message: "ページの構造化データから読み取りました（AI なし）。",
-    };
+    });
 
   // ② AI（ページの本文）
   let reason: string | null = null;
@@ -276,39 +286,43 @@ export async function importFromUrl(
         sourceUrl: cleanSourceUrl(page.url) ?? undefined,
       },
     );
-    if (ai.ok) return ai.body;
+    if (ai.ok) return withCover(ai.body);
     reason = ai.status === 422 ? null : ai.error;
   }
 
   // ③ 規則（見出しの後から）
   if (!recipe)
-    return withReason(
+    return withCover(
+      withReason(
+        {
+          kind: "page",
+          found: false,
+          draft: {
+            title: page.title || "取り込んだレシピ",
+            ingredients: [],
+            steps: [],
+            timeLabel: "",
+            category: guessCategory([page.title]),
+            genre: guessGenre([page.title]),
+            sourceUrl: url,
+            videoUrl: null,
+          },
+          message: NOT_FOUND_MESSAGE,
+        },
+        reason,
+      ),
+    );
+  return withCover(
+    withReason(
       {
         kind: "page",
-        found: false,
-        draft: {
-          title: page.title || "取り込んだレシピ",
-          ingredients: [],
-          steps: [],
-          timeLabel: "",
-          category: guessCategory([page.title]),
-          genre: guessGenre([page.title]),
-          sourceUrl: url,
-          videoUrl: null,
-        },
-        message: NOT_FOUND_MESSAGE,
+        found: true,
+        draft: { ...recipe, sourceUrl: url },
+        message:
+          "ページの「材料」「作り方」の見出しから読み取りました（AI なし）。内容を確かめてから保存してください。",
       },
       reason,
-    );
-  return withReason(
-    {
-      kind: "page",
-      found: true,
-      draft: { ...recipe, sourceUrl: url },
-      message:
-        "ページの「材料」「作り方」の見出しから読み取りました（AI なし）。内容を確かめてから保存してください。",
-    },
-    reason,
+    ),
   );
 }
 

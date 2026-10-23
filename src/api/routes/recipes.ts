@@ -11,6 +11,8 @@ import {
 } from "../../shared/recipe";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
+import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
+import { scanPage } from "../platform/fetch-page";
 
 export const recipes = new Hono<AppEnv>();
 
@@ -110,6 +112,31 @@ recipes.delete("/:id/memos/:memoId", async (c) => {
 
 // 写真：画面側で長辺1600px・JPEG に縮めてから送る。API は中身を触らず保存するだけ
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/**
+ * 表紙に出す、出典のページの画像を探して覚える（DEC-023）。前に保存したレシピのために一度だけ。
+ * 画像はこちらに保存せず、URL だけ。見つからなければ "" を覚えて、もう探さない
+ */
+recipes.post("/:id/cover", async (c) => {
+  const id = c.req.param("id");
+  const r = await c.var.repo.getRecipe(id);
+  if (r.coverUrl !== null) return c.json({ coverUrl: r.coverUrl });
+  let cover = "";
+  if (r.sourceUrl && !r.videoUrl && !parseVideoUrl(r.sourceUrl)) {
+    try {
+      const page = await scanPage(r.sourceUrl, { timeoutMs: 6000 });
+      cover =
+        cleanImageUrl(page.image, page.url) ??
+        jsonLdImage(page.jsonLd, page.url) ??
+        "";
+    } catch {
+      // 読めなかった（不通・時間切れ）ときは覚えない。次に一覧を開いたときにまた探す
+      return c.json({ coverUrl: null });
+    }
+  }
+  await c.var.repo.setCoverUrl(id, cover);
+  return c.json({ coverUrl: cover });
+});
 
 recipes.put("/:id/image", async (c) => {
   const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim();
