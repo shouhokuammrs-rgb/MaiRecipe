@@ -8,6 +8,9 @@ const TIMEOUT_MS = 150_000;
 
 export type GeminiEnv = { GEMINI_API_KEY?: string };
 
+/** Gemini 側の一時的な失敗（500・503・524 など）。少し待ってやり直せば通ることが多い */
+export class GeminiTemporary extends AiUnavailable {}
+
 export function hasGemini(env: GeminiEnv): boolean {
   return Boolean(env.GEMINI_API_KEY);
 }
@@ -82,7 +85,8 @@ export async function runGeminiVideo(
     );
   if (!res.ok) {
     // 鍵や中身はログに出さない。状態の番号だけ
-    throw new AiUnavailable(`Gemini がエラーを返しました（${res.status}）`);
+    const msg = `Gemini がエラーを返しました（${res.status}）`;
+    throw res.status >= 500 ? new GeminiTemporary(msg) : new AiUnavailable(msg);
   }
   const body = (await res.json().catch(() => null)) as {
     candidates?: { finishReason?: string }[];
