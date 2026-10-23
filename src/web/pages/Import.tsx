@@ -79,6 +79,23 @@ export function Import() {
       void qc.invalidateQueries({ queryKey: ["import-jobs"] });
     },
   });
+  // 同じ出典のレシピが保存済みなら、読み取る前に知らせる（二重に取り込まない）
+  const [dup, setDup] = useState<{
+    id: string;
+    title: string;
+    url: string;
+  } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const submitUrl = async (u: string) => {
+    setFallbackTitle("");
+    setDup(null);
+    setChecking(true);
+    // 確かめられなくても、取り込みは止めない
+    const saved = await apiClient.findBySource(u).catch(() => null);
+    setChecking(false);
+    if (saved) setDup({ ...saved, url: u });
+    else start.mutate(u);
+  };
   const dismiss = useMutation({
     mutationFn: (id: string) => apiClient.dismissImportJob(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["import-jobs"] }),
@@ -290,10 +307,7 @@ export function Import() {
             className="flex flex-col gap-4"
             onSubmit={(e) => {
               e.preventDefault();
-              if (url.trim()) {
-                setFallbackTitle("");
-                start.mutate(url.trim());
-              }
+              if (url.trim()) void submitUrl(url.trim());
             }}
           >
             <p className="text-sm leading-7 text-[#4a433c]">
@@ -314,10 +328,40 @@ export function Import() {
             </label>
             <PrimaryButton
               type="submit"
-              disabled={start.isPending || !url.trim()}
+              disabled={start.isPending || checking || !url.trim()}
             >
-              {start.isPending ? "始めています…" : "読み取る"}
+              {start.isPending || checking ? "始めています…" : "読み取る"}
             </PrimaryButton>
+            {dup && (
+              <div
+                role="status"
+                className="flex flex-col gap-2 rounded-xl bg-memo p-3 text-[13px] leading-6 text-memo-ink"
+              >
+                <p>
+                  このレシピは保存済みです：
+                  <span className="font-bold">{dup.title}</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <PrimaryButton
+                    type="button"
+                    className="h-11 px-4 text-sm"
+                    onClick={() => nav(`/recipes/${dup.id}`)}
+                  >
+                    保存済みのレシピを開く
+                  </PrimaryButton>
+                  <SecondaryButton
+                    type="button"
+                    className="h-11 px-4 text-sm"
+                    onClick={() => {
+                      start.mutate(dup.url);
+                      setDup(null);
+                    }}
+                  >
+                    それでも取り込む
+                  </SecondaryButton>
+                </div>
+              </div>
+            )}
             {start.isError && (
               <p role="alert" className="text-sm text-danger">
                 {start.error.message}
