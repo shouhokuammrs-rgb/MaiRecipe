@@ -761,14 +761,6 @@ export function forGroup(db: Db, groupId: string) {
         .where(and(eq(s.mealPlans.id, id), eq(s.mealPlans.groupId, groupId)));
     },
 
-    /**
-     * 1つ上・下の品と入れ替える。端なら何もしない。
-     * 並びは listPlans と同じ「position → id」の順で決める。position が同じ行が
-     * 複数あるとき（移行前のデータや同時書き込みで起き得る）、その枠の全品を今の並び順で
-     * 0, 1, 2, … と振り直してから隣と入れ替える。そうしないと、position が同じ2行を
-     * 単純に入れ替えても値が変わらず、見た目の順が動かないため。
-     * 枠の中の品数は普通は数品なので、枠ごと読み直しても軽い。
-     */
     /** 献立の1品を何人分作るか（null でふだんの人数）。過ぎた日・他のグループは変えられない */
     async setPlanServings(id: string, servings: number | null, today: string) {
       const item = await editablePlanItem(id, today);
@@ -780,6 +772,14 @@ export function forGroup(db: Db, groupId: string) {
         );
     },
 
+    /**
+     * 1つ上・下の品と入れ替える。端なら何もしない。
+     * 並びは listPlans と同じ「position → id」の順で決める。position が同じ行が
+     * 複数あるとき（移行前のデータや同時書き込みで起き得る）、その枠の全品を今の並び順で
+     * 0, 1, 2, … と振り直してから隣と入れ替える。そうしないと、position が同じ2行を
+     * 単純に入れ替えても値が変わらず、見た目の順が動かないため。
+     * 枠の中の品数は普通は数品なので、枠ごと読み直しても軽い。
+     */
     async movePlanItem(id: string, direction: "up" | "down", today: string) {
       const item = await editablePlanItem(id, today);
       const rows = await db

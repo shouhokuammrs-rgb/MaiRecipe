@@ -309,6 +309,8 @@ export const apiClient = {
       recipeCount: number;
       /** 換算に使った人数（ふだん作る人数） */
       people: number;
+      /** 人数が分からず、元の分量のまま入れたレシピ */
+      unscaled?: string[];
       items: ShopItem[];
     }>(`/shopping?days=${days}`),
   setHave: (name: string, value: boolean) =>

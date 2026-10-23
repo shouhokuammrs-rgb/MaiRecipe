@@ -50,6 +50,7 @@ export function Plan() {
     onMutate: () => {
       remove.reset();
       move.reset();
+      servings.reset();
     },
     onSuccess: () => {
       setPicker(null);
@@ -62,6 +63,7 @@ export function Plan() {
     onMutate: () => {
       add.reset();
       move.reset();
+      servings.reset();
     },
     onSuccess: refresh,
   });
@@ -71,6 +73,7 @@ export function Plan() {
     onMutate: () => {
       add.reset();
       remove.reset();
+      servings.reset();
     },
     onSuccess: refresh,
   });
@@ -83,10 +86,7 @@ export function Plan() {
       remove.reset();
       move.reset();
     },
-    onSuccess: () => {
-      refresh();
-      void qc.invalidateQueries({ queryKey: ["shopping"] });
-    },
+    onSuccess: refresh,
   });
   // 次の操作を始めたら（上の各 onMutate で）前のエラーは消えるので、常に高々1つだけ立つ
   const actionError = add.error ?? remove.error ?? move.error ?? servings.error;
@@ -220,7 +220,7 @@ export function Plan() {
                               <button
                                 type="button"
                                 onClick={() => nav(`/recipes/${p.recipeId}`)}
-                                className="min-h-9 min-w-0 px-3 pt-2 text-left text-sm leading-snug font-bold"
+                                className="min-h-11 min-w-0 px-3 pt-2 text-left text-sm leading-snug font-bold"
                               >
                                 {p.title}
                               </button>
@@ -233,7 +233,13 @@ export function Plan() {
                               ) : (
                                 <select
                                   aria-label={`「${p.title}」を何人分作るか`}
-                                  value={p.servings ?? ""}
+                                  // 保存中は選んだ値のまま見せる（戻って見えないように）
+                                  value={
+                                    (servings.isPending &&
+                                    servings.variables?.id === p.id
+                                      ? servings.variables.servings
+                                      : p.servings) ?? ""
+                                  }
                                   disabled={servings.isPending}
                                   onChange={(e) =>
                                     servings.mutate({
@@ -243,7 +249,7 @@ export function Plan() {
                                         : null,
                                     })
                                   }
-                                  className="mx-2 mb-1 h-9 self-start rounded-lg bg-transparent px-1 text-xs text-sub"
+                                  className="mx-2 mb-1 min-h-11 self-start rounded-lg bg-transparent px-1 text-xs text-sub"
                                 >
                                   <option value="">いつもの量</option>
                                   {Array.from(

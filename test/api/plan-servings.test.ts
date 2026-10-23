@@ -56,6 +56,11 @@ describe("PUT /api/plans/items/:id/servings", () => {
     const me = who.cookie;
     const p = await planned(me);
     expect((await setServings(me, p.id, 0)).status).toBe(400);
+    const noKey = await api(me, `/plans/items/${p.id}/servings`, {
+      method: "PUT",
+      body: {},
+    });
+    expect(noKey.status).toBe(400);
     expect((await setServings(me, p.id, 21)).status).toBe(400);
     const { id: rid } = (await (
       await api(me, "/recipes", { method: "POST", body: sampleRecipe })
@@ -74,5 +79,31 @@ describe("PUT /api/plans/items/:id/servings", () => {
     const other = await signUp();
     expect((await setServings(other, p.id, 6)).status).toBe(404);
     expect((await plansOf(owner, todayJst()))[0]!.servings).toBeNull();
+  });
+
+  it("人数の分からないレシピは換算せず、買い物リストで知らせる", async () => {
+    const me = await signUp();
+    const { id } = (await (
+      await api(me, "/recipes", {
+        method: "POST",
+        body: {
+          ...sampleRecipe,
+          title: "人数なし",
+          ingredients: [{ name: "卵", amount: "2個" }],
+        },
+      })
+    ).json()) as { id: string };
+    await api(me, "/plans", {
+      method: "PUT",
+      body: { date: todayJst(), meal: "dinner", recipeId: id },
+    });
+    const p = (await plansOf(me, todayJst()))[0]!;
+    await setServings(me, p.id, 6);
+    const shop = (await (await api(me, "/shopping?days=1")).json()) as {
+      unscaled: string[];
+      items: { amount: string }[];
+    };
+    expect(shop.items[0]!.amount).toBe("2個");
+    expect(shop.unscaled).toEqual(["人数なし"]);
   });
 });

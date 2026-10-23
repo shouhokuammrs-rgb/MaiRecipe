@@ -98,7 +98,18 @@ shopping.get("/", async (c) => {
     // 調味料はいつも家にある扱い（「家にない」印が付いたときだけ買う）。ほかは冷蔵庫にあるか
     have: i.section === "調味料" ? !out.has(i.name) : pantry.has(i.name),
   }));
-  return c.json({ from, to, recipeCount: sources.length, people, items });
+  // 人数の分からないレシピは換算できないので、元の分量のままと知らせる
+  const unscaled = [
+    ...new Set(sources.filter((s) => !s.servings).map((s) => s.recipeTitle)),
+  ];
+  return c.json({
+    from,
+    to,
+    recipeCount: sources.length,
+    people,
+    unscaled,
+    items,
+  });
 });
 
 /** 買い物のチェック。調味料以外は冷蔵庫に入れる／戻す。調味料は「家にない」印を外す／付ける */
