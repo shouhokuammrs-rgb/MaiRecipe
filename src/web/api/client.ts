@@ -9,6 +9,7 @@ import type { FindResult } from "../../shared/find";
 import type { Ingredient } from "../../shared/recipe";
 import type { RecoLists } from "../../shared/recommend";
 import type { Tip } from "../../shared/tips";
+import type { MemoChange } from "../../shared/memo-apply";
 
 export class ApiError extends Error {
   constructor(
@@ -213,6 +214,12 @@ export const apiClient = {
     call<{ recipe: { id: string; title: string } | null }>(
       `/recipes/by-source?url=${encodeURIComponent(url)}`,
     ).then((r) => r.recipe),
+  /** メモから AI に変更案を出してもらう（保存はしない） */
+  suggestMemoChanges: (id: string, memoId: string) =>
+    call<{ versionId: string; changes: MemoChange[] }>(
+      `/recipes/${encodeURIComponent(id)}/memos/${encodeURIComponent(memoId)}/suggest`,
+      { method: "POST" },
+    ),
   deleteRecipe: (id: string) =>
     call<void>(`/recipes/${id}`, { method: "DELETE" }),
   addVersion: (id: string, input: RecipeFields & { memoId?: string }) =>

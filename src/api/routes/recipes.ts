@@ -19,6 +19,13 @@ import {
   youtubeSnippet,
 } from "../platform/fetch-page";
 import { startImportJob } from "./import-jobs";
+import {
+  AiBadOutput,
+  AiDailyStop,
+  AiQuotaExceeded,
+  AiUnavailable,
+  suggestMemoChanges,
+} from "../ai";
 
 const isTransient = (e: FetchPageError) =>
   e.message === "ページを取得できませんでした" ||
@@ -119,6 +126,61 @@ recipes.post("/:id/memos", async (c) => {
     c.var.userId,
   );
   return c.json({ id }, 201);
+});
+
+/**
+ * メモから、レシピの変更案を AI に出してもらう（#23 / DEC-027）。保存はしない。
+ * レシピとメモはセッションのグループからだけ読む（クライアントの送った本文は使わない）
+ */
+recipes.post("/:id/memos/:memoId/suggest", async (c) => {
+  const r = await c.var.repo.getRecipe(c.req.param("id"));
+  const memo = r.memos.find((m) => m.id === c.req.param("memoId"));
+  if (!memo) return c.json({ error: "メモが見つかりません" }, 404);
+  if (!c.env.AI && !c.env.GEMINI_API_KEY)
+    return c.json({ error: "今は AI を使えない設定です。" }, 503);
+  const v = r.versions[r.versions.length - 1]!;
+  try {
+    const changes = await suggestMemoChanges(
+      c.env,
+      {
+        title: v.title,
+        servings: v.servings || null,
+        ingredients: v.ingredients,
+        steps: v.steps,
+        tips: v.tips,
+      },
+      memo.text,
+    );
+    return c.json({ versionId: v.id, changes });
+  } catch (e) {
+    if (e instanceof AiDailyStop)
+      return c.json(
+        {
+          error:
+            "今日の AI の無料分の9割を使ったので、止めています。手で直すことはできます。",
+        },
+        429,
+      );
+    if (e instanceof AiQuotaExceeded)
+      return c.json(
+        {
+          error:
+            "AI の無料分の上限に当たりました。少し待ってから試してください。",
+        },
+        429,
+      );
+    if (e instanceof AiUnavailable)
+      return c.json(
+        { error: "今は AI につながりません。少し待ってから試してください。" },
+        503,
+      );
+    if (e instanceof AiBadOutput)
+      return c.json(
+        { error: "変更案を作れませんでした。手で直してください。" },
+        422,
+      );
+    throw e;
+  }
 });
 
 recipes.delete("/:id/memos/:memoId", async (c) => {
