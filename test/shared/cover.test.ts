@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { cleanImageUrl, pickCover, youtubeThumb } from "../../src/shared/cover";
+import {
+  cleanImageUrl,
+  jsonLdImage,
+  pickCover,
+  youtubeThumb,
+} from "../../src/shared/cover";
 
 describe("cleanImageUrl（ページの共有用の画像）", () => {
   it("https の画像だけ。相対の URL はページの URL から直す", () => {
@@ -75,5 +80,31 @@ describe("pickCover（どの表紙を出すか）", () => {
     ).toEqual({
       kind: "none",
     });
+  });
+});
+
+describe("jsonLdImage", () => {
+  it("Recipe の image（文字・配列・url つき）を使う", () => {
+    const page = "https://example.com/r/1";
+    expect(
+      jsonLdImage(['{"@type":"Recipe","image":"https://x.com/a.jpg"}'], page),
+    ).toBe("https://x.com/a.jpg");
+    expect(
+      jsonLdImage(['{"@type":"Recipe","image":["https://x.com/b.jpg"]}'], page),
+    ).toBe("https://x.com/b.jpg");
+    expect(
+      jsonLdImage(
+        [
+          '{"@type":"Recipe","image":{"@type":"ImageObject","url":"https:\\/\\/x.com\\/c.jpg"}}',
+        ],
+        page,
+      ),
+    ).toBe("https://x.com/c.jpg");
+    expect(
+      jsonLdImage(
+        ['{"@type":"Organization","image":"https://x.com/logo.png"}'],
+        page,
+      ),
+    ).toBeNull();
   });
 });

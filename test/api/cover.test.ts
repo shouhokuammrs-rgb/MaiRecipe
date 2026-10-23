@@ -74,6 +74,36 @@ describe("表紙（出典の画像）", () => {
     expect(spy.mock.calls.length).toBe(calls);
   });
 
+  it("読めなかったときは覚えない（次にまた探す）", async () => {
+    const me = await signUp();
+    const { id } = (await (
+      await api(me, "/recipes", {
+        method: "POST",
+        body: { ...sampleRecipe, videoUrl: null },
+      })
+    ).json()) as { id: string };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new Error("network down");
+    });
+    const r = (await (
+      await api(me, `/recipes/${id}/cover`, { method: "POST" })
+    ).json()) as { coverUrl: string | null };
+    expect(r.coverUrl).toBeNull();
+    const list = (await (await api(me, "/recipes")).json()) as {
+      recipes: { coverUrl: string | null }[];
+    };
+    expect(list.recipes[0]!.coverUrl).toBeNull();
+  });
+
+  it("取り込みで「画像は無かった」と分かっていれば、空で保存できる", async () => {
+    const me = await signUp();
+    const res = await api(me, "/recipes", {
+      method: "POST",
+      body: { ...sampleRecipe, coverUrl: "" },
+    });
+    expect(res.status).toBe(201);
+  });
+
   it("動画のレシピはページを読まない（サムネイルを使う）", async () => {
     const me = await signUp();
     const { id } = (await (

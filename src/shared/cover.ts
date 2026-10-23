@@ -63,3 +63,17 @@ export function coverCredit(r: {
     return null;
   }
 }
+
+/** 構造化データの Recipe の image（共有用の画像が無いページの予備）。使えなければ null */
+export function jsonLdImage(blocks: string[], pageUrl: string): string | null {
+  for (const raw of blocks) {
+    if (!/"Recipe"/.test(raw)) continue;
+    // "image": "…" / ["…"] / {"url": "…"} のどれでも、最初の URL を使う
+    const m = raw.match(
+      /"image"\s*:\s*(?:\[\s*)?(?:\{[^}]*?"url"\s*:\s*)?"([^"]{1,2100})"/,
+    );
+    const url = m ? cleanImageUrl(m[1]!.replace(/\\\//g, "/"), pageUrl) : null;
+    if (url) return url;
+  }
+  return null;
+}

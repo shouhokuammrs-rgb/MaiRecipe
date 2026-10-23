@@ -17,7 +17,7 @@ import {
   type ImportedRecipe,
 } from "../../shared/importer";
 import { LIMITS } from "../../shared/constants";
-import { cleanImageUrl } from "../../shared/cover";
+import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
 import { addGroupsFromPage } from "../../shared/groups";
 import {
   aiReadSchema,
@@ -256,7 +256,10 @@ export async function importFromUrl(
 
   const page = await scanPage(url, { collectText: Boolean(env.AI) });
   // 表紙は、ページの共有用の画像を元の場所から表示する（保存しない。DEC-023）
-  const cover = cleanImageUrl(page.image, page.url) ?? "";
+  const cover =
+    cleanImageUrl(page.image, page.url) ??
+    jsonLdImage(page.jsonLd, page.url) ??
+    "";
   const withCover = (b: ImportBody) => ({
     ...b,
     draft: { ...(b as RuleBody).draft, coverUrl: cover },

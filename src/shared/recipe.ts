@@ -37,11 +37,16 @@ export const createRecipeSchema = z.object({
   videoUrl: videoUrl.nullable().default(null),
   /** 出典の画像の URL（https だけ。画像は保存しない。DEC-023） */
   coverUrl: z
-    .string()
-    .trim()
-    .max(LIMITS.urlMax)
-    .url()
-    .refine((u) => u.startsWith("https://"), "https の URL だけ使えます")
+    .union([
+      z
+        .string()
+        .trim()
+        .max(LIMITS.urlMax)
+        .url()
+        .refine((u) => u.startsWith("https://"), "https の URL だけ使えます"),
+      // 取り込みで「画像は無かった」と分かっているとき（もう探さない）
+      z.literal(""),
+    ])
     .nullable()
     .default(null),
   origin: z.enum(["import", "own"]).default("import"),

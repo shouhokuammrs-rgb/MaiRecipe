@@ -183,7 +183,9 @@ export const apiClient = {
   ) => call<{ id: string }>("/recipes", { method: "POST", json: input }),
   /** 前に保存したレシピの表紙を、出典のページから一度だけ探す（DEC-023） */
   findCover: (id: string) =>
-    call<{ coverUrl: string }>(`/recipes/${id}/cover`, { method: "POST" }),
+    call<{ coverUrl: string | null }>(`/recipes/${id}/cover`, {
+      method: "POST",
+    }),
   deleteRecipe: (id: string) =>
     call<void>(`/recipes/${id}`, { method: "DELETE" }),
   addVersion: (id: string, input: RecipeFields & { memoId?: string }) =>

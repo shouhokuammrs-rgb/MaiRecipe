@@ -11,7 +11,7 @@ import {
 } from "../../shared/recipe";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
-import { cleanImageUrl } from "../../shared/cover";
+import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
 import { scanPage } from "../platform/fetch-page";
 
 export const recipes = new Hono<AppEnv>();
@@ -125,9 +125,13 @@ recipes.post("/:id/cover", async (c) => {
   if (r.sourceUrl && !r.videoUrl && !parseVideoUrl(r.sourceUrl)) {
     try {
       const page = await scanPage(r.sourceUrl, { timeoutMs: 6000 });
-      cover = cleanImageUrl(page.image, page.url) ?? "";
+      cover =
+        cleanImageUrl(page.image, page.url) ??
+        jsonLdImage(page.jsonLd, page.url) ??
+        "";
     } catch {
-      // 読めないページは「無かった」として覚える
+      // 読めなかった（不通・時間切れ）ときは覚えない。次に一覧を開いたときにまた探す
+      return c.json({ coverUrl: null });
     }
   }
   await c.var.repo.setCoverUrl(id, cover);
