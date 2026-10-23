@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { CATEGORIES, GENRES, LIMITS } from "../../shared/constants";
 import { findByIngredients } from "../../shared/find";
-import { parseVideoUrl } from "../../shared/importer";
+import { extractRecipeFromJsonLd, parseVideoUrl } from "../../shared/importer";
+import { servingsFromText } from "../../shared/servings";
 import {
   createRecipeSchema,
   findSchema,
@@ -12,7 +13,15 @@ import {
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
 import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
-import { scanPage } from "../platform/fetch-page";
+import {
+  FetchPageError,
+  scanPage,
+  youtubeSnippet,
+} from "../platform/fetch-page";
+
+const isTransient = (e: FetchPageError) =>
+  e.message === "ページを取得できませんでした" ||
+  /（(?:5\d\d|429)）/.test(e.message);
 
 export const recipes = new Hono<AppEnv>();
 
@@ -136,6 +145,43 @@ recipes.post("/:id/cover", async (c) => {
   }
   await c.var.repo.setCoverUrl(id, cover);
   return c.json({ coverUrl: cover });
+});
+
+/**
+ * 人数の分からないレシピ（人数を読む前に取り込んだもの）の人数を、出典から探して覚える。
+ * ページは構造化データか材料の見出し、動画は概要欄から。見つからなければ 0（もう探さない）。
+ * 出典が読めなかったときは覚えない（次に開いたときにまた探す）
+ */
+recipes.post("/:id/servings", async (c) => {
+  const id = c.req.param("id");
+  const r = await c.var.repo.getRecipe(id);
+  const latest = r.versions[r.versions.length - 1];
+  // 探すのは、どの版にも人数が無い（人数を読む前に保存した）レシピだけ。
+  // 人が「分からない」を選んだ版は上書きしない
+  if (!latest || r.versions.some((v) => v.servings !== null))
+    return c.json({ servings: latest?.servings ?? null });
+  let found: number | null = null;
+  const video = r.videoUrl ? parseVideoUrl(r.videoUrl) : null;
+  const pageUrl =
+    r.sourceUrl && !parseVideoUrl(r.sourceUrl) ? r.sourceUrl : null;
+  try {
+    if (pageUrl) {
+      const page = await scanPage(pageUrl, { timeoutMs: 6000 });
+      found = extractRecipeFromJsonLd(page.jsonLd)?.servings ?? page.servings;
+    }
+    if (!found && video) {
+      const snip = await youtubeSnippet(c.env, video.id);
+      if (!snip) return c.json({ servings: null });
+      found = servingsFromText(snip.description);
+    }
+  } catch (e) {
+    // 一時的な失敗（不通・時間切れ・相手の 5xx）は覚えない。次に開いたときにまた探す。
+    // ページが無い・レシピのページでない などは、何度読んでも同じなので「無かった」として覚える
+    if (!(e instanceof FetchPageError) || isTransient(e))
+      return c.json({ servings: null });
+  }
+  await c.var.repo.fillServings(id, found ?? 0);
+  return c.json({ servings: found ?? 0 });
 });
 
 recipes.put("/:id/image", async (c) => {

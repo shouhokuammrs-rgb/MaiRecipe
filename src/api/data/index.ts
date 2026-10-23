@@ -2,7 +2,18 @@
 // group_id は使わない）、すべての読み書きを forGroup(db, groupId) 経由にする。
 // D1 には RLS が無いので、ここで必ず group_id を条件に入れる（docs/spec.md §6）。
 // D1 は1つのクエリに渡せる値が100個までなので、id の IN リストは使わず group_id で絞る。
-import { and, asc, count, desc, eq, gte, lte, max, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  isNull,
+  lte,
+  max,
+  sql,
+} from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { Ingredient } from "../../shared/recipe";
 import type { RecoRecipe } from "../../shared/recommend";
@@ -92,6 +103,8 @@ export type VersionRow = {
   category: string;
   genre: string;
   timeLabel: string;
+  /** 何人分か（null：分からない・0：出典を探したが書いていなかった） */
+  servings: number | null;
   ingredients: Ingredient[];
   steps: string[];
   changes: string[];
@@ -110,6 +123,7 @@ export type RecipeFields = {
   category: string;
   genre: string;
   timeLabel: string;
+  servings?: number | null;
   ingredients: Ingredient[];
   steps: string[];
 };
@@ -128,6 +142,7 @@ const toVersion = (v: VersionDb): VersionRow => ({
   category: v.category,
   genre: v.genre,
   timeLabel: v.timeLabel,
+  servings: v.servings,
   ingredients: v.ingredients,
   steps: v.steps,
   changes: v.changes,
@@ -313,6 +328,24 @@ export function forGroup(db: Db, groupId: string) {
         .where(and(eq(s.recipes.id, recipeId), eq(s.recipes.groupId, groupId)));
     },
 
+    /**
+     * 出典から分かった人数を、人数の無い版に書き足す（取り込み前に保存したレシピ用）。
+     * 0 は「探したが書いていなかった」（もう探さない）。人が決めた人数は上書きしない
+     */
+    async fillServings(recipeId: string, servings: number) {
+      await recipeRow(recipeId);
+      await db
+        .update(s.recipeVersions)
+        .set({ servings })
+        .where(
+          and(
+            eq(s.recipeVersions.recipeId, recipeId),
+            versionInGroup,
+            isNull(s.recipeVersions.servings),
+          ),
+        );
+    },
+
     async createRecipe(
       input: RecipeFields & {
         sourceUrl: string | null;
@@ -348,6 +381,7 @@ export function forGroup(db: Db, groupId: string) {
           category: input.category,
           genre: input.genre,
           timeLabel: input.timeLabel,
+          servings: input.servings ?? null,
           ingredients: input.ingredients,
           steps: input.steps,
           changes: [],
@@ -377,6 +411,15 @@ export function forGroup(db: Db, groupId: string) {
         changes.unshift(`ジャンル → ${input.genre}`);
       if (last.timeLabel !== input.timeLabel)
         changes.push(`時間 → ${input.timeLabel || "なし"}`);
+      // 人数を渡さなかった（古い画面）ときは前の版のまま
+      // 0（出典にも無かった）の版から「分からない」で直したときも 0 のまま（もう探さない）
+      const servings =
+        input.servings === undefined ||
+        (input.servings === null && last.servings === 0)
+          ? last.servings
+          : input.servings;
+      if ((last.servings || null) !== (servings || null))
+        changes.push(servings ? `${servings}人分にした` : "人数 → なし");
       if (!changes.length) return null;
 
       let memoId: string | undefined;
@@ -408,6 +451,7 @@ export function forGroup(db: Db, groupId: string) {
           category: input.category,
           genre: input.genre,
           timeLabel: input.timeLabel,
+          servings,
           ingredients: input.ingredients,
           steps: input.steps,
           changes,
@@ -837,10 +881,14 @@ export function forGroup(db: Db, groupId: string) {
           ),
         latestVersionsInGroup(),
       ]);
-      return plans.map((p) => ({
-        recipeTitle: p.title,
-        ingredients: latest.get(p.recipeId)?.ingredients ?? [],
-      }));
+      return plans.map((p) => {
+        const v = latest.get(p.recipeId);
+        return {
+          recipeTitle: p.title,
+          ingredients: v?.ingredients ?? [],
+          servings: v?.servings || null,
+        };
+      });
     },
 
     /** 調味料のうち「家にない」印が付いているもの（名寄せ後の名前） */
@@ -1028,7 +1076,7 @@ export function forGroup(db: Db, groupId: string) {
     async groupInfo(userId: string) {
       const [g, members, invites] = await Promise.all([
         db
-          .select({ name: s.groups.name })
+          .select({ name: s.groups.name, servings: s.groups.servings })
           .from(s.groups)
           .where(eq(s.groups.id, groupId))
           .limit(1),
@@ -1056,6 +1104,7 @@ export function forGroup(db: Db, groupId: string) {
       ]);
       return {
         name: g[0]?.name ?? "",
+        servings: g[0]?.servings ?? 2,
         members: members.map((m) => ({
           name: m.name,
           isMe: m.id === userId,
@@ -1063,6 +1112,23 @@ export function forGroup(db: Db, groupId: string) {
         })),
         invites,
       };
+    },
+
+    /** ふだん作る人数 */
+    async householdServings(): Promise<number> {
+      const g = await db
+        .select({ servings: s.groups.servings })
+        .from(s.groups)
+        .where(eq(s.groups.id, groupId))
+        .limit(1);
+      return g[0]?.servings ?? 2;
+    },
+
+    async setHouseholdServings(servings: number) {
+      await db
+        .update(s.groups)
+        .set({ servings, updatedAt: new Date() })
+        .where(eq(s.groups.id, groupId));
     },
 
     /** email は正規化済み。同じ相手への招待は何もしない */

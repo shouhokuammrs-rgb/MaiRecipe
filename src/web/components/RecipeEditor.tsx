@@ -9,6 +9,7 @@ import {
   type Genre,
 } from "../../shared/constants";
 import { moveItem } from "../../shared/move";
+import { SERVINGS_MAX } from "../../shared/servings";
 
 type Row = { key: number; name: string; amount: string };
 let seq = 0;
@@ -42,6 +43,10 @@ export function RecipeEditor({
   const [category, setCategory] = useState<Category>(initial.category);
   const [genre, setGenre] = useState<Genre>(initial.genre);
   const [timeLabel, setTimeLabel] = useState(initial.timeLabel);
+  // 0 は「出典にも書いていなかった」。編集画面では「分からない」と同じに扱う
+  const [servings, setServings] = useState<number | null>(
+    initial.servings || null,
+  );
   const [ings, setIngs] = useState<Row[]>(() =>
     initial.ingredients.length
       ? initial.ingredients.map((i) => row(i.name, i.amount))
@@ -64,6 +69,7 @@ export function RecipeEditor({
       category,
       genre,
       timeLabel: timeLabel.trim(),
+      servings,
       ingredients: ings
         .filter((r) => r.name.trim())
         .map((r) => ({ name: r.name.trim(), amount: r.amount.trim() })),
@@ -140,9 +146,28 @@ export function RecipeEditor({
         />
       </label>
 
+      <label className="flex flex-col gap-1.5 text-[13px] font-bold">
+        何人分の分量か
+        <select
+          id="recipe-servings"
+          className={input}
+          value={servings ?? ""}
+          onChange={(e) =>
+            setServings(e.target.value ? Number(e.target.value) : null)
+          }
+        >
+          <option value="">分からない</option>
+          {Array.from({ length: SERVINGS_MAX }, (_, k) => k + 1).map((n) => (
+            <option key={n} value={n}>
+              {n}人分
+            </option>
+          ))}
+        </select>
+      </label>
+
       <div className="flex flex-col gap-2">
         <SectionHead
-          label="材料（2人分）"
+          label={servings ? `材料（${servings}人分）` : "材料"}
           sorting={sorting === "ings"}
           canSort={ings.length > 1}
           onToggle={() => setSorting(sorting === "ings" ? null : "ings")}

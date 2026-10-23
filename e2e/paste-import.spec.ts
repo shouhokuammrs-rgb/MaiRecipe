@@ -31,7 +31,7 @@ test("文章を貼って取り込む", async ({ page }) => {
   await page.screenshot({ path: "test-results/03-paste.png", fullPage: true });
 
   // 並び替え：材料2を上へ、手順1を下へ
-  await page.getByRole("button", { name: "材料（2人分）を並び替え" }).click();
+  await page.getByRole("button", { name: /^材料.*を並び替え$/ }).click();
   await page.getByRole("button", { name: "材料2を上へ" }).click();
   await page.getByRole("button", { name: /の並び替えを終える$/ }).click();
   await expect(page.getByLabel("材料1の名前")).toHaveValue(
@@ -43,10 +43,21 @@ test("文章を貼って取り込む", async ({ page }) => {
   await page.getByRole("button", { name: /の並び替えを終える$/ }).click();
   await expect(page.getByLabel("手順2")).toHaveValue("魚に塩をふって10分おく");
 
+  // 何人分か：4人分として保存し、詳しい画面で2人分に換算して見る
+  await page.locator("#recipe-servings").selectOption("4");
   await page
     .getByRole("button", { name: "元のレシピ（v1）として保存" })
     .click();
   await expect(
     page.getByRole("heading", { name: "貼り付けたレシピ" }),
   ).toBeVisible();
+  await expect(page.getByText("4人分", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "1人分へらす" }).click();
+  await page.getByRole("button", { name: "1人分へらす" }).click();
+  await expect(page.getByText("2人分", { exact: true })).toBeVisible();
+  await expect(page.getByText(/元の4人分から換算しています/)).toBeVisible();
+  await page.screenshot({
+    path: "test-results/03-servings.png",
+    fullPage: true,
+  });
 });

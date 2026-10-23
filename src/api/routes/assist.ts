@@ -3,6 +3,7 @@
 // 保存はしない。計量の換算は画面側で AI なしに答えるので、ここに来るのは AI が要る相談だけ
 import { Hono } from "hono";
 import { assistInputSchema } from "../../shared/assist";
+import { scaleIngredients } from "../../shared/servings";
 import {
   AiBadOutput,
   AiQuotaExceeded,
@@ -30,9 +31,14 @@ assist.post("/", async (c) => {
     recipe.versions[recipe.versions.length - 1]!;
 
   try {
+    // 料理モードで人数を変えていれば、その人数の分量で答える
+    const people = (v.servings || null) && input.people;
     const reply = await assistCooking(c.env, {
       title: v.title,
-      ingredients: v.ingredients,
+      ingredients: people
+        ? scaleIngredients(v.ingredients, v.servings, people)
+        : v.ingredients,
+      servings: people || v.servings || null,
       steps: v.steps,
       stepIndex: Math.min(input.stepIndex, Math.max(0, v.steps.length - 1)),
       history: input.history,

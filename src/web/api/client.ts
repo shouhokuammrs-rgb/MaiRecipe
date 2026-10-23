@@ -67,6 +67,8 @@ export type Version = {
   seq: number;
   kind: "original" | "memo" | "manual";
   title: string;
+  /** 何人分か（null：分からない・0：出典にも書いていなかった） */
+  servings: number | null;
   ingredients: Ingredient[];
   steps: string[];
   changes: string[];
@@ -92,6 +94,8 @@ export type RecipeFields = {
   category: Category;
   genre: Genre;
   timeLabel: string;
+  /** 何人分か。分からなければ null */
+  servings: number | null;
   ingredients: Ingredient[];
   steps: string[];
 };
@@ -134,6 +138,8 @@ export type PlanEntry = {
 
 export type GroupInfo = {
   name: string;
+  /** ふだん作る人数（買い物リストの換算に使う） */
+  servings: number;
   members: { name: string; isMe: boolean; role: "owner" | "member" }[];
   invites: { id: string; email: string }[];
 };
@@ -186,6 +192,11 @@ export const apiClient = {
     call<{ coverUrl: string | null }>(`/recipes/${id}/cover`, {
       method: "POST",
     }),
+  /** 前に保存したレシピの人数を、出典から一度だけ探す（0：書いていなかった） */
+  findServings: (id: string) =>
+    call<{ servings: number | null }>(`/recipes/${id}/servings`, {
+      method: "POST",
+    }),
   deleteRecipe: (id: string) =>
     call<void>(`/recipes/${id}`, { method: "DELETE" }),
   addVersion: (id: string, input: RecipeFields & { memoId?: string }) =>
@@ -233,6 +244,7 @@ export const apiClient = {
     recipeId: string;
     versionId?: string;
     stepIndex: number;
+    people?: number;
     question: string;
     history: { role: "user" | "assistant"; text: string }[];
   }) =>
@@ -265,9 +277,14 @@ export const apiClient = {
     }),
 
   shopping: (days: number) =>
-    call<{ from: string; to: string; recipeCount: number; items: ShopItem[] }>(
-      `/shopping?days=${days}`,
-    ),
+    call<{
+      from: string;
+      to: string;
+      recipeCount: number;
+      /** 換算に使った人数（ふだん作る人数） */
+      people: number;
+      items: ShopItem[];
+    }>(`/shopping?days=${days}`),
   setHave: (name: string, value: boolean) =>
     call<void>("/shopping/have", { method: "PUT", json: { name, value } }),
 
@@ -291,6 +308,11 @@ export const apiClient = {
     call<void>(`/pantry/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   group: () => call<GroupInfo>("/group"),
+  setHouseholdServings: (servings: number) =>
+    call<{ servings: number }>("/group/servings", {
+      method: "PUT",
+      json: { servings },
+    }),
   invite: (email: string) =>
     call<{ ok: true }>("/group/invites", { method: "POST", json: { email } }),
   cancelInvite: (id: string) =>

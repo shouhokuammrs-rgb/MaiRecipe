@@ -20,6 +20,10 @@ import { LIMITS } from "../../shared/constants";
 import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
 import { addGroupsFromPage } from "../../shared/groups";
 import {
+  servingsFromText,
+  servingsNearIngredients,
+} from "../../shared/servings";
+import {
   aiReadSchema,
   findUnverified,
   unverifiedNotice,
@@ -92,11 +96,17 @@ function readPage(page: PageScan): {
           fromLd.ingredients,
           page.sections.ingredients,
         ),
+        // 構造化データに人数が無ければ、材料の見出し（「材料（2人分）」）から
+        servings: fromLd.servings ?? page.servings,
       },
       via: "jsonld",
     };
   return {
-    recipe: recipeFromSections({ title: page.title, ...page.sections }),
+    recipe: recipeFromSections({
+      title: page.title,
+      ...page.sections,
+      servings: page.servings,
+    }),
     via: "sections",
   };
 }
@@ -108,7 +118,11 @@ function readText(
 ): { recipe: ImportedRecipe; notice: string | null } | null {
   const parsed = parseRecipeText(text);
   if (!parsed) return null;
-  const recipe = recipeFromSections({ title, ...parsed });
+  const recipe = recipeFromSections({
+    title,
+    ...parsed,
+    servings: servingsFromText(text),
+  });
   if (!recipe) return null;
   return { recipe, notice: overlapNotice(parsed.overlaps) };
 }
@@ -485,7 +499,20 @@ async function readWithAi(
   let watchNote: string | null = null;
   if (video && !text && canWatchVideo(env)) {
     try {
-      const recipe = await watchVideoWithAi(env, video.watchUrl, title, source);
+      const watched = await watchVideoWithAi(
+        env,
+        video.watchUrl,
+        title,
+        source,
+      );
+      const recipe = {
+        ...watched,
+        // 人数は概要欄の材料の見出し → AI → 概要欄のどこか、の順
+        servings:
+          servingsNearIngredients(source) ??
+          watched.servings ??
+          servingsFromText(source),
+      };
       if (recipe.steps.length > 0 || source.trim().length < 20)
         return aiDraftBody(recipe, title, video.watchUrl, null, true);
       watchNote = "動画を見ても手順が見つかりませんでした";
@@ -504,12 +531,20 @@ async function readWithAi(
       }
     );
 
-  let recipe;
+  let recipe: AiRecipe;
   try {
     recipe = await readRecipeWithAi(env, source, title);
   } catch (e) {
     return aiError(e);
   }
+  // 人数は材料の見出しに書いてあればそちらを優先（AI の読み違いを避ける）
+  recipe = {
+    ...recipe,
+    servings:
+      servingsNearIngredients(source) ??
+      recipe.servings ??
+      servingsFromText(source),
+  };
   const notices = [
     unverifiedNotice(findUnverified(recipe.ingredients, source)),
     watchNote && !recipe.steps.length
@@ -573,6 +608,7 @@ function aiDraftBody(
         ingredients: recipe.ingredients,
         steps: recipe.steps,
         timeLabel: recipe.timeLabel,
+        servings: recipe.servings,
         category: guessCategory(hints),
         genre: guessGenre(hints),
         sourceUrl,

@@ -18,6 +18,7 @@ import {
   parseVideoUrl,
   recipeFromSections,
 } from "../../shared/importer";
+import { servingsFromText } from "../../shared/servings";
 import { apiClient, type ImportJob, type ImportResult } from "@/api/client";
 import { jobLabel, jobResult, useImportJobs } from "@/lib/importJobs";
 import { PrimaryButton, SecondaryButton, SubHeader } from "@/components/common";
@@ -40,6 +41,7 @@ function readPastedText(
     title: fallbackTitle || "貼り付けたレシピ",
     ingredients: parsed.ingredients,
     steps: parsed.steps,
+    servings: servingsFromText(text),
   });
   if (!recipe) return null;
   const video = parseVideoUrl(rawUrl);
@@ -154,7 +156,8 @@ export function Import() {
           </div>
         )}
         <RecipeEditor
-          initial={d}
+          // 前の版の API（人数を返さない）の結果でも読めるように
+          initial={{ ...d, servings: d.servings ?? null }}
           banner={
             <div className="flex flex-col gap-2">
               <div

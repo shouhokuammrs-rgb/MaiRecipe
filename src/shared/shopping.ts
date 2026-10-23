@@ -3,9 +3,15 @@ import { formatAmount, parseAmount } from "./amount";
 import type { ShopSection } from "./constants";
 import { SHOP_SECTIONS } from "./constants";
 import { canonicalName, shopSection } from "./ingredients";
+import { scaleAmount } from "./servings";
 import type { Ingredient } from "./recipe";
 
-export type ShoppingSource = { recipeTitle: string; ingredients: Ingredient[] };
+export type ShoppingSource = {
+  recipeTitle: string;
+  ingredients: Ingredient[];
+  /** レシピが何人分か（分からなければ換算しない） */
+  servings?: number | null;
+};
 
 export type ShoppingItem = {
   /** 「家にある」「買った」の印を覚えておくためのキー（名前|単位） */
@@ -18,7 +24,11 @@ export type ShoppingItem = {
   merged: string[];
 };
 
-export function aggregateShopping(sources: ShoppingSource[]): ShoppingItem[] {
+/** people を渡すと、人数の分かるレシピは people 人分に換算して合計する */
+export function aggregateShopping(
+  sources: ShoppingSource[],
+  people?: number,
+): ShoppingItem[] {
   const map = new Map<
     string,
     {
@@ -31,10 +41,15 @@ export function aggregateShopping(sources: ShoppingSource[]): ShoppingItem[] {
     }
   >();
   for (const src of sources) {
+    const factor =
+      people && src.servings && src.servings > 0 ? people / src.servings : 1;
     for (const ing of src.ingredients) {
       const name = canonicalName(ing.name);
       if (!name) continue;
-      const p = parseAmount(ing.amount);
+      // 分量の文字ごと換算してから読む（範囲・（200g）・約・各 も換算される）
+      const p = parseAmount(
+        factor === 1 ? ing.amount : scaleAmount(ing.amount, factor),
+      );
       // 数えられる分量は単位ごとに合計。「少々」「適量」などは名前ごとに1行
       const key =
         p.qty === null ? `${name}|${p.unit || "-"}` : `${name}|${p.unit}`;

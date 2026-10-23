@@ -8,6 +8,7 @@ import {
   type HeadingKind,
   type RawIngredient,
 } from "../../shared/importer";
+import { servingsFromText } from "../../shared/servings";
 
 const MAX_BYTES = 1_500_000;
 const MAX_JSONLD_CHARS = 300_000;
@@ -129,6 +130,8 @@ export type PageScan = {
   image: string;
   /** 本文の文字（collectText のときだけ。ヘッダー・メニュー・script は除く） */
   bodyText: string;
+  /** 材料の見出しにあった人数（「材料（2人分）」）。無ければ null */
+  servings: number | null;
 };
 
 const HEADINGS =
@@ -227,6 +230,7 @@ export async function scanPage(
   let chromeDepth = 0;
   let skipDepth = 0;
   let bodyText = "";
+  let servings: number | null = null;
   const openHeadings: { text: string }[] = [];
   let item: { tag: string; text: string; cls?: string } | null = null;
   let itemDepth = 0;
@@ -261,6 +265,7 @@ export async function scanPage(
     }
     const kind = classifyHeading(raw);
     if (kind === "ignore") return;
+    if (kind === "ingredients") servings ??= servingsFromText(raw);
     if (kind !== "other") return startMode(kind, level);
     // class で当たっただけの要素（h タグでない）では止めない
     if (level === null) return;
@@ -553,6 +558,7 @@ export async function scanPage(
     title: (ogTitle || title).trim().slice(0, 100),
     image: ogImage,
     sections: { ingredients, steps },
+    servings,
     url: finalUrl,
     bodyText: bodyText
       .replace(/[ \t\u3000]+/g, " ")

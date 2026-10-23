@@ -17,6 +17,9 @@ import { MicButton } from "@/components/MicButton";
 import { IngredientName } from "@/components/IngredientName";
 import { VideoEmbed } from "@/components/VideoEmbed";
 import { Cover } from "@/components/Cover";
+import { ServingsControl } from "@/components/Servings";
+import { useFindServings, useHousehold } from "@/lib/servings";
+import { scaleIngredients } from "../../shared/servings";
 import { coverCredit } from "../../shared/cover";
 import { explainStep, normalizeGroups } from "../../shared/groups";
 import { shrinkImage } from "@/lib/image";
@@ -56,6 +59,16 @@ function DetailView({ r }: { r: Detail }) {
   const credit = r.videoUrl ? null : coverCredit(r);
   // 保存済みの「★しょうゆ」「(A)しょうゆ」も【A】として見せる
   const normIngs = normalizeGroups(view.ingredients, view.steps);
+  useFindServings(r);
+  const household = useHousehold();
+  // 人数を変えたときだけ分量を換算して見せる（保存はしない）
+  const [picked, setPicked] = useState<number | null>(null);
+  const base = view.servings || null;
+  const people = base ? (picked ?? base) : null;
+  const shownIngs =
+    base && people
+      ? scaleIngredients(view.ingredients, base, people)
+      : view.ingredients;
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["recipe", r.id] });
     void qc.invalidateQueries({ queryKey: ["recipes"] });
@@ -252,7 +265,14 @@ function DetailView({ r }: { r: Detail }) {
             <SecondaryButton
               className="col-span-2 border-herb/30 bg-herb-soft font-bold text-herb"
               onClick={() =>
-                nav(`/recipes/${r.id}/cook${viewingOld ? `?v=${view.id}` : ""}`)
+                nav(
+                  `/recipes/${r.id}/cook?${new URLSearchParams({
+                    ...(viewingOld ? { v: view.id } : {}),
+                    ...(base && people && people !== base
+                      ? { people: String(people) }
+                      : {}),
+                  })}`,
+                )
               }
             >
               <ChefHat className="size-5" />
@@ -262,8 +282,14 @@ function DetailView({ r }: { r: Detail }) {
         </div>
 
         <section className="flex flex-col gap-2">
-          <h2 className="text-base font-bold">
-            材料 <span className="text-xs font-normal text-sub">2人分</span>
+          <h2 className="flex flex-wrap items-center gap-x-2 text-base font-bold">
+            材料
+            <ServingsControl
+              base={base}
+              people={people ?? 0}
+              onChange={setPicked}
+              household={household}
+            />
           </h2>
           {view.ingredients.length === 0 ? (
             <p className="text-sm text-sub">
@@ -271,7 +297,7 @@ function DetailView({ r }: { r: Detail }) {
             </p>
           ) : (
             <ul className="border-t border-line-soft">
-              {view.ingredients.map((i, k) => (
+              {shownIngs.map((i, k) => (
                 <li
                   key={k}
                   className="flex justify-between gap-3 border-b border-line-soft px-0.5 py-2.5 text-sm"
@@ -281,6 +307,12 @@ function DetailView({ r }: { r: Detail }) {
                 </li>
               ))}
             </ul>
+          )}
+          {base && people !== base && (
+            <p className="text-xs leading-5 text-sub">
+              元の{base}
+              人分から換算しています。手順の中の分量・火にかける時間は元のままです。
+            </p>
           )}
         </section>
 

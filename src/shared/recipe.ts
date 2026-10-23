@@ -2,6 +2,15 @@
 import { z } from "zod";
 import { formatAmount, parseAmount } from "./amount";
 import { CATEGORIES, GENRES, LIMITS, MEALS } from "./constants";
+import { SERVINGS_MAX, SERVINGS_MIN } from "./servings";
+
+/** 何人分か。分からなければ null */
+export const servingsSchema = z
+  .number()
+  .int()
+  .min(SERVINGS_MIN)
+  .max(SERVINGS_MAX)
+  .nullable();
 
 /** 古い画面（キャッシュされた PWA）から「丼」が来ても受け取り、主食にする（DEC-020） */
 const categorySchema = z.preprocess(
@@ -33,6 +42,7 @@ export const createRecipeSchema = z.object({
   category: categorySchema,
   genre: z.enum(GENRES),
   timeLabel: z.string().trim().max(20).default(""),
+  servings: servingsSchema.default(null),
   sourceUrl: videoUrl.nullable().default(null),
   videoUrl: videoUrl.nullable().default(null),
   /** 出典の画像の URL（https だけ。画像は保存しない。DEC-023） */
@@ -61,6 +71,8 @@ export const newVersionSchema = z.object({
   category: categorySchema,
   genre: z.enum(GENRES),
   timeLabel: z.string().trim().max(20).default(""),
+  /** 渡さなければ前の版のまま（古い画面から来たとき） */
+  servings: servingsSchema.optional(),
   ingredients: ingredientsSchema,
   steps: stepsSchema,
   /** このメモを反映した版として記録する（任意） */
