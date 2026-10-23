@@ -7,6 +7,7 @@ import { normalizeGroups } from "./groups";
 import { aliasesOf } from "./ingredients";
 import { parseServings } from "./servings";
 import { parseAiTips, type Tip } from "./tips";
+import { parseSceneTime, tidyStepTimes } from "./scenes";
 import type { Ingredient } from "./recipe";
 
 /** AI に渡す元の文の上限（文字）。無料枠を守るため長すぎる文は切る */
@@ -49,10 +50,11 @@ export function buildVideoPrompt(title: string, description: string): string {
   return [
     "この料理動画を見て、材料と作り方を取り出してください。",
     "必ず次の JSON だけを返してください。前後に説明や ``` を付けないでください。",
-    '{"title":"料理名","servings":"何人分（分かれば。例：2人分）","ingredients":[{"name":"材料名","amount":"分量"}],"steps":["手順1","手順2"],"tips":[{"step":2,"text":"手順2のコツ"}],"time":"調理時間（分かれば。例：20分）"}',
+    '{"title":"料理名","servings":"何人分（分かれば。例：2人分）","ingredients":[{"name":"材料名","amount":"分量"}],"steps":[{"text":"手順1","at":"0:35"},{"text":"手順2","at":"1:20"}],"tips":[{"step":2,"text":"手順2のコツ"}],"time":"調理時間（分かれば。例：20分）"}',
     "決まり：",
     "- 動画の中で実際に話している・映っている・字幕に出ている内容だけを使う。想像で足さない",
     "- 手順は動画の順に、短い文に分ける。番号は付けない。火加減・時間・目安（「きつね色になるまで」など）は残す",
+    "- 手順の at は、その手順を動画で始めるところの時刻（分:秒）。分からなければ空文字",
     "- 動画の中で話している「コツ」「ポイント」「こうすると失敗しない」は tips に入れる。1つ40字くらいまで、自分の言葉で短くまとめる。どの手順の話か分かれば step に手順の番号（1始まり）、全体の話なら null。無ければ空の配列。想像で足さない",
     "- 材料名と分量は、概要欄に書いてあればそれを使う（投稿者が書いた正確な値）。手順は動画から取る",
     "- 分量が分からなければ amount は空文字にする",
@@ -82,7 +84,8 @@ const aiRecipeSchema = z.object({
     )
     .default([]),
   steps: z
-    .array(z.union([z.string(), z.object({ text: z.string() })]))
+    // 1つの手順の形が崩れていても、全体を捨てない（読めない手順だけ捨てる）
+    .array(z.unknown())
     .default([]),
   time: z.string().optional().default(""),
   servings: z.unknown().optional(),
@@ -96,6 +99,8 @@ export type AiRecipe = {
   timeLabel: string;
   servings: number | null;
   tips: Tip[];
+  /** 手順ごとの、動画の中の開始の秒（動画を見て読んだときだけ。無ければ空の配列） */
+  stepTimes: (number | null)[];
 };
 
 /** AI の返事から最初の JSON オブジェクトを取り出して読む。読めなければ null */
@@ -120,11 +125,30 @@ export function parseAiRecipe(raw: string): AiRecipe | null {
     }))
     .filter((i) => i.name)
     .slice(0, LIMITS.ingredientsMax);
-  const steps = r.data.steps
-    .map((s) => clip(typeof s === "string" ? s : s.text, LIMITS.stepMax))
-    .map((s) => s.replace(/^(\d+|[①-⑳])[.)．、\s]*/u, ""))
-    .filter(Boolean)
+  // 手順と時刻は、空の手順を除いたあとも同じ並びにそろえる
+  const pairs = r.data.steps
+    .map((s) => {
+      const o =
+        s && typeof s === "object"
+          ? (s as {
+              text?: unknown;
+              step?: unknown;
+              at?: unknown;
+              time?: unknown;
+            })
+          : null;
+      const raw = typeof s === "string" ? s : (o?.text ?? o?.step);
+      return {
+        text: clip(typeof raw === "string" ? raw : "", LIMITS.stepMax).replace(
+          /^(\d+|[①-⑳])[.)．、\s]*/u,
+          "",
+        ),
+        at: o ? parseSceneTime(o.at ?? o.time) : null,
+      };
+    })
+    .filter((p) => p.text)
     .slice(0, LIMITS.stepsMax);
+  const steps = pairs.map((p) => p.text);
   if (!ingredients.length && !steps.length) return null;
   return {
     title: clip(r.data.title, LIMITS.titleMax),
@@ -134,6 +158,7 @@ export function parseAiRecipe(raw: string): AiRecipe | null {
     timeLabel: clip(r.data.time, 20),
     servings: parseServings(r.data.servings),
     tips: parseAiTips(r.data.tips, steps.length),
+    stepTimes: tidyStepTimes(pairs.map((p) => p.at)),
   };
 }
 

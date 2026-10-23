@@ -11,6 +11,7 @@ import {
 import { moveItem } from "../../shared/move";
 import { SERVINGS_MAX } from "../../shared/servings";
 import { TIP_MAX, TIPS_MAX } from "../../shared/tips";
+import { tidyStepTimes } from "../../shared/scenes";
 
 type Row = { key: number; name: string; amount: string };
 type TipRow = { key: number; stepKey: number | null; text: string };
@@ -54,12 +55,20 @@ export function RecipeEditor({
       ? initial.ingredients.map((i) => row(i.name, i.amount))
       : [row(), row(), row()],
   );
-  const [steps, setSteps] = useState<{ key: number; text: string }[]>(() =>
-    (initial.steps.length ? initial.steps : ["", ""]).map((t) => ({
+  // 動画の場面の時刻も手順の行に持つ（並び替えても、その手順の場面のまま）
+  const [steps, setSteps] = useState<
+    { key: number; text: string; at?: number | null }[]
+  >(() => {
+    const times =
+      initial.stepTimes?.length === initial.steps.length
+        ? initial.stepTimes
+        : [];
+    return (initial.steps.length ? initial.steps : ["", ""]).map((t, k) => ({
       key: ++seq,
       text: t,
-    })),
-  );
+      at: times[k] ?? null,
+    }));
+  });
   // コツは手順の「行」に付ける（並び替え・削除しても、同じ手順に付いたまま）
   const [tips, setTips] = useState<TipRow[]>(() =>
     (initial.tips ?? []).map((t) => ({
@@ -84,6 +93,9 @@ export function RecipeEditor({
         .filter((r) => r.name.trim())
         .map((r) => ({ name: r.name.trim(), amount: r.amount.trim() })),
       steps: steps.map((s) => s.text.trim()).filter(Boolean),
+      stepTimes: tidyStepTimes(
+        steps.filter((s) => s.text.trim()).map((s) => s.at ?? null),
+      ),
       tips: tips
         .filter((t) => t.text.trim())
         .map((t) => {

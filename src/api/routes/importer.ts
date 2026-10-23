@@ -613,6 +613,7 @@ function aiDraftBody(
         timeLabel: recipe.timeLabel,
         servings: recipe.servings,
         tips: recipe.tips,
+        stepTimes: recipe.stepTimes,
         category: guessCategory(hints),
         genre: guessGenre(hints),
         sourceUrl,

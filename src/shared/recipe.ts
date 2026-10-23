@@ -4,6 +4,7 @@ import { formatAmount, parseAmount } from "./amount";
 import { CATEGORIES, GENRES, LIMITS, MEALS } from "./constants";
 import { SERVINGS_MAX, SERVINGS_MIN } from "./servings";
 import { tipsSchema } from "./tips";
+import { stepTimesSchema } from "./scenes";
 
 /** 何人分か。分からなければ null */
 export const servingsSchema = z
@@ -45,6 +46,7 @@ export const createRecipeSchema = z.object({
   timeLabel: z.string().trim().max(20).default(""),
   servings: servingsSchema.default(null),
   tips: tipsSchema.default([]),
+  stepTimes: stepTimesSchema.default([]),
   sourceUrl: videoUrl.nullable().default(null),
   videoUrl: videoUrl.nullable().default(null),
   /** 出典の画像の URL（https だけ。画像は保存しない。DEC-023） */
@@ -77,6 +79,8 @@ export const newVersionSchema = z.object({
   servings: servingsSchema.optional(),
   /** 渡さなければ前の版のまま */
   tips: tipsSchema.optional(),
+  /** 渡さなければ、手順が同じときだけ前の版のまま */
+  stepTimes: stepTimesSchema.optional(),
   ingredients: ingredientsSchema,
   steps: stepsSchema,
   /** このメモを反映した版として記録する（任意） */

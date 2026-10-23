@@ -74,6 +74,8 @@ export type Version = {
   steps: string[];
   /** コツ・ポイント（DEC-024）。前の版の API では無いことがある */
   tips?: Tip[];
+  /** 手順ごとの、動画の中の開始の秒（無ければ空・前の版の API では無い） */
+  stepTimes?: (number | null)[];
   changes: string[];
   createdAt: number;
 };
@@ -102,6 +104,7 @@ export type RecipeFields = {
   ingredients: Ingredient[];
   steps: string[];
   tips?: Tip[];
+  stepTimes?: (number | null)[];
 };
 
 export type ImportDraft = RecipeFields & {
