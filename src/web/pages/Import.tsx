@@ -19,7 +19,12 @@ import {
   recipeFromSections,
 } from "../../shared/importer";
 import { servingsFromText } from "../../shared/servings";
-import { apiClient, type ImportJob, type ImportResult } from "@/api/client";
+import {
+  apiClient,
+  type ImportJob,
+  type ImportResult,
+  type RecipeFields,
+} from "@/api/client";
 import { jobLabel, jobResult, useImportJobs } from "@/lib/importJobs";
 import { PrimaryButton, SecondaryButton, SubHeader } from "@/components/common";
 import { RecipeEditor } from "@/components/RecipeEditor";
@@ -100,9 +105,12 @@ export function Import() {
     mutationFn: (id: string) => apiClient.dismissImportJob(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["import-jobs"] }),
   });
+  // 保存済みのレシピの読み直しなら、そのレシピ（新しい版として保存する）
+  const [rereadOf, setRereadOf] = useState<string | null>(null);
   const openJob = (j: ImportJob) => {
     if (j.status === "running") return;
     setActiveJob(j.id);
+    setRereadOf(j.recipeId ?? null);
     setResult(jobResult(j));
   };
   // 上の知らせから来たとき（/import?job=…）は、その結果を開く（描画中に1回だけ移す）
@@ -113,6 +121,7 @@ export function Import() {
       : undefined;
   if (wantedJob) {
     setActiveJob(wantedJob.id);
+    setRereadOf(wantedJob.recipeId ?? null);
     setResult(jobResult(wantedJob));
   }
   // URL の ?job= は、読み終えた一覧が来たら外す（戻ったときに開き直さない）
@@ -142,17 +151,72 @@ export function Import() {
     },
   });
 
+  // 読み直しの結果は、そのレシピの新しい版として積む（前の版は残る）
+  const saveVersion = useMutation({
+    mutationFn: (fields: RecipeFields) =>
+      apiClient.addVersion(rereadOf!, fields),
+    onSuccess: async (res) => {
+      if (activeJob)
+        await apiClient.dismissImportJob(activeJob).catch(() => {});
+      void qc.invalidateQueries({ queryKey: ["import-jobs"] });
+      await qc.invalidateQueries({ queryKey: ["recipe", rereadOf] });
+      await qc.invalidateQueries({ queryKey: ["recipes"] });
+      // 今の版と同じなら版は増えない。そのことをレシピの画面で知らせる
+      nav(`/recipes/${rereadOf}`, {
+        replace: true,
+        state:
+          "unchanged" in res
+            ? {
+                notice:
+                  "読み直した内容は今の版と同じだったので、新しい版は作りませんでした。",
+              }
+            : undefined,
+      });
+    },
+  });
+
   const switchMode = (m: Mode) => {
     setMode(m);
     setTextError("");
   };
+
+  // 読み直しで材料も手順も取れなかったときは、空の版を作らせない（今の版のまま）
+  if (
+    result &&
+    rereadOf &&
+    !result.draft.ingredients.length &&
+    !result.draft.steps.length
+  ) {
+    const back = async () => {
+      if (activeJob)
+        await apiClient.dismissImportJob(activeJob).catch(() => {});
+      void qc.invalidateQueries({ queryKey: ["import-jobs"] });
+      nav(`/recipes/${rereadOf}`, { replace: true });
+    };
+    return (
+      <>
+        <SubHeader title="読み直した内容の確認" />
+        <div className="flex flex-col gap-4 px-5 pt-5 pb-10">
+          <p
+            role="status"
+            className="rounded-xl bg-memo p-3 text-sm leading-7 text-memo-ink"
+          >
+            出典から読み直せませんでした。今のレシピはそのままです。時間をおいてもう一度試すか、「材料・作り方を編集」から直してください。
+          </p>
+          <PrimaryButton onClick={() => void back()}>
+            レシピに戻る
+          </PrimaryButton>
+        </div>
+      </>
+    );
+  }
 
   if (result) {
     const d = result.draft;
     return (
       <>
         <SubHeader
-          title="取り込む内容の確認"
+          title={rereadOf ? "読み直した内容の確認" : "取り込む内容の確認"}
           right={
             <button
               type="button"
@@ -160,6 +224,7 @@ export function Import() {
               onClick={() => {
                 setResult(null);
                 setActiveJob(null);
+                setRereadOf(null);
                 report.reset();
               }}
             >
@@ -177,6 +242,11 @@ export function Import() {
           initial={{ ...d, servings: d.servings ?? null }}
           banner={
             <div className="flex flex-col gap-2">
+              {rereadOf && (
+                <p className="rounded-xl bg-memo p-3 text-[13px] leading-6 text-memo-ink">
+                  出典から読み直した内容です。保存すると新しい版になります（前の版は残ります）。今の版で自分で直したところ・足したコツは入っていないので、要るものは書き足してください。
+                </p>
+              )}
               <div
                 className={`flex items-start gap-2 rounded-xl p-3 text-[13px] leading-6 ${result.found ? "bg-herb-soft text-herb" : "bg-memo text-memo-ink"}`}
               >
@@ -230,6 +300,8 @@ export function Import() {
                       setFallbackTitle(d.title);
                       setResult(null);
                       setActiveJob(null);
+                      // 貼った文章は、ふつうの取り込み（新しいレシピ）として扱う
+                      setRereadOf(null);
                       report.reset();
                       switchMode("text");
                     }}
@@ -257,18 +329,24 @@ export function Import() {
               )}
             </div>
           }
-          submitLabel="元のレシピ（v1）として保存"
-          saving={save.isPending}
-          error={save.error?.message}
+          submitLabel={
+            rereadOf
+              ? "新しい版として保存（前の版は残ります）"
+              : "元のレシピ（v1）として保存"
+          }
+          saving={save.isPending || saveVersion.isPending}
+          error={save.error?.message ?? saveVersion.error?.message}
           onSubmit={(fields) =>
-            save.mutate({
-              ...fields,
-              sourceUrl: d.sourceUrl,
-              videoUrl: d.videoUrl,
-              // 表紙は出典の画像を元の場所から表示する（保存しない。DEC-023）
-              coverUrl: d.coverUrl ?? null,
-              origin: "import",
-            })
+            rereadOf
+              ? saveVersion.mutate(fields)
+              : save.mutate({
+                  ...fields,
+                  sourceUrl: d.sourceUrl,
+                  videoUrl: d.videoUrl,
+                  // 表紙は出典の画像を元の場所から表示する（保存しない。DEC-023）
+                  coverUrl: d.coverUrl ?? null,
+                  origin: "import",
+                })
           }
         />
       </>
@@ -520,7 +598,7 @@ function JobList({
                 onClick={() => onOpen(j)}
                 className={`h-11 shrink-0 rounded-lg px-3 text-sm font-bold ${j.status === "done" ? "bg-accent text-white" : "border border-field bg-card text-ink"}`}
               >
-                {j.status === "done" ? "確かめる" : "手で入れる"}
+                {j.status === "done" || j.recipeId ? "確かめる" : "手で入れる"}
               </button>
             )}
             {j.status !== "running" && (

@@ -18,6 +18,7 @@ import {
   scanPage,
   youtubeSnippet,
 } from "../platform/fetch-page";
+import { startImportJob } from "./import-jobs";
 
 const isTransient = (e: FetchPageError) =>
   e.message === "ページを取得できませんでした" ||
@@ -188,6 +189,17 @@ recipes.post("/:id/servings", async (c) => {
   }
   await c.var.repo.fillServings(id, found ?? 0);
   return c.json({ servings: found ?? 0 });
+});
+
+/**
+ * 保存済みのレシピを、出典から読み直す（裏の読み取り）。読めた結果は、画面で確かめてから新しい版として保存する。
+ * 読む URL は保存してある出典（クライアントの値は使わない）
+ */
+recipes.post("/:id/reread", async (c) => {
+  const r = await c.var.repo.getRecipe(c.req.param("id"));
+  const url = r.sourceUrl ?? r.videoUrl;
+  if (!url) return c.json({ error: "出典の URL がないレシピです" }, 422);
+  return startImportJob(c, url, r.id);
 });
 
 recipes.put("/:id/image", async (c) => {
