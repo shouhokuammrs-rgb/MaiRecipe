@@ -1,0 +1,53 @@
+# PR ごとのチェック。lint / 型 / テスト と、画面の E2E（Playwright）を流す。
+# 本番の鍵は使わない（ローカルの D1 と、.dev.vars.example の仮の値だけ）。
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: lint / 型 / テスト
+        run: npm run lint && npm run typecheck && npm run test
+
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: ブラウザを入れる
+        run: npx playwright install --with-deps chromium
+      - name: ローカル用の設定とローカルの D1
+        run: |
+          # 仮の値だけ（Google・YouTube・Gemini の鍵は空。DEV_LOGIN はこの使い捨ての環境の中だけ）
+          cp .dev.vars.example .dev.vars
+          npm run db:migrate:local
+      - name: E2E
+        run: npm run e2e
+      - name: 失敗したときの画面と記録
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-results-${{ github.sha }}
+          path: test-results/
+          retention-days: 7
