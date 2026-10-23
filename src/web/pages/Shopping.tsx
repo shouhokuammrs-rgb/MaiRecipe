@@ -112,7 +112,7 @@ export function Shopping() {
               : `${labelDate(q.data.from).md}〜${labelDate(q.data.to).md}`}{" "}
             の献立 {q.data.recipeCount}
             品（各レシピの最新版）から作成。分量は{q.data.people}
-            人分に換算しています（人数は設定で変えられます）。過ぎた日は入りません。
+            人分に換算しています（ふだんの人数は設定で、品ごとの人数は献立で変えられます）。過ぎた日は入りません。
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">

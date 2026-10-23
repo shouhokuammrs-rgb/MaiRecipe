@@ -139,6 +139,8 @@ export type PlanEntry = {
   /** 枠の中の並び順（小さいほど上） */
   position: number;
   recipeId: string;
+  /** この献立で何人分作るか。null はふだん作る人数 */
+  servings?: number | null;
   title: string;
   category: Category;
 };
@@ -282,6 +284,11 @@ export const apiClient = {
     call<void>("/plans", { method: "PUT", json: { date, meal, recipeId } }),
   deletePlanItem: (id: string) =>
     call<void>(`/plans/items/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setPlanServings: (id: string, servings: number | null) =>
+    call<void>(`/plans/items/${encodeURIComponent(id)}/servings`, {
+      method: "PUT",
+      json: { servings },
+    }),
   movePlanItem: (id: string, direction: "up" | "down") =>
     call<void>(`/plans/items/${encodeURIComponent(id)}/move`, {
       method: "POST",

@@ -98,6 +98,11 @@ export const mealPlanSchema = z.object({
   recipeId: z.string().min(1),
 });
 
+/** 献立の品を何人分作るか（null でふだんの人数） */
+export const planServingsSchema = z.object({
+  servings: servingsSchema,
+});
+
 /** 献立の品を1つ上・下の品と入れ替える */
 export const planMoveSchema = z.object({
   direction: z.enum(["up", "down"]),

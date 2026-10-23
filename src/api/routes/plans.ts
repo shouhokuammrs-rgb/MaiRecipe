@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { MEALS, type Meal } from "../../shared/constants";
 import { addDays, isDate, todayJst } from "../../shared/dates";
-import { mealPlanSchema, planMoveSchema } from "../../shared/recipe";
+import {
+  mealPlanSchema,
+  planMoveSchema,
+  planServingsSchema,
+} from "../../shared/recipe";
 import { canonicalName } from "../../shared/ingredients";
 import { isSeasoning, shoppingHaveSchema } from "../../shared/pantry";
 import { aggregateShopping } from "../../shared/shopping";
@@ -36,6 +40,19 @@ plans.put("/", async (c) => {
 // ↓ items のルートは "/:date/:meal" より先に登録する（DELETE /items/:id が date="items" にも一致するため）
 plans.delete("/items/:id", async (c) => {
   await c.var.repo.deletePlanItem(c.req.param("id"), todayJst());
+  return c.body(null, 204);
+});
+
+plans.put("/items/:id/servings", async (c) => {
+  const parsed = planServingsSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) return badRequest(c, parsed.error);
+  await c.var.repo.setPlanServings(
+    c.req.param("id"),
+    parsed.data.servings,
+    todayJst(),
+  );
   return c.body(null, 204);
 });
 
