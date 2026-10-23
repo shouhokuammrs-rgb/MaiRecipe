@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient, type PlanEntry } from "@/api/client";
 import { Empty, ErrorState, Loading, PageTitle } from "@/components/common";
-import { prefetchRecipes } from "@/lib/offlineRecipes";
+import { prefetchRecipes, recipeQuery } from "@/lib/offlineRecipes";
 import { categoryTint } from "@/lib/tint";
 import { cn } from "@/lib/utils";
 import { MEAL_LABELS, MEALS, type Meal } from "../../shared/constants";
@@ -44,8 +44,7 @@ export function Plan() {
     if (ids.length) prefetchRecipes(qc, ids);
   }, [plans.data, qc]);
   const addingRecipe = useQuery({
-    queryKey: ["recipe", adding],
-    queryFn: () => apiClient.getRecipe(adding!),
+    ...recipeQuery(adding ?? ""),
     enabled: Boolean(adding),
   });
 

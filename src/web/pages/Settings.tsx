@@ -22,9 +22,10 @@ export function Settings() {
   const user = session.data?.user;
 
   const logout = async () => {
+    // 先に消す（ログアウトに失敗しても残さない）
+    clearOfflineRecipes();
     await authClient.signOut();
     qc.clear();
-    clearOfflineRecipes();
     nav("/login", { replace: true });
   };
 

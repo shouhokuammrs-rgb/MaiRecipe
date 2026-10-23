@@ -6,7 +6,9 @@ import {
   Settings,
   ShoppingCart,
 } from "lucide-react";
+import { useEffect } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
+import { checkOfflineOwner, clearOfflineRecipes } from "@/lib/offlineRecipes";
 import { apiClient, ApiError } from "@/api/client";
 import { Loading } from "@/components/common";
 import { jobLabel, useImportJobs } from "@/lib/importJobs";
@@ -29,6 +31,13 @@ export function AppLayout() {
     retry: false,
     staleTime: 60_000,
   });
+  // 端末に残したレシピは、ログインしている人のものだけ（人が変わった・ログインが切れたら消す）
+  const meId = me.data?.userId;
+  const signedOut = me.error instanceof ApiError && me.error.status === 401;
+  useEffect(() => {
+    if (meId) checkOfflineOwner(meId);
+    else if (signedOut) clearOfflineRecipes();
+  }, [meId, signedOut]);
   if (me.isPending) return <Loading />;
   if (me.error instanceof ApiError && me.error.status === 401) {
     return <Navigate to="/login" replace />;

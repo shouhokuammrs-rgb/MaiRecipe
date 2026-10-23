@@ -6,6 +6,10 @@ import { ApiError, apiClient, type RecipeDetail } from "@/api/client";
 
 const PREFIX = "mairecipe:recipe:";
 const INDEX = "mairecipe:recipes";
+/** 残したレシピの持ち主（ログインしている人が変わったら全部消す） */
+const OWNER = "mairecipe:recipes-owner";
+/** 電波が弱くて返事が来ないとき、残していた内容に切り替えるまでの時間 */
+const SLOW_MS = 5000;
 /** 残しておく数（古いものから消す） */
 const KEEP = 30;
 
@@ -66,11 +70,23 @@ export function forgetRecipe(id: string) {
   }
 }
 
-/** ログアウトしたとき、この端末に残したレシピを全部消す */
+/** ログアウトしたとき・ログインしている人が変わったとき、この端末に残したレシピを全部消す */
 export function clearOfflineRecipes() {
   for (const id of readIndex()) forgetRecipe(id);
   try {
     localStorage.removeItem(INDEX);
+    localStorage.removeItem(OWNER);
+  } catch {
+    // 何もしない
+  }
+}
+
+/** ログインしている人を確かめ、前と違う人なら残したレシピを消す（同じ端末を別の人が使ったとき） */
+export function checkOfflineOwner(userId: string) {
+  try {
+    const prev = localStorage.getItem(OWNER);
+    if (prev && prev !== userId) clearOfflineRecipes();
+    localStorage.setItem(OWNER, userId);
   } catch {
     // 何もしない
   }
@@ -78,10 +94,21 @@ export function clearOfflineRecipes() {
 
 /** API から読み、読めたら端末に残す。届かない（電波が無い）ときは残していたものを出す */
 export async function fetchRecipe(id: string): Promise<OfflineRecipe> {
-  try {
-    const r = await apiClient.getRecipe(id);
+  const fresh = apiClient.getRecipe(id).then((r) => {
     saveRecipe(r);
     return r;
+  });
+  try {
+    // 電波が弱くて返事が来ないときは、残していた内容を先に出す（返事が来たら端末の分は新しくなる）
+    const saved = loadRecipe(id);
+    if (!saved) return await fresh;
+    const slow = new Promise<"slow">((r) =>
+      setTimeout(() => r("slow"), SLOW_MS),
+    );
+    const first = await Promise.race([fresh, slow]);
+    if (first !== "slow") return first;
+    fresh.catch(() => {});
+    return saved;
   } catch (e) {
     // 消された・見られなくなったレシピは、端末からも消す
     if (e instanceof ApiError) {
