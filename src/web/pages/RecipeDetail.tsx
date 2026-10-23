@@ -8,7 +8,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useImportJobs } from "@/lib/importJobs";
 import {
   apiClient,
   type RecipeDetail as Detail,
@@ -84,6 +85,13 @@ function DetailView({ r }: { r: Detail }) {
     base && people
       ? scaleIngredients(view.ingredients, base, people)
       : view.ingredients;
+  // 読み直しの保存から戻ったときの知らせ（版を増やさなかったときなど）
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
+  // 同じレシピの読み直しが動いている間は、もう一度は始めない
+  const jobs = useImportJobs();
+  const rereading = jobs.data?.some(
+    (j) => j.recipeId === r.id && j.status === "running",
+  );
   const reread = useMutation({
     mutationFn: () => apiClient.rereadRecipe(r.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["import-jobs"] }),
@@ -274,6 +282,14 @@ function DetailView({ r }: { r: Detail }) {
           </div>
         )}
 
+        {notice && (
+          <p
+            role="status"
+            className="rounded-xl bg-herb-soft p-3 text-[13px] leading-6 text-herb"
+          >
+            {notice}
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2.5">
           <PrimaryButton
             onClick={() => nav(`/plan?add=${r.id}`)}
@@ -308,12 +324,16 @@ function DetailView({ r }: { r: Detail }) {
           <div className="flex flex-col gap-1">
             <button
               type="button"
-              disabled={reread.isPending || reread.isSuccess}
+              disabled={reread.isPending || reread.isSuccess || rereading}
               onClick={() => reread.mutate()}
               className="flex h-11 items-center gap-1.5 self-start text-sm font-bold text-accent disabled:text-sub"
             >
               <RefreshCw className="size-4" />
-              {reread.isPending ? "始めています…" : "出典から読み直す"}
+              {reread.isPending
+                ? "始めています…"
+                : rereading && !reread.isSuccess
+                  ? "読み直し中…（終わったら上に知らせが出ます）"
+                  : "出典から読み直す"}
             </button>
             {reread.isSuccess && (
               <p role="status" className="text-xs leading-5 text-herb">

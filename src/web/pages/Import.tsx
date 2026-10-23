@@ -155,13 +155,23 @@ export function Import() {
   const saveVersion = useMutation({
     mutationFn: (fields: RecipeFields) =>
       apiClient.addVersion(rereadOf!, fields),
-    onSuccess: async () => {
+    onSuccess: async (res) => {
       if (activeJob)
         await apiClient.dismissImportJob(activeJob).catch(() => {});
       void qc.invalidateQueries({ queryKey: ["import-jobs"] });
       await qc.invalidateQueries({ queryKey: ["recipe", rereadOf] });
       await qc.invalidateQueries({ queryKey: ["recipes"] });
-      nav(`/recipes/${rereadOf}`, { replace: true });
+      // 今の版と同じなら版は増えない。そのことをレシピの画面で知らせる
+      nav(`/recipes/${rereadOf}`, {
+        replace: true,
+        state:
+          "unchanged" in res
+            ? {
+                notice:
+                  "読み直した内容は今の版と同じだったので、新しい版は作りませんでした。",
+              }
+            : undefined,
+      });
     },
   });
 
@@ -191,13 +201,7 @@ export function Import() {
             role="status"
             className="rounded-xl bg-memo p-3 text-sm leading-7 text-memo-ink"
           >
-            出典から読み直せませんでした。今のレシピはそのままです。
-            {result.message ? (
-              <>
-                <br />
-                {result.message}
-              </>
-            ) : null}
+            出典から読み直せませんでした。今のレシピはそのままです。時間をおいてもう一度試すか、「材料・作り方を編集」から直してください。
           </p>
           <PrimaryButton onClick={() => void back()}>
             レシピに戻る
@@ -238,6 +242,11 @@ export function Import() {
           initial={{ ...d, servings: d.servings ?? null }}
           banner={
             <div className="flex flex-col gap-2">
+              {rereadOf && (
+                <p className="rounded-xl bg-memo p-3 text-[13px] leading-6 text-memo-ink">
+                  出典から読み直した内容です。保存すると新しい版になります（前の版は残ります）。今の版で自分で直したところ・足したコツは入っていないので、要るものは書き足してください。
+                </p>
+              )}
               <div
                 className={`flex items-start gap-2 rounded-xl p-3 text-[13px] leading-6 ${result.found ? "bg-herb-soft text-herb" : "bg-memo text-memo-ink"}`}
               >
@@ -291,6 +300,8 @@ export function Import() {
                       setFallbackTitle(d.title);
                       setResult(null);
                       setActiveJob(null);
+                      // 貼った文章は、ふつうの取り込み（新しいレシピ）として扱う
+                      setRereadOf(null);
                       report.reset();
                       switchMode("text");
                     }}
