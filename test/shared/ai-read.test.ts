@@ -21,6 +21,7 @@ describe("AI の返事を読む", () => {
       timeLabel: "10分",
       servings: 2,
       tips: [],
+      stepTimes: [],
     });
   });
 

@@ -438,3 +438,70 @@ describe("ページは構造化データが無ければ最初から AI で読む
     expect(j.draft.steps).toEqual(["大根を切る", "しょうゆで煮る"]);
   });
 });
+
+describe("動画の場面（手順ごとの時刻）", () => {
+  it("Gemini が返した手順の時刻を下書きに入れ、保存すると版に残る", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    mockFetch(() =>
+      geminiReply(
+        JSON.stringify({
+          title: "ダミー",
+          ingredients: [{ name: "米", amount: "2合" }],
+          steps: [
+            { text: "米を洗う", at: "0:12" },
+            { text: "炊く", at: "" },
+            { text: "混ぜる", at: "2:05" },
+          ],
+          servings: "2人分",
+          tips: [{ step: 3, text: "さっくり混ぜる" }],
+        }),
+      ),
+    );
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", { method: "POST", body: { url: WATCH } })
+    ).json()) as {
+      draft: Record<string, unknown> & { stepTimes: (number | null)[] };
+    };
+    expect(j.draft.stepTimes).toEqual([12, null, 125]);
+    expect(j.draft.servings).toBe(2);
+    expect(j.draft.tips).toEqual([{ step: 3, text: "さっくり混ぜる" }]);
+
+    const { id } = (await (
+      await api(me, "/recipes", {
+        method: "POST",
+        body: { ...j.draft, origin: "import" },
+      })
+    ).json()) as { id: string };
+    const r = (
+      (await (await api(me, `/recipes/${id}`)).json()) as {
+        recipe: { versions: { stepTimes: (number | null)[] }[] };
+      }
+    ).recipe;
+    expect(r.versions[0]!.stepTimes).toEqual([12, null, 125]);
+  });
+
+  it("手順の数と合わない時刻は保存しない", async () => {
+    const me = await signUp();
+    const { id } = (await (
+      await api(me, "/recipes", {
+        method: "POST",
+        body: {
+          title: "ダミー",
+          category: "主菜",
+          genre: "和食",
+          ingredients: [],
+          steps: ["a", "b"],
+          stepTimes: [3],
+          videoUrl: WATCH,
+        },
+      })
+    ).json()) as { id: string };
+    const r = (
+      (await (await api(me, `/recipes/${id}`)).json()) as {
+        recipe: { versions: { stepTimes: (number | null)[] }[] };
+      }
+    ).recipe;
+    expect(r.versions[0]!.stepTimes).toEqual([]);
+  });
+});
