@@ -15,6 +15,7 @@ import {
   type AiRecipe,
 } from "../../shared/ai-read";
 import {
+  GeminiTemporary,
   hasGemini,
   runGeminiText,
   runGeminiVideo,
@@ -51,6 +52,9 @@ const TASKS = {
 
 export class AiBadOutput extends Error {}
 
+/** 一時的な失敗のあと、やり直すまで待つ時間 */
+const RETRY_WAIT_MS = 3000;
+
 export type AiEnv = { AI?: WorkersAiBinding } & GeminiEnv;
 
 /** 動画を見て読む AI が使えるか（鍵が登録されているか） */
@@ -84,13 +88,23 @@ export async function watchVideoWithAi(
   description: string,
 ): Promise<AiRecipe> {
   const task = TASKS.watch_video;
-  const raw = await runGeminiVideo(
-    env,
-    task.model,
-    buildVideoPrompt(title, description),
-    videoUrl,
-    task.maxTokens,
-  );
+  const run = () =>
+    runGeminiVideo(
+      env,
+      task.model,
+      buildVideoPrompt(title, description),
+      videoUrl,
+      task.maxTokens,
+    );
+  let raw: string;
+  try {
+    raw = await run();
+  } catch (e) {
+    // Gemini 側の一時的な失敗（524 など）は、少し待って1回だけやり直す
+    if (!(e instanceof GeminiTemporary)) throw e;
+    await new Promise((r) => setTimeout(r, RETRY_WAIT_MS));
+    raw = await run();
+  }
   const recipe = parseAiRecipe(raw);
   if (!recipe) throw new AiBadOutput("動画からレシピを読み取れませんでした");
   return recipe;

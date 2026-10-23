@@ -385,6 +385,29 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
     expect(j.draft.steps).toEqual([]);
     expect(j.notice).toContain("途中で切れました");
   });
+
+  it("Gemini が一時的に失敗（524）したら、1回だけやり直す", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    let n = 0;
+    const seen = mockFetch(() =>
+      ++n === 1 ? json({}, 524) : geminiReply(GEMINI_RECIPE),
+    );
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", { method: "POST", body: { url: WATCH } })
+    ).json()) as { message: string; draft: { steps: string[] } };
+    expect(seen).toHaveLength(2);
+    expect(j.draft.steps).toHaveLength(3);
+    expect(j.message).toContain("動画を見て");
+  });
+
+  it("鍵が違うなど（400 台）はやり直さない", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    const seen = mockFetch(() => json({}, 400));
+    const me = await signUp();
+    await api(me, "/import", { method: "POST", body: { url: WATCH } });
+    expect(seen).toHaveLength(1);
+  });
 });
 
 describe("ページは構造化データが無ければ最初から AI で読む（DEC-019）", () => {
