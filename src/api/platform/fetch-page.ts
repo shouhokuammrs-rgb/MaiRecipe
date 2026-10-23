@@ -132,7 +132,19 @@ export type PageScan = {
   bodyText: string;
   /** 材料の見出しにあった人数（「材料（2人分）」）。無ければ null */
   servings: number | null;
+  /** 「コツ・ポイント」の見出しの後の文（DEC-024）。読む前に止まったときは空 */
+  tipsText: string;
 };
+
+/** コツ・ポイントの欄の見出し（短いものだけ。「ポイント還元」などは違う） */
+const TIPS_HEAD =
+  /^[\s【■●◆□▼〈<＜(（]*(?:コツ|ポイント|コツ・ポイント|ポイント・コツ|調理のポイント|作り方のポイント|作り方のコツ|料理のコツ|おいしく作るコツ)[\s】>＞)）:：]*$/;
+/** class で見出しになった要素（h タグでない）は、はっきりした言い方だけ（サイドバーの「ポイント」などを拾わない） */
+const TIPS_HEAD_STRICT =
+  /(?:コツ・ポイント|ポイント・コツ|調理のポイント|作り方のポイント|作り方のコツ|料理のコツ|おいしく作るコツ)/;
+const TIPS_TEXT_MAX = 1200;
+/** 構造化データの後に、コツの欄を探して読み進める量の上限 */
+const TIPS_EXTRA_BYTES = 150_000;
 
 const HEADINGS =
   "h1, h2, h3, h4, h5, h6, [class*=title], [class*=Title], [class*=head], [class*=Head]";
@@ -231,6 +243,10 @@ export async function scanPage(
   let skipDepth = 0;
   let bodyText = "";
   let servings: number | null = null;
+  let tipsText = "";
+  let tipsOpen = false;
+  /** script・style の中（コツの文に混ぜない） */
+  let codeDepth = 0;
   const openHeadings: { text: string }[] = [];
   let item: { tag: string; text: string; cls?: string } | null = null;
   let itemDepth = 0;
@@ -252,6 +268,13 @@ export async function scanPage(
 
   const onHeadingEnd = (raw: string, level: number | null) => {
     if (chromeDepth > 0) return;
+    // コツ・ポイントの欄：次の見出し（h タグ）まで、文を集める
+    if (itemDepth === 0) {
+      const h = raw.trim();
+      // 次の見出し（class で見出しになった要素も）で閉じる
+      tipsOpen =
+        TIPS_HEAD.test(h) && (level !== null || TIPS_HEAD_STRICT.test(h));
+    }
     if (itemDepth > 0) {
       // li の中の <span class="step-head">1</span> のような番号は、項目の文字から外す
       const num = raw.trim();
@@ -509,6 +532,14 @@ export async function scanPage(
           bodyText.length < BODY_TEXT_MAX
         )
           bodyText += t.text;
+        if (
+          tipsOpen &&
+          chromeDepth === 0 &&
+          codeDepth === 0 &&
+          openHeadings.length === 0 &&
+          tipsText.length < TIPS_TEXT_MAX
+        )
+          tipsText += t.text.slice(0, TIPS_TEXT_MAX - tipsText.length);
         if (!item && openHeadings.length === 0) return;
         for (const h of openHeadings)
           if (h.text.length < MAX_HEADING_CHARS) h.text += t.text;
@@ -516,38 +547,60 @@ export async function scanPage(
       },
     });
 
+  rewriter
+    // 同じ要素に終わりの handler を2つ付けない（JSON-LD が落ちる）。本文用の skipDepth もここで数える
+    .on(
+      'script:not([type="application/ld+json"]), style, noscript, svg, template, iframe',
+      {
+        element(el) {
+          codeDepth++;
+          if (opts.collectText) skipDepth++;
+          if (
+            !onEnd(el, () => {
+              codeDepth = Math.max(0, codeDepth - 1);
+              if (opts.collectText) skipDepth = Math.max(0, skipDepth - 1);
+            })
+          ) {
+            codeDepth--;
+            if (opts.collectText) skipDepth--;
+          }
+        },
+      },
+    )
+    .on("p, li, br, dd, div", {
+      element() {
+        if (!tipsOpen || !tipsText) return;
+        if (!tipsText.endsWith("\n")) tipsText += "\n";
+      },
+    });
+
   // 本文を集めるのは「AI で読み取る」のときだけ（ふだんの取り込みの CPU を増やさない）
   if (opts.collectText)
-    rewriter
-      .on(
-        'script:not([type="application/ld+json"]), style, noscript, svg, template, iframe',
-        {
-          element(el) {
-            skipDepth++;
-            if (
-              !onEnd(el, () => {
-                skipDepth = Math.max(0, skipDepth - 1);
-              })
-            )
-              skipDepth--;
-          },
-        },
-      )
-      .on("p, li, dt, dd, td, th, h1, h2, h3, h4, h5, h6, br, div", {
-        element() {
-          if (bodyText && !bodyText.endsWith("\n")) bodyText += "\n";
-        },
-      });
+    rewriter.on("p, li, dt, dd, td, th, h1, h2, h3, h4, h5, h6, br, div", {
+      element() {
+        if (bodyText && !bodyText.endsWith("\n")) bodyText += "\n";
+      },
+    });
 
   const reader = rewriter.transform(res).body?.getReader();
   let total = 0;
+  let foundAt: number | null = null;
   if (reader) {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       total += value?.byteLength ?? 0;
-      // 本文を集めるときは最後まで読む（構造化データが Recipe でも使えないことがあり、そのとき AI に本文が要る）
-      if ((foundRecipe && !opts.collectText) || total > maxBytes) {
+      // 本文を集めるときは最後まで読む（構造化データが Recipe でも使えないことがあり、そのとき AI に本文が要る）。
+      // 構造化データが取れた後も、コツ・ポイントの欄を読み終えるまで少しだけ読む（DEC-024）
+      if (foundRecipe && foundAt === null) foundAt = total;
+      const tipsDone =
+        (Boolean(tipsText) && !tipsOpen) || tipsText.length >= TIPS_TEXT_MAX;
+      if (
+        (foundAt !== null &&
+          !opts.collectText &&
+          (tipsDone || total - foundAt > TIPS_EXTRA_BYTES)) ||
+        total > maxBytes
+      ) {
         await reader.cancel();
         break;
       }
@@ -559,6 +612,7 @@ export async function scanPage(
     image: ogImage,
     sections: { ingredients, steps },
     servings,
+    tipsText: tipsText.replace(/[ \t\u3000]+/g, " ").trim(),
     url: finalUrl,
     bodyText: bodyText
       .replace(/[ \t\u3000]+/g, " ")

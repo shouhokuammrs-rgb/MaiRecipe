@@ -35,6 +35,7 @@ import {
 } from "../../shared/assist";
 import { explainStep, normalizeGroups } from "../../shared/groups";
 import { scaleIngredients } from "../../shared/servings";
+import { tipsForStep, type Tip } from "../../shared/tips";
 
 /**
  * 料理モード（#26）。手順を1つずつ大きく出し、画面を点けたままにする。
@@ -78,6 +79,7 @@ export function CookMode() {
         people ?? base ?? 0,
       )}
       people={people ?? undefined}
+      tips={v.tips ?? []}
       servingsLabel={
         people ? `${people}人分（元は${base}人分）` : base ? `${base}人分` : ""
       }
@@ -110,6 +112,7 @@ function CookView({
   ingredients,
   people,
   servingsLabel,
+  tips,
 }: {
   recipeId: string;
   versionId: string;
@@ -119,6 +122,8 @@ function CookView({
   /** 人数を変えて作るとき（分量は換算済み） */
   people?: number;
   servingsLabel: string;
+  /** コツ・ポイント（DEC-024） */
+  tips: Tip[];
 }) {
   const nav = useNavigate();
   const [idx, setIdx] = useState(0);
@@ -142,6 +147,19 @@ function CookView({
   const count = steps.length;
   const last = idx >= count - 1;
   const step = steps[idx] ?? "";
+  const stepTips = tipsForStep(tips, idx + 1, count);
+  // 全体のコツは、最初の手順のところに出す
+  const shownTips =
+    idx === 0 ? [...tipsForStep(tips, null, count), ...stepTips] : stepTips;
+  /** 手順を読む文（その手順のコツも続けて読む） */
+  const stepSpeech = (i: number) => {
+    // 最初の手順では、全体のコツも続けて読む（画面と同じ）
+    const t = [
+      ...(i === 0 ? tipsForStep(tips, null, count) : []),
+      ...tipsForStep(tips, i + 1, count),
+    ];
+    return `${i + 1}。${steps[i]}${t.length ? `。コツ。${t.join("。")}` : ""}`;
+  };
   const stepTimers = findTimers(step);
 
   const go = useCallback(
@@ -194,7 +212,9 @@ function CookView({
       skipReadRef.current = false;
       return;
     }
-    if (reading && step) speak(`${idx + 1}。${step}`);
+    if (reading && step) speak(stepSpeech(idx));
+    // stepSpeech は steps と tips だけで決まる（step が変われば読み直す）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reading, idx, step]);
   useEffect(() => () => stopSpeaking(), []);
 
@@ -229,7 +249,7 @@ function CookView({
 
   const readStep = (i: number) => {
     const at = Math.max(0, Math.min(count - 1, i));
-    if (steps[at]) speak(`${at + 1}。${steps[at]}`);
+    if (steps[at]) speak(stepSpeech(at));
   };
 
   /** その場ですぐ動く言葉を実行する */
@@ -502,6 +522,17 @@ function CookView({
         >
           {step}
         </p>
+
+        {shownTips.length > 0 && (
+          <div className="rounded-2xl bg-herb-soft px-4 py-3 text-herb">
+            <p className="text-xs font-bold">コツ</p>
+            <ul className="mt-1 flex flex-col gap-1 text-[17px] leading-7">
+              {shownTips.map((t, k) => (
+                <li key={k}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {stepTimers.length > 0 && (
           <div className="flex flex-wrap gap-2">

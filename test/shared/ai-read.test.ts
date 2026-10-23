@@ -20,6 +20,7 @@ describe("AI の返事を読む", () => {
       steps: ["小松菜を切る", "卵を炒める"],
       timeLabel: "10分",
       servings: 2,
+      tips: [],
     });
   });
 
@@ -30,6 +31,16 @@ describe("AI の返事を読む", () => {
     expect(
       parseAiRecipe('{"ingredients":[{"name":"卵"}],"servings":4}')?.servings,
     ).toBe(4);
+  });
+
+  it("コツを手順の番号つきで読む", () => {
+    const r = parseAiRecipe(
+      '{"ingredients":[{"name":"卵"}],"steps":["割る","焼く"],"tips":[{"step":2,"text":"弱火で"},{"step":null,"text":"冷蔵庫から出しておく"}]}',
+    );
+    expect(r?.tips).toEqual([
+      { step: 2, text: "弱火で" },
+      { step: null, text: "冷蔵庫から出しておく" },
+    ]);
   });
 
   it("材料も手順も空なら null（レシピが無かった）", () => {

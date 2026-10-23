@@ -10,8 +10,10 @@ import {
 } from "../../shared/constants";
 import { moveItem } from "../../shared/move";
 import { SERVINGS_MAX } from "../../shared/servings";
+import { TIP_MAX, TIPS_MAX } from "../../shared/tips";
 
 type Row = { key: number; name: string; amount: string };
+type TipRow = { key: number; stepKey: number | null; text: string };
 let seq = 0;
 const row = (name = "", amount = ""): Row => ({ key: ++seq, name, amount });
 
@@ -58,6 +60,14 @@ export function RecipeEditor({
       text: t,
     })),
   );
+  // コツは手順の「行」に付ける（並び替え・削除しても、同じ手順に付いたまま）
+  const [tips, setTips] = useState<TipRow[]>(() =>
+    (initial.tips ?? []).map((t) => ({
+      key: ++seq,
+      stepKey: t.step ? (steps[t.step - 1]?.key ?? null) : null,
+      text: t.text,
+    })),
+  );
   const [ex, setEx] = useState<EditorExtras | undefined>(extras);
   const [localError, setLocalError] = useState<string | null>(null);
   // 並び替えの最中だけ ↑↓ を出す（ふだんは入力欄を広く使う）
@@ -74,6 +84,14 @@ export function RecipeEditor({
         .filter((r) => r.name.trim())
         .map((r) => ({ name: r.name.trim(), amount: r.amount.trim() })),
       steps: steps.map((s) => s.text.trim()).filter(Boolean),
+      tips: tips
+        .filter((t) => t.text.trim())
+        .map((t) => {
+          // 空の手順は保存しないので、番号は空でない手順の中で数える
+          const kept = steps.filter((x) => x.text.trim());
+          const at = kept.findIndex((x) => x.key === t.stepKey);
+          return { step: at >= 0 ? at + 1 : null, text: t.text.trim() };
+        }),
     };
     if (!fields.title) {
       setLocalError("レシピ名を入れてください");
@@ -294,6 +312,79 @@ export function RecipeEditor({
             onClick={() => setSteps([...steps, { key: ++seq, text: "" }])}
           >
             ＋ 手順を追加
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <h3 className="text-[13px] font-bold">コツ・ポイント（任意）</h3>
+        {tips.map((t, idx) => (
+          <div
+            key={t.key}
+            className="flex flex-col gap-1.5 rounded-xl border border-field bg-card p-2.5"
+          >
+            <div className="flex items-center gap-2">
+              <select
+                aria-label={`コツ${idx + 1}をどの手順に付けるか`}
+                className="h-11 rounded-lg border border-field bg-card px-2 text-sm"
+                value={t.stepKey ?? ""}
+                onChange={(e) =>
+                  setTips(
+                    tips.map((x) =>
+                      x.key === t.key
+                        ? {
+                            ...x,
+                            stepKey: e.target.value
+                              ? Number(e.target.value)
+                              : null,
+                          }
+                        : x,
+                    ),
+                  )
+                }
+              >
+                <option value="">全体のコツ</option>
+                {steps.map((st, k) => (
+                  <option key={st.key} value={st.key}>
+                    手順{k + 1}のコツ
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                aria-label="このコツを消す"
+                className="ml-auto flex size-11 items-center justify-center text-faint"
+                onClick={() => setTips(tips.filter((x) => x.key !== t.key))}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <textarea
+              aria-label={`コツ${idx + 1}`}
+              rows={2}
+              className="resize-none rounded-lg border border-field bg-card px-3 py-2 text-[15px] leading-relaxed"
+              value={t.text}
+              placeholder="例：皮目から焼くとパリッとする"
+              maxLength={TIP_MAX}
+              onChange={(e) =>
+                setTips(
+                  tips.map((x) =>
+                    x.key === t.key ? { ...x, text: e.target.value } : x,
+                  ),
+                )
+              }
+            />
+          </div>
+        ))}
+        {tips.length < TIPS_MAX && (
+          <button
+            type="button"
+            className="self-start py-2 text-sm font-bold text-accent"
+            onClick={() =>
+              setTips([...tips, { key: ++seq, stepKey: null, text: "" }])
+            }
+          >
+            ＋ コツを追加
           </button>
         )}
       </div>

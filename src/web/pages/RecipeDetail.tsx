@@ -20,6 +20,7 @@ import { Cover } from "@/components/Cover";
 import { ServingsControl } from "@/components/Servings";
 import { useFindServings, useHousehold } from "@/lib/servings";
 import { scaleIngredients } from "../../shared/servings";
+import { tipsForStep } from "../../shared/tips";
 import { coverCredit } from "../../shared/cover";
 import { explainStep, normalizeGroups } from "../../shared/groups";
 import { shrinkImage } from "@/lib/image";
@@ -327,12 +328,34 @@ function DetailView({ r }: { r: Detail }) {
                 <span className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-[13px] font-bold text-accent-deep">
                   {k + 1}
                 </span>
-                <span className="pt-0.5 text-sm leading-7">
+                <span className="flex flex-col gap-1 pt-0.5 text-sm leading-7">
                   {explainStep(s, view.ingredients)}
+                  {tipsForStep(view.tips ?? [], k + 1, view.steps.length).map(
+                    (t, j) => (
+                      <span
+                        key={j}
+                        className="rounded-lg bg-herb-soft px-2.5 py-1 text-[13px] leading-6 text-herb"
+                      >
+                        コツ：{t}
+                      </span>
+                    ),
+                  )}
                 </span>
               </li>
             ))}
           </ol>
+          {tipsForStep(view.tips ?? [], null, view.steps.length).length > 0 && (
+            <div className="rounded-2xl bg-herb-soft p-3.5 text-herb">
+              <h3 className="text-sm font-bold">コツ・ポイント</h3>
+              <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-sm leading-7">
+                {tipsForStep(view.tips ?? [], null, view.steps.length).map(
+                  (t, k) => (
+                    <li key={k}>{t}</li>
+                  ),
+                )}
+              </ul>
+            </div>
+          )}
         </section>
 
         {/* 改良のあゆみ（普段は閉じておく） */}

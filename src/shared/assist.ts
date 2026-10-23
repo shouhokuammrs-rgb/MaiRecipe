@@ -222,6 +222,8 @@ export function buildAssistPrompt(p: {
   /** 何人分の材料か（分からなければ null） */
   servings?: number | null;
   steps: string[];
+  /** コツ・ポイント（手順は1始まり） */
+  tips?: { step: number | null; text: string }[];
   stepIndex: number;
   history: { role: "user" | "assistant"; text: string }[];
   question: string;
@@ -247,6 +249,12 @@ export function buildAssistPrompt(p: {
     ...p.ingredients.map((i) => `- ${i.name} ${i.amount}`.trim()),
     "作り方：",
     ...p.steps.map((s, k) => `${k + 1}. ${s}`),
+    ...(p.tips?.length
+      ? [
+          "コツ：",
+          ...p.tips.map((t) => `- ${t.step ? `手順${t.step}：` : ""}${t.text}`),
+        ]
+      : []),
     cur ? `今の手順：${p.stepIndex + 1}. ${cur}（全${n}手順）` : "",
     p.history.length ? "直前のやりとり：" : "",
     ...p.history.map(

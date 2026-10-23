@@ -182,6 +182,11 @@ export const recipeVersions = sqliteTable(
       .$type<{ name: string; amount: string }[]>(),
     /** JSON: string[] */
     steps: text("steps", { mode: "json" }).notNull().$type<string[]>(),
+    /** JSON: {step, text}[]。コツ・ポイント（DEC-024。グループの中だけで見る） */
+    tips: text("tips", { mode: "json" })
+      .notNull()
+      .default(sql`'[]'`)
+      .$type<{ step: number | null; text: string }[]>(),
     /** JSON: string[]（前の版との差分を人が読める形で） */
     changes: text("changes", { mode: "json" }).notNull().$type<string[]>(),
     createdBy: text("created_by").references(() => user.id, {

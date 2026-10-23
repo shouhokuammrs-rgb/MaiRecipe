@@ -40,6 +40,7 @@ assist.post("/", async (c) => {
         : v.ingredients,
       servings: people || v.servings || null,
       steps: v.steps,
+      tips: v.tips,
       stepIndex: Math.min(input.stepIndex, Math.max(0, v.steps.length - 1)),
       history: input.history,
       question: input.question,

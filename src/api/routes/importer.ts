@@ -19,6 +19,7 @@ import {
 import { LIMITS } from "../../shared/constants";
 import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
 import { addGroupsFromPage } from "../../shared/groups";
+import { tipsFromText } from "../../shared/tips";
 import {
   servingsFromText,
   servingsNearIngredients,
@@ -98,6 +99,7 @@ function readPage(page: PageScan): {
         ),
         // 構造化データに人数が無ければ、材料の見出し（「材料（2人分）」）から
         servings: fromLd.servings ?? page.servings,
+        tips: tipsFromText(page.tipsText, fromLd.steps.length),
       },
       via: "jsonld",
     };
@@ -106,6 +108,7 @@ function readPage(page: PageScan): {
       title: page.title,
       ...page.sections,
       servings: page.servings,
+      tips: tipsFromText(page.tipsText, page.sections.steps.length),
     }),
     via: "sections",
   };
@@ -609,6 +612,7 @@ function aiDraftBody(
         steps: recipe.steps,
         timeLabel: recipe.timeLabel,
         servings: recipe.servings,
+        tips: recipe.tips,
         category: guessCategory(hints),
         genre: guessGenre(hints),
         sourceUrl,

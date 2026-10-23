@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { Ingredient } from "../../shared/recipe";
+import type { Tip } from "../../shared/tips";
 import type { RecoRecipe } from "../../shared/recommend";
 import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
@@ -107,6 +108,8 @@ export type VersionRow = {
   servings: number | null;
   ingredients: Ingredient[];
   steps: string[];
+  /** コツ・ポイント（DEC-024） */
+  tips: Tip[];
   changes: string[];
   createdAt: number;
 };
@@ -126,6 +129,7 @@ export type RecipeFields = {
   servings?: number | null;
   ingredients: Ingredient[];
   steps: string[];
+  tips?: Tip[];
 };
 
 export class NotFound extends Error {}
@@ -145,6 +149,7 @@ const toVersion = (v: VersionDb): VersionRow => ({
   servings: v.servings,
   ingredients: v.ingredients,
   steps: v.steps,
+  tips: v.tips ?? [],
   changes: v.changes,
   createdAt: v.createdAt.getTime(),
 });
@@ -384,6 +389,7 @@ export function forGroup(db: Db, groupId: string) {
           servings: input.servings ?? null,
           ingredients: input.ingredients,
           steps: input.steps,
+          tips: input.tips ?? [],
           changes: [],
           createdBy: userId,
         }),
@@ -418,6 +424,17 @@ export function forGroup(db: Db, groupId: string) {
         (input.servings === null && last.servings === 0)
           ? last.servings
           : input.servings;
+      // コツを渡さなかった（古い画面）ときは前の版のまま
+      // 手順が減ったときは、無くなった手順のコツを全体のコツにする
+      const tips =
+        input.tips ??
+        last.tips.map((t) =>
+          t.step !== null && t.step > input.steps.length
+            ? { ...t, step: null }
+            : t,
+        );
+      if (JSON.stringify(tips) !== JSON.stringify(last.tips))
+        changes.push("コツを直した");
       if ((last.servings || null) !== (servings || null))
         changes.push(servings ? `${servings}人分にした` : "人数 → なし");
       if (!changes.length) return null;
@@ -454,6 +471,7 @@ export function forGroup(db: Db, groupId: string) {
           servings,
           ingredients: input.ingredients,
           steps: input.steps,
+          tips,
           changes,
           createdBy: userId,
         }),
