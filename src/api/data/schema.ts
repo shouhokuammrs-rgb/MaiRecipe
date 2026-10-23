@@ -355,6 +355,10 @@ export const importJobs = sqliteTable(
       onDelete: "set null",
     }),
     url: text("url").notNull(),
+    /** 保存済みのレシピを出典から読み直すとき、そのレシピ（結果は新しい版として保存する） */
+    recipeId: text("recipe_id").references(() => recipes.id, {
+      onDelete: "cascade",
+    }),
     status: text("status", { enum: ["running", "done", "failed"] }).notNull(),
     /** 読み取りの結果（POST /api/import と同じ形の JSON）。done のときだけ */
     result: text("result"),

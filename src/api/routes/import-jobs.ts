@@ -2,7 +2,7 @@
 // URL を受け取ったらすぐ返し、読み取りは Workflow（src/api/platform/import-workflow.ts）が進める。
 // 画面は GET で様子を見て、読めたら下書きを確かめて保存する。
 // グループはセッションからだけ決める（c.var.groupId）。DB は forGroup 経由だけ
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { importSchema } from "../../shared/recipe";
 import type { AppBindings, AppEnv } from "../app-env";
 import type { GroupRepo } from "../data";
@@ -73,11 +73,16 @@ export async function runImportJob(
 
 export const importJobs = new Hono<AppEnv>();
 
-importJobs.post("/", async (c) => {
-  const parsed = importSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return badRequest(c, parsed.error);
-  const url = parsed.data.url;
-  const jobId = await c.var.repo.createImportJob(url, c.var.userId);
+/**
+ * 裏の読み取りを始めて、202 か 429・503 を返す。recipeId を渡すと「保存済みのレシピの読み直し」
+ * （結果は新しい版として保存する）。グループはセッションから（c.var.groupId）
+ */
+export async function startImportJob(
+  c: Context<AppEnv>,
+  url: string,
+  recipeId?: string,
+) {
+  const jobId = await c.var.repo.createImportJob(url, c.var.userId, recipeId);
   if (!jobId)
     return c.json(
       {
@@ -105,6 +110,12 @@ importJobs.post("/", async (c) => {
     c.executionCtx.waitUntil(runImportJob(c.env, params, c.var.repo));
   }
   return c.json({ id: jobId }, 202);
+}
+
+importJobs.post("/", async (c) => {
+  const parsed = importSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return badRequest(c, parsed.error);
+  return startImportJob(c, parsed.data.url);
 });
 
 importJobs.get("/", async (c) =>

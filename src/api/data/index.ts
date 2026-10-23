@@ -1052,7 +1052,13 @@ export function forGroup(db: Db, groupId: string) {
 
     // ---- 裏で進める取り込み（DEC-022）
     /** 読み取りを始める。動いているものが多すぎるときは null */
-    async createImportJob(url: string, userId: string): Promise<string | null> {
+    async createImportJob(
+      url: string,
+      userId: string,
+      /** 保存済みのレシピの読み直し（グループのレシピでなければ NotFound） */
+      recipeId?: string,
+    ): Promise<string | null> {
+      if (recipeId) await recipeRow(recipeId);
       const [row] = await db
         .select({ n: count() })
         .from(s.importJobs)
@@ -1073,6 +1079,7 @@ export function forGroup(db: Db, groupId: string) {
         id,
         groupId,
         url,
+        recipeId: recipeId ?? null,
         createdBy: userId,
         status: "running",
         updatedAt: new Date(),
@@ -1129,6 +1136,7 @@ export function forGroup(db: Db, groupId: string) {
         return {
           id: r.id,
           url: r.url,
+          recipeId: r.recipeId,
           status: stuck ? ("failed" as const) : r.status,
           result: r.result ? (JSON.parse(r.result) as unknown) : null,
           error: stuck
