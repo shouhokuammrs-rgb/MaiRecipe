@@ -27,6 +27,7 @@ import type { UsageKey } from "../../shared/ai-usage";
 import { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
 
 export { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
+export { GeminiTemporary } from "../platform/gemini";
 
 /** 作業名 → 使う AI。入れ替えはここの1行で済む */
 const TASKS = {

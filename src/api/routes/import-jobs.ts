@@ -7,33 +7,65 @@ import { importSchema } from "../../shared/recipe";
 import type { AppBindings, AppEnv } from "../app-env";
 import type { GroupRepo } from "../data";
 import { badRequest } from "../errors";
-import { importFromUrl } from "./importer";
+import { ImportRetryLater, importFromUrl } from "./importer";
 
 export type ImportJobParams = { jobId: string; groupId: string; url: string };
 
 /** 1つの手順を実行する口（Workflow なら step.do、無いときはその場で実行） */
 export type RunStep = <T>(name: string, fn: () => Promise<T>) => Promise<T>;
+/** 待つ口（Workflow なら step.sleep。待っている間は CPU も数えない） */
+export type SleepStep = (name: string, ms: number) => Promise<void>;
 const inline: RunStep = (_name, fn) => fn();
 
 /**
+ * 動画を見る AI が Google 側の混雑などで一時的に失敗したときの、やり直すまでの待ち時間。
+ * 全部で約11分まで（読み取り中が15分を超えると止まった扱いになるので、それより短く）
+ */
+export const RETRY_WAITS_MS = [60_000, 180_000];
+
+type ReadOutcome = { result: unknown } | { retry: string };
+
+/**
  * 読み取りの本体。Workflow からも、Workflow が無いときのその場の実行からも使う。
- * 結果は渡された repo（そのグループに閉じたもの）にだけ入れる
+ * 結果は渡された repo（そのグループに閉じたもの）にだけ入れる。
+ * sleep を渡されたとき（Workflow）だけ、一時的な失敗を待ってやり直す
  */
 export async function runImportJob(
   env: AppBindings,
   p: ImportJobParams,
   repo: Pick<GroupRepo, "finishImportJob">,
   step: RunStep = inline,
+  sleep?: SleepStep,
 ): Promise<void> {
-  let outcome: { result: unknown } | { error: string };
+  let outcome: { result: unknown } | { error: string } | null = null;
   try {
-    const result = await step("read", () => importFromUrl(env, p.url));
-    outcome = { result };
+    for (let attempt = 0; outcome === null; attempt++) {
+      const canRetry = Boolean(sleep) && attempt < RETRY_WAITS_MS.length;
+      const r = await step<ReadOutcome>(
+        attempt === 0 ? "read" : `read-${attempt + 1}`,
+        async () => {
+          try {
+            return {
+              result: await importFromUrl(env, p.url, {
+                retryLater: canRetry,
+              }),
+            };
+          } catch (e) {
+            if (e instanceof ImportRetryLater) return { retry: e.message };
+            throw e;
+          }
+        },
+      );
+      if ("retry" in r)
+        await sleep!(`wait-${attempt + 1}`, RETRY_WAITS_MS[attempt]!);
+      else outcome = r;
+    }
   } catch {
     outcome = { error: "読み取れませんでした。もう一度試してください。" };
   }
+  const done = outcome;
   await step("save", async () => {
-    await repo.finishImportJob(p.jobId, outcome);
+    await repo.finishImportJob(p.jobId, done);
     return true;
   });
 }

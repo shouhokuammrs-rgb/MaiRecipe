@@ -17,14 +17,20 @@ export class ImportWorkflow extends WorkflowEntrypoint<
   async run(event: WorkflowEvent<ImportJobParams>, step: WorkflowStep) {
     // グループは、セッションから決めて渡されたもの（クライアントの値ではない）
     const repo = forGroup(openDb(this.env.DB), event.payload.groupId);
-    await runImportJob(this.env, event.payload, repo, (name, fn) =>
-      step.do(
-        name,
-        // 読み取りは1回だけやり直す（AI の無料枠を何度も使わない）
-        { retries: { limit: 1, delay: "10 seconds" }, timeout: "5 minutes" },
-        // Workflow の手順の結果は JSON にできる値。取り込みの結果はそのまま渡せる
-        fn as () => Promise<never>,
-      ),
+    await runImportJob(
+      this.env,
+      event.payload,
+      repo,
+      (name, fn) =>
+        step.do(
+          name,
+          // 読み取りは1回だけやり直す（AI の無料枠を何度も使わない）
+          { retries: { limit: 1, delay: "10 seconds" }, timeout: "5 minutes" },
+          // Workflow の手順の結果は JSON にできる値。取り込みの結果はそのまま渡せる
+          fn as () => Promise<never>,
+        ),
+      // Google 側が混んでいるときは、待ってからやり直す（待つ間は CPU を使わない）
+      (name, ms) => step.sleep(name, ms),
     );
   }
 }

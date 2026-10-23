@@ -34,6 +34,7 @@ import {
   AiDailyStop,
   AiQuotaExceeded,
   AiUnavailable,
+  GeminiTemporary,
   canWatchVideo,
   readRecipeWithAi,
   watchVideoWithAi,
@@ -223,6 +224,11 @@ export type ImportBody = RuleBody | Record<string, unknown>;
 export async function importFromUrl(
   env: AppBindings,
   url: string,
+  /**
+   * 裏の読み取りでまだやり直せるとき true。動画を見る AI が一時的に失敗したら（Google 側の混雑など）、
+   * 文章の AI や規則に落とさず ImportRetryLater を投げる（呼ぶ側が少し待ってやり直す）
+   */
+  opts: { retryLater?: boolean } = {},
 ): Promise<ImportBody> {
   const video = parseVideoUrl(url);
   if (video) {
@@ -260,7 +266,7 @@ export async function importFromUrl(
     const source = [snip?.description ?? "", ...ownerTexts]
       .filter(Boolean)
       .join("\n\n");
-    const ai = await readWithAi(env, { url }, { source, title });
+    const ai = await readWithAi(env, { url }, { source, title }, opts);
     if (ai.ok) return ai.body;
     // 「AI でも読めなかった」は規則の結果で十分。上限・不通のときだけ理由を添える
     const reason = ai.status === 422 ? null : ai.error;
@@ -462,6 +468,7 @@ async function readWithAi(
   input: AiInput,
   /** 取り込みで既に取ってきた文章（もう一度取りに行かない） */
   pre?: { source: string; title: string; sourceUrl?: string },
+  opts: { retryLater?: boolean } = {},
 ): Promise<AiOutcome> {
   const { url, text } = input;
   let title = input.title ?? pre?.title ?? "";
@@ -521,6 +528,10 @@ async function readWithAi(
         return aiDraftBody(recipe, title, video.watchUrl, null, true);
       watchNote = "動画を見ても手順が見つかりませんでした";
     } catch (e) {
+      if (opts.retryLater && isTemporary(e))
+        throw new ImportRetryLater(
+          e instanceof Error ? e.message : "一時的に読めませんでした",
+        );
       watchError = aiError(e);
       watchNote =
         e instanceof Error && e.message ? e.message : "動画を読めませんでした";
@@ -563,6 +574,15 @@ async function readWithAi(
     false,
     video ? "video" : "page",
   );
+}
+
+/** 少し待てば読めそうな失敗（裏の読み取りなら、待ってやり直す） */
+export class ImportRetryLater extends Error {}
+
+/** Google 側の一時的な失敗（混雑・タイムアウト 5xx・1分あたりの上限）。今日の分を使い切ったときは違う */
+function isTemporary(e: unknown): boolean {
+  if (e instanceof AiDailyStop) return false;
+  return e instanceof GeminiTemporary || e instanceof AiQuotaExceeded;
 }
 
 /** AI の失敗を、画面に出す日本語の理由にする */

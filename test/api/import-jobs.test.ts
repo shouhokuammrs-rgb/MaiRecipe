@@ -175,3 +175,91 @@ describe("グループをまたいだ漏れがないこと（裏の取り込み�
     expect((await jobsOf(owner))[0]!.status).toBe("running");
   });
 });
+
+describe("動画の取り込みで Google 側が混んでいるとき", () => {
+  const WATCH = "https://www.youtube.com/watch?v=abcDEF12345";
+  const G = E as unknown as { GEMINI_API_KEY?: string };
+  const RECIPE = JSON.stringify({
+    title: "ダミー",
+    ingredients: [{ name: "卵", amount: "2個" }],
+    steps: [
+      { text: "割る", at: "0:05" },
+      { text: "焼く", at: "0:40" },
+    ],
+  });
+  afterEach(() => {
+    delete G.GEMINI_API_KEY;
+  });
+  /** Gemini の返事を順に返す（最後のものを繰り返す） */
+  function mockGemini(replies: (() => Response)[]) {
+    let n = 0;
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+      );
+      if (u.hostname === "generativelanguage.googleapis.com") {
+        calls.push("gemini");
+        return replies[Math.min(n++, replies.length - 1)]!();
+      }
+      return new Response("not found", { status: 404 });
+    });
+    return calls;
+  }
+  const busy = () => new Response("busy", { status: 503 });
+  const ok = () =>
+    new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: RECIPE }] } }],
+      }),
+    );
+
+  it("少し待ってやり直し、読めたら動画の結果を入れる", async () => {
+    G.GEMINI_API_KEY = "k";
+    // 1回目の読み取り：中のやり直しも含めて2回とも混雑 → 待って2回目で読める
+    const calls = mockGemini([busy, busy, ok]);
+    const sleeps: number[] = [];
+    const me = await signUp();
+    await start(me, WATCH);
+    const p = create.mock.calls[0]![0].params;
+    await runImportJob(
+      E,
+      p,
+      forGroup(openDb(E.DB), p.groupId),
+      undefined,
+      async (_n, ms) => {
+        sleeps.push(ms);
+      },
+    );
+    expect(sleeps).toEqual([60_000]);
+    expect(calls).toHaveLength(3);
+    const [job] = await jobsOf(me);
+    expect(job!.status).toBe("done");
+    expect(job!.result!.draft.steps).toEqual(["割る", "焼く"]);
+  }, 30_000);
+
+  it("何回やっても駄目なら、最後はいつもどおり規則の結果にして終える（止まったままにしない）", async () => {
+    G.GEMINI_API_KEY = "k";
+    mockGemini([busy]);
+    const sleeps: number[] = [];
+    const me = await signUp();
+    await start(me, WATCH);
+    const p = create.mock.calls[0]![0].params;
+    await runImportJob(
+      E,
+      p,
+      forGroup(openDb(E.DB), p.groupId),
+      undefined,
+      async (_n, ms) => {
+        sleeps.push(ms);
+      },
+    );
+    expect(sleeps).toEqual([60_000, 180_000]);
+    const [job] = await jobsOf(me);
+    expect(job!.status).toBe("done");
+  }, 60_000);
+});
