@@ -12,6 +12,7 @@ import {
 import { InviteBanner } from "@/components/InviteBanner";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { SERVINGS_MAX } from "../../shared/servings";
 
 export function Settings() {
   const session = authClient.useSession();
@@ -52,6 +53,8 @@ export function Settings() {
             キーで使えるようにします。
           </div>
         </section>
+
+        <HouseholdSection />
 
         <ImportReports />
 
@@ -107,6 +110,49 @@ function ImportReports() {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** ふだん作る人数。買い物リストは、人数の分かるレシピをこの人数に換算して作る */
+function HouseholdSection() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["group"], queryFn: apiClient.group });
+  const save = useMutation({
+    mutationFn: (n: number) => apiClient.setHouseholdServings(n),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["group"] });
+      await qc.invalidateQueries({ queryKey: ["shopping"] });
+    },
+  });
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h2 className="text-[13px] font-bold text-sub">ふだん作る量</h2>
+      <div className="flex flex-col gap-2 rounded-2xl border border-line-soft bg-card p-3.5 text-sm">
+        <label className="flex items-center justify-between gap-3">
+          <span>いつも何人分作る？</span>
+          <select
+            className="h-11 rounded-xl border border-field bg-card px-3 text-base"
+            disabled={!q.data || save.isPending}
+            value={save.variables ?? q.data?.servings ?? 2}
+            onChange={(e) => save.mutate(Number(e.target.value))}
+          >
+            {Array.from({ length: SERVINGS_MAX }, (_, k) => k + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}人分
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs leading-5 text-sub">
+          買い物リストは、この人数に合わせて分量を計算します（4人分のレシピなら半分に）。
+        </p>
+        {save.isError && (
+          <p className="text-xs text-danger">
+            保存できませんでした。もう一度選んでください。
+          </p>
+        )}
+      </div>
     </section>
   );
 }

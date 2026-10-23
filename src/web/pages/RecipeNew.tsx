@@ -23,6 +23,7 @@ export function RecipeNew() {
           category: "主菜",
           genre: "和食",
           timeLabel: "",
+          servings: null,
           ingredients: [],
           steps: [],
         }}

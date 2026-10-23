@@ -89,6 +89,8 @@ export const verification = sqliteTable("verification", {
 export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  /** ふだん作る人数。買い物リストはこの人数に合わせて分量を換算する */
+  servings: integer("servings").notNull().default(2),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -172,6 +174,8 @@ export const recipeVersions = sqliteTable(
     category: text("category").notNull(),
     genre: text("genre").notNull(),
     timeLabel: text("time_label").notNull().default(""),
+    /** 何人分の分量か。分からなければ null */
+    servings: integer("servings"),
     /** JSON: {name, amount}[] */
     ingredients: text("ingredients", { mode: "json" })
       .notNull()

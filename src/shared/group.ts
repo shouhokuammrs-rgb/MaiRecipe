@@ -1,5 +1,6 @@
 // グループ（いっしょに使う人）の招待で、画面と API が共有するもの。
 import { z } from "zod";
+import { SERVINGS_MAX, SERVINGS_MIN } from "./servings";
 
 /** 自分を含めたメンバー数 + 招待中の数の上限（自分以外4人。M5 の課金まではこの値で固定） */
 export const GROUP_MAX_MEMBERS = 5;
@@ -11,4 +12,9 @@ export function normalizeEmail(raw: string): string {
 
 export const inviteSchema = z.object({
   email: z.string().transform(normalizeEmail).pipe(z.string().email().max(254)),
+});
+
+/** ふだん作る人数（グループの設定） */
+export const householdSchema = z.object({
+  servings: z.number().int().min(SERVINGS_MIN).max(SERVINGS_MAX),
 });

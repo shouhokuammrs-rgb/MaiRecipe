@@ -39,6 +39,7 @@ export function jobResult(j: ImportJob): ImportResult {
       category: "主菜",
       genre: "その他",
       timeLabel: "",
+      servings: null,
       ingredients: [],
       steps: [],
       sourceUrl: video?.watchUrl ?? cleanSourceUrl(j.url) ?? j.url,

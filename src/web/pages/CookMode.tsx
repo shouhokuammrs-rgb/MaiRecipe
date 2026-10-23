@@ -34,6 +34,7 @@ import {
   type QuickAction,
 } from "../../shared/assist";
 import { explainStep, normalizeGroups } from "../../shared/groups";
+import { scaleIngredients } from "../../shared/servings";
 
 /**
  * 料理モード（#26）。手順を1つずつ大きく出し、画面を点けたままにする。
@@ -53,6 +54,17 @@ export function CookMode() {
   const v =
     r.versions.find((x) => x.id === params.get("v")) ??
     r.versions[r.versions.length - 1]!;
+  // 詳しい画面で人数を変えていれば、その人数の分量で作る
+  const base = v.servings || null;
+  const asked = Number(params.get("people"));
+  const people =
+    base &&
+    Number.isInteger(asked) &&
+    asked >= 1 &&
+    asked <= 20 &&
+    asked !== base
+      ? asked
+      : null;
   return (
     <CookView
       recipeId={r.id}
@@ -60,7 +72,15 @@ export function CookMode() {
       title={v.title}
       // 「Aを加える」→「A（しょうゆ・みりん）を加える」。表示も読み上げも同じ文
       steps={v.steps.map((s) => explainStep(s, v.ingredients))}
-      ingredients={normalizeGroups(v.ingredients, v.steps)}
+      ingredients={scaleIngredients(
+        normalizeGroups(v.ingredients, v.steps),
+        base,
+        people ?? base ?? 0,
+      )}
+      people={people ?? undefined}
+      servingsLabel={
+        people ? `${people}人分（元は${base}人分）` : base ? `${base}人分` : ""
+      }
     />
   );
 }
@@ -88,12 +108,17 @@ function CookView({
   title,
   steps,
   ingredients,
+  people,
+  servingsLabel,
 }: {
   recipeId: string;
   versionId: string;
   title: string;
   steps: string[];
   ingredients: { name: string; amount: string }[];
+  /** 人数を変えて作るとき（分量は換算済み） */
+  people?: number;
+  servingsLabel: string;
 }) {
   const nav = useNavigate();
   const [idx, setIdx] = useState(0);
@@ -280,6 +305,7 @@ function CookView({
         recipeId,
         versionId,
         stepIndex: idx,
+        people,
         question: q,
         history,
       });
@@ -764,7 +790,10 @@ function CookView({
           >
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold">
-                材料 <span className="text-xs font-normal text-sub">2人分</span>
+                材料{" "}
+                <span className="text-xs font-normal text-sub">
+                  {servingsLabel}
+                </span>
               </h2>
               <button
                 type="button"

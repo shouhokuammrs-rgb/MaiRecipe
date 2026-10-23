@@ -51,6 +51,7 @@ describe("extractRecipeFromJsonLd", () => {
           recipeCategory: "主菜",
           recipeCuisine: "中華",
           totalTime: "PT20M",
+          recipeYield: ["2", "2人分"],
           recipeIngredient: ["鶏むね肉 300g", "たまねぎ　1個", "酢大さじ3"],
           recipeInstructions: [
             { "@type": "HowToStep", text: "鶏肉を<b>そぎ切り</b>にする。" },
@@ -76,6 +77,7 @@ describe("extractRecipeFromJsonLd", () => {
       ],
       steps: ["鶏肉をそぎ切りにする。", "焼く。"],
       timeLabel: "20分",
+      servings: 2,
       category: "主菜",
       genre: "中華",
       videoUrl: "https://www.youtube.com/watch?v=abcDEF12345",
@@ -164,6 +166,7 @@ describe("recipeFromSections", () => {
       ],
       steps: ["しめじをほぐす。", "スパゲッティを&ゆでる。"],
       timeLabel: "",
+      servings: null,
       category: "主食",
       genre: "その他",
       videoUrl: null,

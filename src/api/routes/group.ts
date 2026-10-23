@@ -1,12 +1,22 @@
 // いっしょに使う人（グループのメンバーと招待）。グループはセッションからだけ決める。
 import { Hono } from "hono";
-import { inviteSchema } from "../../shared/group";
+import { householdSchema, inviteSchema } from "../../shared/group";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
 
 export const group = new Hono<AppEnv>();
 
 group.get("/", async (c) => c.json(await c.var.repo.groupInfo(c.var.userId)));
+
+/** ふだん作る人数（買い物リストの換算に使う） */
+group.put("/servings", async (c) => {
+  const parsed = householdSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) return badRequest(c, parsed.error);
+  await c.var.repo.setHouseholdServings(parsed.data.servings);
+  return c.json({ servings: parsed.data.servings });
+});
 
 group.post("/invites", async (c) => {
   const parsed = inviteSchema.safeParse(await c.req.json().catch(() => null));

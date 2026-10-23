@@ -201,6 +201,8 @@ export const assistInputSchema = z.object({
   recipeId: z.string().min(1).max(100),
   versionId: z.string().max(100).optional(),
   stepIndex: z.number().int().min(0).max(200),
+  /** 料理モードで選んでいる人数（分量はこの人数に換算して AI に渡す） */
+  people: z.number().int().min(1).max(20).optional(),
   question: z.string().trim().min(1).max(300),
   history: z
     .array(
@@ -217,6 +219,8 @@ export type AssistInput = z.infer<typeof assistInputSchema>;
 export function buildAssistPrompt(p: {
   title: string;
   ingredients: { name: string; amount: string }[];
+  /** 何人分の材料か（分からなければ null） */
+  servings?: number | null;
   steps: string[];
   stepIndex: number;
   history: { role: "user" | "assistant"; text: string }[];
@@ -239,7 +243,7 @@ export function buildAssistPrompt(p: {
   const cur = p.steps[p.stepIndex];
   const user = [
     `料理：${p.title}`,
-    "材料（2人分）：",
+    p.servings ? `材料（${p.servings}人分）：` : "材料：",
     ...p.ingredients.map((i) => `- ${i.name} ${i.amount}`.trim()),
     "作り方：",
     ...p.steps.map((s, k) => `${k + 1}. ${s}`),

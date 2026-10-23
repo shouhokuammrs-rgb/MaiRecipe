@@ -8,6 +8,7 @@ import type { Ingredient } from "./recipe";
 import { LIMITS } from "./constants";
 import { parseAmount } from "./amount";
 import { canonicalName } from "./ingredients";
+import { parseServings } from "./servings";
 import { splitIngredientLine, startsWithAmount } from "./recipe";
 
 export type ImportedRecipe = {
@@ -15,6 +16,8 @@ export type ImportedRecipe = {
   ingredients: Ingredient[];
   steps: string[];
   timeLabel: string;
+  /** 何人分か（分からなければ null） */
+  servings: number | null;
   category: Category;
   genre: Genre;
   videoUrl: string | null;
@@ -271,6 +274,7 @@ function finishRecipe(input: {
   ingredients: Ingredient[];
   steps: string[];
   timeLabel: string;
+  servings?: number | null;
   hints: string[];
   videoUrl: string | null;
 }): ImportedRecipe {
@@ -291,6 +295,7 @@ function finishRecipe(input: {
     })),
     steps: input.steps.slice(0, 40).map((s) => s.slice(0, 500)),
     timeLabel: input.timeLabel,
+    servings: input.servings ?? null,
     category: guessCategory(hints),
     genre: guessGenre(hints),
     videoUrl: input.videoUrl,
@@ -333,6 +338,7 @@ export function extractRecipeFromJsonLd(
       ingredients,
       steps,
       timeLabel: durationLabel(node.totalTime) || durationLabel(node.cookTime),
+      servings: parseServings(node.recipeYield),
       hints,
       videoUrl: v ? v.watchUrl : null,
     });
@@ -414,6 +420,7 @@ export function recipeFromSections(input: {
   title: string;
   ingredients: RawIngredient[];
   steps: string[];
+  servings?: number | null;
 }): ImportedRecipe | null {
   const ingredients: Ingredient[] = [];
   for (const raw of input.ingredients) {
@@ -431,6 +438,7 @@ export function recipeFromSections(input: {
     ingredients,
     steps,
     timeLabel: "",
+    servings: input.servings ?? null,
     hints: [],
     videoUrl: null,
   });

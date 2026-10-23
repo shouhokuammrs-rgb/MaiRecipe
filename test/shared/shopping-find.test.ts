@@ -107,3 +107,24 @@ describe("dates", () => {
     expect(labelDate("2026-10-04")).toMatchObject({ md: "10/4", dow: "日" });
   });
 });
+
+describe("aggregateShopping（人数の換算）", () => {
+  it("人数の分かるレシピは、ふだん作る人数に換算して合計する", () => {
+    const items = aggregateShopping(
+      [
+        {
+          recipeTitle: "キーマ",
+          servings: 4,
+          ingredients: [{ name: "合いびき肉", amount: "400g" }],
+        },
+        {
+          recipeTitle: "そぼろ",
+          servings: null,
+          ingredients: [{ name: "合いびき肉", amount: "100g" }],
+        },
+      ],
+      2,
+    );
+    expect(items.find((i) => i.name === "合いびき肉")?.amount).toBe("300g");
+  });
+});

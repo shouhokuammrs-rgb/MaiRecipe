@@ -10,7 +10,7 @@ import {
 describe("AI の返事を読む", () => {
   it("前後に説明やコードの囲みがあっても JSON を取り出す", () => {
     const raw =
-      'はい。\n```json\n{"title":"小松菜の卵炒め","ingredients":[{"name":"小松菜","amount":"1束"},{"name":"卵","amount":3}],"steps":["1. 小松菜を切る","卵を炒める"],"time":"10分"}\n```';
+      'はい。\n```json\n{"title":"小松菜の卵炒め","ingredients":[{"name":"小松菜","amount":"1束"},{"name":"卵","amount":3}],"steps":["1. 小松菜を切る","卵を炒める"],"time":"10分","servings":"2人分"}\n```';
     expect(parseAiRecipe(raw)).toEqual({
       title: "小松菜の卵炒め",
       ingredients: [
@@ -19,7 +19,17 @@ describe("AI の返事を読む", () => {
       ],
       steps: ["小松菜を切る", "卵を炒める"],
       timeLabel: "10分",
+      servings: 2,
     });
+  });
+
+  it("人数が空・数字でなければ null（想像で決めない）", () => {
+    expect(
+      parseAiRecipe('{"ingredients":[{"name":"卵"}],"servings":""}')?.servings,
+    ).toBeNull();
+    expect(
+      parseAiRecipe('{"ingredients":[{"name":"卵"}],"servings":4}')?.servings,
+    ).toBe(4);
   });
 
   it("材料も手順も空なら null（レシピが無かった）", () => {

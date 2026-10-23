@@ -5,7 +5,12 @@ import { SHOP_SECTIONS } from "./constants";
 import { canonicalName, shopSection } from "./ingredients";
 import type { Ingredient } from "./recipe";
 
-export type ShoppingSource = { recipeTitle: string; ingredients: Ingredient[] };
+export type ShoppingSource = {
+  recipeTitle: string;
+  ingredients: Ingredient[];
+  /** レシピが何人分か（分からなければ換算しない） */
+  servings?: number | null;
+};
 
 export type ShoppingItem = {
   /** 「家にある」「買った」の印を覚えておくためのキー（名前|単位） */
@@ -18,7 +23,11 @@ export type ShoppingItem = {
   merged: string[];
 };
 
-export function aggregateShopping(sources: ShoppingSource[]): ShoppingItem[] {
+/** people を渡すと、人数の分かるレシピは people 人分に換算して合計する */
+export function aggregateShopping(
+  sources: ShoppingSource[],
+  people?: number,
+): ShoppingItem[] {
   const map = new Map<
     string,
     {
@@ -31,6 +40,8 @@ export function aggregateShopping(sources: ShoppingSource[]): ShoppingItem[] {
     }
   >();
   for (const src of sources) {
+    const factor =
+      people && src.servings && src.servings > 0 ? people / src.servings : 1;
     for (const ing of src.ingredients) {
       const name = canonicalName(ing.name);
       if (!name) continue;
@@ -50,7 +61,7 @@ export function aggregateShopping(sources: ShoppingSource[]): ShoppingItem[] {
         };
         map.set(key, e);
       }
-      if (p.qty !== null && e.qty !== null) e.qty += p.qty;
+      if (p.qty !== null && e.qty !== null) e.qty += p.qty * factor;
       if (!e.recipes.includes(src.recipeTitle)) e.recipes.push(src.recipeTitle);
       const raw = ing.name.trim();
       if (raw !== name && !e.merged.includes(raw)) e.merged.push(raw);

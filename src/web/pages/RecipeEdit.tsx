@@ -51,6 +51,7 @@ export function RecipeEdit() {
           category: r.category,
           genre: r.genre,
           timeLabel: r.timeLabel,
+          servings: latest.servings,
           ingredients: latest.ingredients,
           steps: latest.steps,
         }}
