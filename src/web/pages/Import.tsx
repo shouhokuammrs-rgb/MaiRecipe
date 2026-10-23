@@ -369,7 +369,8 @@ export function Import() {
             )}
             {start.isSuccess && (
               <p role="status" className="text-sm leading-6 text-herb">
-                読み取りを始めました。長い動画は1〜3分かかります。ほかの画面に移っても大丈夫です（終わったら上に知らせが出ます）。
+                読み取りを始めました。長い動画は1〜3分かかります（Google
+                側が混んでいるときは自動でやり直すので、10分ほどかかることもあります）。ほかの画面に移っても大丈夫です（終わったら上に知らせが出ます）。
               </p>
             )}
             <JobList

@@ -11,6 +11,19 @@ export type GeminiEnv = { GEMINI_API_KEY?: string };
 /** Gemini 側の一時的な失敗（500・503・524 など）。少し待ってやり直せば通ることが多い */
 export class GeminiTemporary extends AiUnavailable {}
 
+/** 1分あたりの上限（少し待てばまた使える） */
+export class GeminiRateLimited extends AiQuotaExceeded {}
+
+/** 429 の中身から、1日あたりか1分あたりかを見分ける（中身は quotaId だけ見る。鍵は出さない） */
+async function quotaError(res: Response): Promise<AiQuotaExceeded> {
+  const body = await res.text().catch(() => "");
+  return /PerDay/i.test(body)
+    ? new AiQuotaExceeded("Gemini の今日の無料枠を使い切りました")
+    : new GeminiRateLimited(
+        "Gemini の1分あたりの無料枠に当たりました。少し待つとまた使えます",
+      );
+}
+
 export function hasGemini(env: GeminiEnv): boolean {
   return Boolean(env.GEMINI_API_KEY);
 }
@@ -79,10 +92,7 @@ export async function runGeminiVideo(
         : "Gemini につながりませんでした",
     );
   }
-  if (res.status === 429)
-    throw new AiQuotaExceeded(
-      "Gemini の無料枠の上限（1分あたり・1日あたり）に当たりました",
-    );
+  if (res.status === 429) throw await quotaError(res);
   if (!res.ok) {
     // 鍵や中身はログに出さない。状態の番号だけ
     const msg = `Gemini がエラーを返しました（${res.status}）`;
@@ -132,10 +142,7 @@ export async function runGeminiText(
   } catch (e) {
     throw new AiUnavailable(String((e as Error)?.message ?? e));
   }
-  if (res.status === 429)
-    throw new AiQuotaExceeded(
-      "Gemini の無料枠の上限（1分あたり・1日あたり）に当たりました",
-    );
+  if (res.status === 429) throw await quotaError(res);
   if (!res.ok)
     throw new AiUnavailable(`Gemini がエラーを返しました（${res.status}）`);
   const body = (await res.json().catch(() => null)) as {

@@ -27,6 +27,7 @@ import type { UsageKey } from "../../shared/ai-usage";
 import { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
 
 export { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
+export { GeminiRateLimited, GeminiTemporary } from "../platform/gemini";
 
 /** 作業名 → 使う AI。入れ替えはここの1行で済む */
 const TASKS = {
@@ -111,6 +112,8 @@ export async function watchVideoWithAi(
   videoUrl: string,
   title: string,
   description: string,
+  /** 呼ぶ側（裏の読み取り）が待ってやり直すとき true。ここでのすぐのやり直しはしない */
+  noQuickRetry = false,
 ): Promise<AiRecipe> {
   const task = TASKS.watch_video;
   const run = async () => {
@@ -131,6 +134,7 @@ export async function watchVideoWithAi(
     // Gemini 側の一時的な失敗（524 など）は、少し待って1回だけやり直す。
     // 失敗が返るまで長くかかったときはやり直さない（裏の読み取りの1手順は5分まで）
     if (
+      noQuickRetry ||
       !(e instanceof GeminiTemporary) ||
       Date.now() - started > RETRY_IF_FAILED_WITHIN_MS
     )
