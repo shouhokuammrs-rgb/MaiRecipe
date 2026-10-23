@@ -6,6 +6,7 @@ import { assistInputSchema } from "../../shared/assist";
 import { scaleIngredients } from "../../shared/servings";
 import {
   AiBadOutput,
+  AiDailyStop,
   AiQuotaExceeded,
   AiUnavailable,
   assistCooking,
@@ -47,6 +48,14 @@ assist.post("/", async (c) => {
     });
     return c.json(reply);
   } catch (e) {
+    if (e instanceof AiDailyStop)
+      return c.json(
+        {
+          error:
+            "今日の AI の無料分の9割を使ったので、止めています。分量の換算やタイマーは使えます。",
+        },
+        429,
+      );
     if (e instanceof AiQuotaExceeded)
       return c.json(
         {
