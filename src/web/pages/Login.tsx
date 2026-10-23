@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/api/client";
 import { Loading, PrimaryButton, SecondaryButton } from "@/components/common";
 import { authClient } from "@/lib/auth-client";
@@ -12,7 +12,15 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Google から戻ってきたときの失敗（?error=…）
+  const [params] = useSearchParams();
+  const [error, setError] = useState<string | null>(() => {
+    const e = params.get("error");
+    if (!e) return null;
+    return e === "unable_to_create_user"
+      ? "MaiRecipe は招待された人だけが使えます。使っている人に、設定の「いっしょに使う人」から招待してもらってください。"
+      : "Google でログインできませんでした。もう一度お試しください";
+  });
 
   const google = async () => {
     setBusy(true);
@@ -20,6 +28,8 @@ export function Login() {
     const res = await authClient.signIn.social({
       provider: "google",
       callbackURL: "/",
+      // 失敗したらログイン画面に戻して理由を出す（招待されていない人など）
+      errorCallbackURL: "/login",
     });
     if (res.error) {
       setError("Google でログインできませんでした。もう一度お試しください");

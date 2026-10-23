@@ -5,6 +5,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../data/schema";
+import { canSignUp } from "../data/membership";
 
 export type AuthEnv = {
   DB: D1Database;
@@ -51,6 +52,24 @@ export function createAuth(env: AuthEnv) {
           },
         }
       : {},
+    // 招待制（DEC-026）：新しいアカウントは、招待されたメールの人だけ作れる。
+    // ローカル開発・テスト（DEV_LOGIN=1）だけは誰でも作れる
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            if (isDevLogin(env)) return;
+            // 確認済みのメールだけ（招待への参加と同じ決まり。membership.ts）
+            if (
+              !user.email ||
+              user.emailVerified !== true ||
+              !(await canSignUp(db, user.email))
+            )
+              return false;
+          },
+        },
+      },
+    },
     session: {
       expiresIn: 60 * 60 * 24 * 30,
       updateAge: 60 * 60 * 24,
