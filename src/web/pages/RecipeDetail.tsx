@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronLeft, GitBranch, ChefHat } from "lucide-react";
+import { Camera, ChevronLeft, GitBranch, ChefHat, Play } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -21,6 +21,7 @@ import { ServingsControl } from "@/components/Servings";
 import { useFindServings, useHousehold } from "@/lib/servings";
 import { scaleIngredients } from "../../shared/servings";
 import { tipsForStep } from "../../shared/tips";
+import { formatClock } from "../../shared/cook";
 import { coverCredit } from "../../shared/cover";
 import { explainStep, normalizeGroups } from "../../shared/groups";
 import { shrinkImage } from "@/lib/image";
@@ -64,6 +65,9 @@ function DetailView({ r }: { r: Detail }) {
   const household = useHousehold();
   // 人数を変えたときだけ分量を換算して見せる（保存はしない）
   const [picked, setPicked] = useState<number | null>(null);
+  // 手順の「▶ 1:23」を押したら、上の動画をその場面から再生する
+  const [sceneAt, setSceneAt] = useState<number | null>(null);
+  const times = view.stepTimes ?? [];
   const base = view.servings || null;
   const people = base ? (picked ?? base) : null;
   const shownIngs =
@@ -149,7 +153,11 @@ function DetailView({ r }: { r: Detail }) {
       <div className="relative">
         {r.videoUrl ? (
           <div className="bg-video px-3 pt-14 pb-3">
-            <VideoEmbed url={r.videoUrl} className="[&_a]:text-white/70" />
+            <VideoEmbed
+              url={r.videoUrl}
+              start={sceneAt}
+              className="[&_a]:text-white/70"
+            />
           </div>
         ) : (
           <Cover r={r} alt={r.title} className="h-56 w-full" />
@@ -330,6 +338,20 @@ function DetailView({ r }: { r: Detail }) {
                 </span>
                 <span className="flex flex-col gap-1 pt-0.5 text-sm leading-7">
                   {explainStep(s, view.ingredients)}
+                  {r.videoUrl && times[k] != null && (
+                    <button
+                      type="button"
+                      className="flex h-9 items-center gap-1 self-start rounded-full border border-field bg-card px-3 text-xs font-bold text-accent-deep"
+                      aria-label={`動画の${formatClock(times[k]!)}から、手順${k + 1}の場面を再生`}
+                      onClick={() => {
+                        setSceneAt(times[k]!);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      <Play className="size-3.5" />
+                      {formatClock(times[k]!)} の場面
+                    </button>
+                  )}
                   {tipsForStep(view.tips ?? [], k + 1, view.steps.length).map(
                     (t, j) => (
                       <span

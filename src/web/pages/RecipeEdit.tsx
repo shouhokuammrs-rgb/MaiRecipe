@@ -53,6 +53,7 @@ export function RecipeEdit() {
           timeLabel: r.timeLabel,
           servings: latest.servings,
           tips: latest.tips ?? [],
+          stepTimes: latest.stepTimes ?? [],
           ingredients: latest.ingredients,
           steps: latest.steps,
         }}

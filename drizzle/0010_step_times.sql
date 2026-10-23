@@ -1,0 +1,1 @@
+ALTER TABLE `recipe_versions` ADD `step_times` text DEFAULT '[]' NOT NULL;

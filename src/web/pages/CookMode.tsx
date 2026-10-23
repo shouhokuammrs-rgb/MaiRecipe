@@ -5,6 +5,7 @@ import {
   ListChecks,
   MessageCircle,
   Mic,
+  Play,
   Send,
   Timer,
   Volume2,
@@ -36,6 +37,7 @@ import {
 import { explainStep, normalizeGroups } from "../../shared/groups";
 import { scaleIngredients } from "../../shared/servings";
 import { tipsForStep, type Tip } from "../../shared/tips";
+import { sceneUrl } from "../../shared/scene-url";
 
 /**
  * 料理モード（#26）。手順を1つずつ大きく出し、画面を点けたままにする。
@@ -80,6 +82,11 @@ export function CookMode() {
       )}
       people={people ?? undefined}
       tips={v.tips ?? []}
+      videoUrl={r.videoUrl}
+      stepTimes={
+        // 手順の数と合うときだけ（ずれた場面に飛ばない）
+        v.stepTimes?.length === v.steps.length ? v.stepTimes : []
+      }
       servingsLabel={
         people ? `${people}人分（元は${base}人分）` : base ? `${base}人分` : ""
       }
@@ -113,6 +120,8 @@ function CookView({
   people,
   servingsLabel,
   tips,
+  videoUrl,
+  stepTimes,
 }: {
   recipeId: string;
   versionId: string;
@@ -124,6 +133,9 @@ function CookView({
   servingsLabel: string;
   /** コツ・ポイント（DEC-024） */
   tips: Tip[];
+  videoUrl: string | null;
+  /** 手順ごとの、動画の中の開始の秒 */
+  stepTimes: (number | null)[];
 }) {
   const nav = useNavigate();
   const [idx, setIdx] = useState(0);
@@ -148,6 +160,9 @@ function CookView({
   const last = idx >= count - 1;
   const step = steps[idx] ?? "";
   const stepTips = tipsForStep(tips, idx + 1, count);
+  // 動画のこの手順の場面（押したら下から動画を出す）
+  const sceneStart = stepTimes[idx] ?? null;
+  const [scene, setScene] = useState<string | null>(null);
   // 全体のコツは、最初の手順のところに出す
   const shownTips =
     idx === 0 ? [...tipsForStep(tips, null, count), ...stepTips] : stepTips;
@@ -534,6 +549,20 @@ function CookView({
           </div>
         )}
 
+        {videoUrl && sceneStart !== null && (
+          <button
+            type="button"
+            onClick={() => {
+              stopSpeaking();
+              setScene(sceneUrl(videoUrl, sceneStart));
+            }}
+            className="flex h-11 items-center gap-1.5 self-start rounded-full border border-field bg-card px-4 text-[15px] font-bold text-ink"
+          >
+            <Play className="size-4 text-accent" />
+            動画でこの場面を見る（{formatClock(sceneStart)}〜）
+          </button>
+        )}
+
         {stepTimers.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {stepTimers.map((t, k) => (
@@ -800,6 +829,47 @@ function CookView({
                 <Send className="size-4" />
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {scene && (
+        <div
+          className="fixed inset-0 z-20 flex flex-col justify-end bg-ink/40"
+          onClick={() => setScene(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="動画のこの場面"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setScene(null);
+            }}
+            className="mx-auto w-full max-w-[480px] rounded-t-3xl bg-card px-4 pt-3 pb-[max(env(safe-area-inset-bottom),20px)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold">手順{idx + 1}の場面</h2>
+              <button
+                type="button"
+                aria-label="動画を閉じる"
+                autoFocus
+                onClick={() => setScene(null)}
+                className="-mr-2 flex size-11 items-center justify-center text-sub"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="relative mt-1 aspect-video w-full overflow-hidden rounded-2xl bg-video">
+              <iframe
+                src={scene}
+                title={`手順${idx + 1}の場面`}
+                className="absolute inset-0 size-full"
+                allow="autoplay; accelerometer; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            </div>
           </div>
         </div>
       )}

@@ -71,6 +71,13 @@
       "when": 1792748629657,
       "tag": "0009_tips",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792750014216,
+      "tag": "0010_step_times",
+      "breakpoints": true
     }
   ]
 }

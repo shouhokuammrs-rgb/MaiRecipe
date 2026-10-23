@@ -17,6 +17,7 @@ import {
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { Ingredient } from "../../shared/recipe";
 import type { Tip } from "../../shared/tips";
+import { fitStepTimes } from "../../shared/scenes";
 import type { RecoRecipe } from "../../shared/recommend";
 import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
@@ -110,6 +111,8 @@ export type VersionRow = {
   steps: string[];
   /** コツ・ポイント（DEC-024） */
   tips: Tip[];
+  /** 手順ごとの、動画の中の開始の秒（無ければ空の配列） */
+  stepTimes: (number | null)[];
   changes: string[];
   createdAt: number;
 };
@@ -130,6 +133,7 @@ export type RecipeFields = {
   ingredients: Ingredient[];
   steps: string[];
   tips?: Tip[];
+  stepTimes?: (number | null)[];
 };
 
 export class NotFound extends Error {}
@@ -150,6 +154,7 @@ const toVersion = (v: VersionDb): VersionRow => ({
   ingredients: v.ingredients,
   steps: v.steps,
   tips: v.tips ?? [],
+  stepTimes: v.stepTimes ?? [],
   changes: v.changes,
   createdAt: v.createdAt.getTime(),
 });
@@ -390,6 +395,7 @@ export function forGroup(db: Db, groupId: string) {
           ingredients: input.ingredients,
           steps: input.steps,
           tips: input.tips ?? [],
+          stepTimes: fitStepTimes(input.stepTimes, input.steps.length),
           changes: [],
           createdBy: userId,
         }),
@@ -424,6 +430,12 @@ export function forGroup(db: Db, groupId: string) {
         (input.servings === null && last.servings === 0)
           ? last.servings
           : input.servings;
+      // 場面の時刻を渡さなかった（古い画面）ときは、手順が同じなら前の版のまま
+      const stepTimes =
+        input.stepTimes ??
+        (JSON.stringify(input.steps) === JSON.stringify(last.steps)
+          ? last.stepTimes
+          : []);
       // コツを渡さなかった（古い画面）ときは前の版のまま
       // 手順が減ったときは、無くなった手順のコツを全体のコツにする
       const tips =
@@ -472,6 +484,7 @@ export function forGroup(db: Db, groupId: string) {
           ingredients: input.ingredients,
           steps: input.steps,
           tips,
+          stepTimes: fitStepTimes(stepTimes, input.steps.length),
           changes,
           createdBy: userId,
         }),

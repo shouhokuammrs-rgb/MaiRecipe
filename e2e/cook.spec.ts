@@ -85,3 +85,53 @@ test("料理モードで作る", async ({ page }) => {
     page.getByRole("heading", { name: "ダミーの煮物" }),
   ).toBeVisible();
 });
+
+// 動画の場面：手順ごとの時刻があれば、料理モードからその場面を再生できる。コツも手順のところに出る
+test("料理モードから動画のその場面を見る", async ({ page }) => {
+  const email = `e2e-scene-${Date.now()}@example.test`;
+  await page.goto("/login");
+  await page.getByPlaceholder("you@example.test").fill(email);
+  await page.getByPlaceholder("パスワード（8文字以上）").fill("password-1234");
+  await page.getByRole("button", { name: "ログイン" }).click();
+  await expect(page.getByRole("heading", { name: /レシピ/ })).toBeVisible();
+
+  const res = await page.request.post("/api/recipes", {
+    data: {
+      title: "ダミーの動画レシピ",
+      category: "主菜",
+      genre: "和食",
+      sourceUrl: "https://www.youtube.com/watch?v=abcDEF12345",
+      videoUrl: "https://www.youtube.com/watch?v=abcDEF12345",
+      origin: "import",
+      ingredients: [{ name: "卵", amount: "2個" }],
+      steps: ["卵を割る", "焼く"],
+      stepTimes: [null, 72],
+      tips: [{ step: 2, text: "弱火でじっくり" }],
+    },
+  });
+  expect(res.ok()).toBeTruthy();
+  const { id } = (await res.json()) as { id: string };
+
+  await page.goto(`/recipes/${id}`);
+  await expect(page.getByText("コツ：弱火でじっくり")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /1:12から、手順2の場面/ }),
+  ).toBeVisible();
+
+  await page.goto(`/recipes/${id}/cook`);
+  await expect(page.getByText("卵を割る")).toBeVisible();
+  // 時刻の無い手順にはボタンを出さない
+  await expect(
+    page.getByRole("button", { name: /動画でこの場面を見る/ }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "次へ" }).click();
+  await expect(page.getByText("弱火でじっくり")).toBeVisible();
+  await page
+    .getByRole("button", { name: "動画でこの場面を見る（1:12〜）" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "動画のこの場面" });
+  await expect(dialog.locator("iframe")).toHaveAttribute("src", /start=72/);
+  await page.screenshot({ path: "test-results/09-scene.png" });
+  await dialog.getByRole("button", { name: "動画を閉じる" }).click();
+  await expect(dialog).toHaveCount(0);
+});
