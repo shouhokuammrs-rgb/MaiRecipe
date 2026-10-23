@@ -60,7 +60,15 @@ jobs:
         if: steps.pending.outputs.has == 'true'
         run: |
           npx wrangler d1 time-travel info "$D1_NAME" | tee time-travel.txt
-          npx wrangler d1 export "$D1_NAME" --remote --output=backup.sql
+          # 書き出しは Cloudflare 側で一時的に失敗することがあるので、20秒あけて3回まで試す
+          ok=""
+          for i in 1 2 3; do
+            if npx wrangler d1 export "$D1_NAME" --remote --output=backup.sql; then ok=1; break; fi
+            echo "バックアップの書き出しに失敗（$i 回目）。20秒後にやり直します"
+            sleep 20
+          done
+          [ -n "$ok" ] || { echo "::error::バックアップを書き出せませんでした。マイグレーションとデプロイは行いません"; exit 1; }
+          test -s backup.sql
           npx wrangler d1 execute "$D1_NAME" --remote --json --command "select (select count(*) from recipes) as recipes, (select count(*) from meal_plans) as meal_plans" | tee before.json
 
       - name: バックアップを保存（30日）
