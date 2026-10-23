@@ -34,6 +34,7 @@ import {
   AiDailyStop,
   AiQuotaExceeded,
   AiUnavailable,
+  GeminiRateLimited,
   GeminiTemporary,
   canWatchVideo,
   readRecipeWithAi,
@@ -515,6 +516,7 @@ async function readWithAi(
         video.watchUrl,
         title,
         source,
+        opts.retryLater,
       );
       const recipe = {
         ...watched,
@@ -579,10 +581,9 @@ async function readWithAi(
 /** 少し待てば読めそうな失敗（裏の読み取りなら、待ってやり直す） */
 export class ImportRetryLater extends Error {}
 
-/** Google 側の一時的な失敗（混雑・タイムアウト 5xx・1分あたりの上限）。今日の分を使い切ったときは違う */
+/** Google 側の一時的な失敗（混雑・5xx・1分あたりの上限）。今日の分を使い切ったときは違う */
 function isTemporary(e: unknown): boolean {
-  if (e instanceof AiDailyStop) return false;
-  return e instanceof GeminiTemporary || e instanceof AiQuotaExceeded;
+  return e instanceof GeminiTemporary || e instanceof GeminiRateLimited;
 }
 
 /** AI の失敗を、画面に出す日本語の理由にする */

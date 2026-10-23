@@ -19,9 +19,10 @@ const inline: RunStep = (_name, fn) => fn();
 
 /**
  * 動画を見る AI が Google 側の混雑などで一時的に失敗したときの、やり直すまでの待ち時間。
- * 全部で約11分まで（読み取り中が15分を超えると止まった扱いになるので、それより短く）
+ * 1回の読み取りは最悪で約3分（ページ・概要欄の取得 約30秒＋動画を見る 150秒。すぐのやり直しはしない）。
+ * 3回＋待ち2分で約11分（読み取り中が15分を超えると止まった扱いになるので、それより短く）
  */
-export const RETRY_WAITS_MS = [60_000, 180_000];
+export const RETRY_WAITS_MS = [30_000, 90_000];
 
 type ReadOutcome = { result: unknown } | { retry: string };
 

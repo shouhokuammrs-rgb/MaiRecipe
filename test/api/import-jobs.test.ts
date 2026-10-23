@@ -220,7 +220,7 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
 
   it("少し待ってやり直し、読めたら動画の結果を入れる", async () => {
     G.GEMINI_API_KEY = "k";
-    // 1回目の読み取り：中のやり直しも含めて2回とも混雑 → 待って2回目で読める
+    // 1回目・2回目は混雑 → 待って3回目で読める（裏の読み取りでは、すぐのやり直しはしない）
     const calls = mockGemini([busy, busy, ok]);
     const sleeps: number[] = [];
     const me = await signUp();
@@ -235,7 +235,7 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
         sleeps.push(ms);
       },
     );
-    expect(sleeps).toEqual([60_000]);
+    expect(sleeps).toEqual([30_000, 90_000]);
     expect(calls).toHaveLength(3);
     const [job] = await jobsOf(me);
     expect(job!.status).toBe("done");
@@ -258,8 +258,49 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
         sleeps.push(ms);
       },
     );
-    expect(sleeps).toEqual([60_000, 180_000]);
+    expect(sleeps).toEqual([30_000, 90_000]);
     const [job] = await jobsOf(me);
     expect(job!.status).toBe("done");
   }, 60_000);
+
+  it("今日の無料枠を使い切った 429 は、待ってもむだなのでやり直さない", async () => {
+    G.GEMINI_API_KEY = "k";
+    const calls = mockGemini([
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              details: [
+                {
+                  violations: [
+                    {
+                      quotaId:
+                        "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 429 },
+        ),
+    ]);
+    const sleeps: number[] = [];
+    const me = await signUp();
+    await start(me, WATCH);
+    const p = create.mock.calls[0]![0].params;
+    await runImportJob(
+      E,
+      p,
+      forGroup(openDb(E.DB), p.groupId),
+      undefined,
+      async (_n, ms) => {
+        sleeps.push(ms);
+      },
+    );
+    expect(sleeps).toEqual([]);
+    expect(calls).toHaveLength(1);
+    const [job] = await jobsOf(me);
+    expect(job!.status).toBe("done");
+  });
 });
