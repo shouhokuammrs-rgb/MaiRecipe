@@ -362,3 +362,17 @@ export const importJobs = sqliteTable(
   },
   (t) => [index("import_jobs_group_idx").on(t.groupId, t.createdAt)],
 );
+
+// ---- AI の使用量（#36 / DEC-025）。AI の鍵はアプリ全体で1つなので、グループごとではなく日ごとに数える。
+// 中身は回数だけ（誰が・何を読んだかは持たない）
+export const aiUsage = sqliteTable(
+  "ai_usage",
+  {
+    /** 日本時間の日付（YYYY-MM-DD） */
+    day: text("day").notNull(),
+    /** "gemini:watch_video" など（src/shared/ai-usage.ts） */
+    key: text("key").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.key] })],
+);

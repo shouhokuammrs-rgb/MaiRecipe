@@ -2,7 +2,7 @@
 // 費用の見積もり → 上限の判定 → 呼び出し → 使用量の記録、の順をここで通す（DEC-012 / #36）。
 // 今は無料枠だけ（Workers AI と Gemini API の無料枠）。上限はそれぞれの会社の側が止める
 // （無料のまま枠を超えるとエラーになり、請求は起きない）。
-// 使用量の記録と「9割で止める」見張りは、利用が増えたら D1 に記録して足す（#36 の残り）。
+// 使用量は D1 に日ごとの回数で記録し、1日の目安の9割で止める（DEC-025。目安は src/shared/ai-usage.ts）。
 import {
   buildAssistPrompt,
   parseAssistReply,
@@ -22,6 +22,9 @@ import {
   type GeminiEnv,
 } from "../platform/gemini";
 import { runWorkersAi, type WorkersAiBinding } from "../platform/workers-ai";
+import { aiMeter } from "../data/usage";
+import type { UsageKey } from "../../shared/ai-usage";
+import { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
 
 export { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
 
@@ -57,7 +60,25 @@ const RETRY_WAIT_MS = 3000;
 /** これより早く失敗が返ったときだけやり直す（60秒＋3秒＋やり直しの最大150秒で、5分に収まる） */
 const RETRY_IF_FAILED_WITHIN_MS = 60_000;
 
-export type AiEnv = { AI?: WorkersAiBinding } & GeminiEnv;
+export type AiEnv = { AI?: WorkersAiBinding; DB?: D1Database } & GeminiEnv;
+
+/** 今日の目安の9割に達していたら止めたときのエラー（画面には「上限」として出る） */
+export class AiDailyStop extends AiQuotaExceeded {}
+
+/**
+ * 目安の9割に達していなければ1回分を数えて true。達していれば false（呼ばない）。
+ * 数えるのは呼ぶ前（失敗しても会社側の回数には数えられる）
+ */
+async function take(env: AiEnv, key: UsageKey): Promise<boolean> {
+  return aiMeter(env).take(key);
+}
+
+async function takeOrThrow(env: AiEnv, key: UsageKey) {
+  if (!(await take(env, key)))
+    throw new AiDailyStop(
+      "今日の AI の無料分の9割を使ったので、止めています。明日また使えます",
+    );
+}
 
 /** 動画を見て読む AI が使えるか（鍵が登録されているか） */
 export const canWatchVideo = (env: AiEnv) => hasGemini(env);
@@ -70,6 +91,8 @@ export async function readRecipeWithAi(
 ): Promise<AiRecipe> {
   const task = TASKS.read_recipe;
   const { system, user } = buildReadPrompt(source, title);
+  if (!env.AI) throw new AiUnavailable("Workers AI がつながっていません");
+  await takeOrThrow(env, "workers-ai:read_recipe");
   const raw = await runWorkersAi(
     env.AI,
     task.model,
@@ -90,14 +113,16 @@ export async function watchVideoWithAi(
   description: string,
 ): Promise<AiRecipe> {
   const task = TASKS.watch_video;
-  const run = () =>
-    runGeminiVideo(
+  const run = async () => {
+    await takeOrThrow(env, "gemini:watch_video");
+    return runGeminiVideo(
       env,
       task.model,
       buildVideoPrompt(title, description),
       videoUrl,
       task.maxTokens,
     );
+  };
   let raw: string;
   const started = Date.now();
   try {
@@ -128,7 +153,7 @@ export async function assistCooking(
   // Gemini で答えられなければ（上限・不通・読めない返事）、Workers AI に回す
   let reply: AssistReply | null = null;
   let geminiError: unknown = null;
-  if (hasGemini(env)) {
+  if (hasGemini(env) && (await take(env, "gemini:cook_assist"))) {
     try {
       reply = parseAssistReply(
         await runGeminiText(
@@ -145,7 +170,18 @@ export async function assistCooking(
     }
   }
   if (reply) return { ...reply, via: "gemini" };
-  if (!env.AI && geminiError) throw geminiError;
+  if (!env.AI) {
+    if (geminiError) throw geminiError;
+    throw new AiUnavailable("Workers AI がつながっていません");
+  }
+  if (!(await take(env, "workers-ai:cook_assist")))
+    // Gemini が自分の側で失敗していたら、その理由を優先して伝える
+    throw (
+      geminiError ??
+      new AiDailyStop(
+        "今日の AI の無料分の9割を使ったので、止めています。明日また使えます",
+      )
+    );
   reply = parseAssistReply(
     await runWorkersAi(env.AI, task.fallback, system, user, 1500),
   );

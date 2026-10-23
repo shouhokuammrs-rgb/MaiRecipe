@@ -31,6 +31,7 @@ import {
 } from "../../shared/ai-read";
 import {
   AiBadOutput,
+  AiDailyStop,
   AiQuotaExceeded,
   AiUnavailable,
   canWatchVideo,
@@ -566,6 +567,13 @@ async function readWithAi(
 
 /** AI の失敗を、画面に出す日本語の理由にする */
 function aiError(e: unknown): AiOutcome {
+  if (e instanceof AiDailyStop)
+    return {
+      ok: false,
+      status: 429,
+      error:
+        "今日の AI の無料分の9割を使ったので、AI を止めています。明日また使えます（使った量は設定で見られます）。",
+    };
   if (e instanceof AiQuotaExceeded)
     return {
       ok: false,

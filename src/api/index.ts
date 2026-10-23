@@ -3,6 +3,7 @@ import type { AppEnv } from "./app-env";
 import { createAuth, hasGoogle, isDevLogin } from "./auth";
 import { handleError } from "./errors";
 import { assist } from "./routes/assist";
+import { aiUsage } from "./routes/ai-usage";
 import { group, invites } from "./routes/group";
 import { importer } from "./routes/importer";
 import { importJobs } from "./routes/import-jobs";
@@ -39,6 +40,7 @@ api.route("/recommend", recommend);
 api.route("/group", group);
 api.route("/invites", invites);
 api.route("/assist", assist);
+api.route("/ai/usage", aiUsage);
 
 app.route("/api", api);
 

@@ -44,15 +44,7 @@ export function Settings() {
           </dl>
         </section>
 
-        <section className="flex flex-col gap-1.5">
-          <h2 className="text-[13px] font-bold text-sub">AI の使い方</h2>
-          <div className="rounded-2xl border border-dashed border-field bg-card p-3.5 text-sm leading-7 text-[#4a433c]">
-            今は AI を使っていません（取り込み・検索・買い物リストはすべて AI
-            なしで動きます）。 「メモをレシピに反映」「AI
-            で読み直す」は次のマイルストーン（M4）で、自分の API
-            キーで使えるようにします。
-          </div>
-        </section>
+        <AiUsageSection />
 
         <HouseholdSection />
 
@@ -110,6 +102,70 @@ function ImportReports() {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** 今日の AI の使用量。無料分の目安の9割で止める（DEC-025） */
+function AiUsageSection() {
+  const q = useQuery({ queryKey: ["ai-usage"], queryFn: apiClient.aiUsage });
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h2 className="text-[13px] font-bold text-sub">AI の使用量（今日）</h2>
+      <div className="flex flex-col gap-3 rounded-2xl border border-line-soft bg-card p-3.5 text-sm">
+        {q.isPending ? (
+          <Loading />
+        ) : q.isError ? (
+          <ErrorState error={q.error} retry={() => void q.refetch()} />
+        ) : (
+          q.data.items.map((i) => {
+            const ratio = Math.min(1, i.used / Math.max(1, i.stopAt));
+            const stopped = i.available && i.used >= i.stopAt;
+            return (
+              <div key={i.key} className="flex flex-col gap-1">
+                <div className="flex justify-between gap-2">
+                  <span>{i.label}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 tabular-nums",
+                      stopped ? "font-bold text-danger" : "text-sub",
+                    )}
+                  >
+                    {!i.available
+                      ? "使っていない設定です"
+                      : stopped
+                        ? "今日は止めています"
+                        : `${i.used} / ${i.stopAt} 回`}
+                  </span>
+                </div>
+                <div
+                  className="h-1.5 overflow-hidden rounded-full bg-line-soft"
+                  role="progressbar"
+                  aria-label={i.label}
+                  aria-valuemin={0}
+                  aria-valuemax={i.stopAt}
+                  aria-valuenow={Math.min(i.used, i.stopAt)}
+                >
+                  <div
+                    className={cn(
+                      "h-full rounded-full",
+                      stopped ? "bg-danger" : "bg-herb",
+                    )}
+                    style={{ width: `${ratio * 100}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })
+        )}
+        <p className="text-xs leading-5 text-sub">
+          AI
+          は無料の枠だけで使っています。お金はかかりません。無料の目安の9割に達したら、その日は止めます。回数が戻るのは、Gemini
+          は日本時間の16〜17時ごろ、Workers AI
+          は9時です（会社ごとの1日の区切り）。取り込みは AI
+          が止まっても、サイトのレシピ情報や手入力で続けられます。
+        </p>
+      </div>
     </section>
   );
 }

@@ -320,6 +320,18 @@ export const apiClient = {
     call<void>(`/pantry/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   group: () => call<GroupInfo>("/group"),
+  /** 今日の AI の使用量（DEC-025） */
+  aiUsage: () =>
+    call<{
+      items: {
+        key: string;
+        label: string;
+        used: number;
+        stopAt: number;
+        /** 鍵・バインディングがあって使える設定か */
+        available: boolean;
+      }[];
+    }>("/ai/usage"),
   setHouseholdServings: (servings: number) =>
     call<{ servings: number }>("/group/servings", {
       method: "PUT",
