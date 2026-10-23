@@ -96,7 +96,12 @@ describe("POST /api/import（JSON-LD が無いページ）", () => {
       sourceUrl: "https://shop.example.com/recipe/1.html",
       videoUrl: null,
     });
-    expect(JSON.stringify(body)).not.toContain("出典の説明文");
+    // 説明文は材料・手順に入れない。「ポイント」欄の文は、コツとして別に持つ（DEC-024）
+    const { tips, ...rest } = body.draft;
+    expect(JSON.stringify(rest)).not.toContain("出典の説明文");
+    expect(tips).toEqual([
+      { step: null, text: "この文章は出典の説明文なので取り込まない。" },
+    ]);
     expect(JSON.stringify(body)).not.toContain("会社情報");
   });
 

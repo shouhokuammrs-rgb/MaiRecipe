@@ -8,6 +8,7 @@ import type {
 import type { FindResult } from "../../shared/find";
 import type { Ingredient } from "../../shared/recipe";
 import type { RecoLists } from "../../shared/recommend";
+import type { Tip } from "../../shared/tips";
 
 export class ApiError extends Error {
   constructor(
@@ -71,6 +72,8 @@ export type Version = {
   servings: number | null;
   ingredients: Ingredient[];
   steps: string[];
+  /** コツ・ポイント（DEC-024）。前の版の API では無いことがある */
+  tips?: Tip[];
   changes: string[];
   createdAt: number;
 };
@@ -98,6 +101,7 @@ export type RecipeFields = {
   servings: number | null;
   ingredients: Ingredient[];
   steps: string[];
+  tips?: Tip[];
 };
 
 export type ImportDraft = RecipeFields & {

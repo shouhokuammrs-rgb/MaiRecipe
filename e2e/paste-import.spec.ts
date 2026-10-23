@@ -45,6 +45,12 @@ test("文章を貼って取り込む", async ({ page }) => {
 
   // 何人分か：4人分として保存し、詳しい画面で2人分に換算して見る
   await page.locator("#recipe-servings").selectOption("4");
+  // コツを手順1に付ける
+  await page.getByRole("button", { name: "＋ コツを追加" }).click();
+  await page
+    .getByLabel("コツ1をどの手順に付けるか")
+    .selectOption({ label: "手順1のコツ" });
+  await page.getByLabel("コツ1", { exact: true }).fill("ダミーのコツ");
   await page
     .getByRole("button", { name: "元のレシピ（v1）として保存" })
     .click();
@@ -56,6 +62,7 @@ test("文章を貼って取り込む", async ({ page }) => {
   await page.getByRole("button", { name: "1人分へらす" }).click();
   await expect(page.getByText("2人分", { exact: true })).toBeVisible();
   await expect(page.getByText(/元の4人分から換算しています/)).toBeVisible();
+  await expect(page.getByText("コツ：ダミーのコツ")).toBeVisible();
   await page.screenshot({
     path: "test-results/03-servings.png",
     fullPage: true,

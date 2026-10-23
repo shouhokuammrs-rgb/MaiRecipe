@@ -64,6 +64,13 @@
       "when": 1792746950783,
       "tag": "0008_servings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792748629657,
+      "tag": "0009_tips",
+      "breakpoints": true
     }
   ]
 }
