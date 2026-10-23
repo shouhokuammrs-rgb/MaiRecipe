@@ -243,3 +243,18 @@ export function membershipFor(db: Db, user: SessionUser) {
     },
   };
 }
+
+/**
+ * 新しくアカウントを作ってよいか（招待制。DEC-026）。
+ * 招待されたメールか、まだ誰もいない（最初の1人）ときだけ。すでにいる人のログインはここを通らない
+ */
+export async function canSignUp(db: Db, rawEmail: string): Promise<boolean> {
+  const email = normalizeEmail(rawEmail);
+  const [invited] = await db
+    .select({ n: count() })
+    .from(s.groupInvites)
+    .where(eq(s.groupInvites.email, email));
+  if ((invited?.n ?? 0) > 0) return true;
+  const [users] = await db.select({ n: count() }).from(s.user);
+  return (users?.n ?? 0) === 0;
+}
