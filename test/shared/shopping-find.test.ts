@@ -148,3 +148,25 @@ describe("aggregateShopping（人数の換算）", () => {
     expect(amounts).toContain("豚こま肉:約100g");
   });
 });
+
+describe("aggregateShopping（献立ごとの人数）", () => {
+  it("献立で人数を決めた品は、ふだんの人数ではなくその人数で計算する", () => {
+    const items = aggregateShopping(
+      [
+        {
+          recipeTitle: "カレー",
+          servings: 2,
+          people: 4,
+          ingredients: [{ name: "玉ねぎ", amount: "1個" }],
+        },
+        {
+          recipeTitle: "サラダ",
+          servings: 2,
+          ingredients: [{ name: "玉ねぎ", amount: "1個" }],
+        },
+      ],
+      2,
+    );
+    expect(items.find((i) => i.name === "玉ねぎ")?.amount).toBe("3個");
+  });
+});

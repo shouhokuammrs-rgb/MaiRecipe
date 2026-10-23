@@ -705,6 +705,7 @@ export function forGroup(db: Db, groupId: string) {
           meal: s.mealPlans.meal,
           position: s.mealPlans.position,
           recipeId: s.mealPlans.recipeId,
+          servings: s.mealPlans.servings,
           title: s.recipes.title,
           category: s.recipes.category,
         })
@@ -758,6 +759,17 @@ export function forGroup(db: Db, groupId: string) {
       await db
         .delete(s.mealPlans)
         .where(and(eq(s.mealPlans.id, id), eq(s.mealPlans.groupId, groupId)));
+    },
+
+    /** 献立の1品を何人分作るか（null でふだんの人数）。過ぎた日・他のグループは変えられない */
+    async setPlanServings(id: string, servings: number | null, today: string) {
+      const item = await editablePlanItem(id, today);
+      await db
+        .update(s.mealPlans)
+        .set({ servings })
+        .where(
+          and(eq(s.mealPlans.id, item.id), eq(s.mealPlans.groupId, groupId)),
+        );
     },
 
     /**
@@ -923,7 +935,11 @@ export function forGroup(db: Db, groupId: string) {
     async shoppingSources(from: string, to: string) {
       const [plans, latest] = await Promise.all([
         db
-          .select({ recipeId: s.mealPlans.recipeId, title: s.recipes.title })
+          .select({
+            recipeId: s.mealPlans.recipeId,
+            title: s.recipes.title,
+            people: s.mealPlans.servings,
+          })
           .from(s.mealPlans)
           .innerJoin(
             s.recipes,
@@ -944,6 +960,7 @@ export function forGroup(db: Db, groupId: string) {
           recipeTitle: p.title,
           ingredients: v?.ingredients ?? [],
           servings: v?.servings || null,
+          people: p.people,
         };
       });
     },
