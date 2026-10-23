@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Plus, Search, ShoppingBasket, SquarePen } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { categoryTint } from "@/lib/tint";
 import { apiClient, type RecipeHeader } from "@/api/client";
@@ -8,10 +8,10 @@ import {
   Chip,
   Empty,
   ErrorState,
-  FoodPlaceholder,
   Loading,
   PageTitle,
 } from "@/components/common";
+import { Cover } from "@/components/Cover";
 import { InviteBanner } from "@/components/InviteBanner";
 import { CATEGORIES, GENRES } from "../../shared/constants";
 
@@ -26,6 +26,7 @@ export function Recipes() {
     queryFn: () => apiClient.listRecipes({ q: q.trim(), category, genre }),
     placeholderData: (prev) => prev,
   });
+  useFindCovers(list.data);
 
   return (
     <>
@@ -214,16 +215,7 @@ function RecipeCard({ r }: { r: RecipeHeader }) {
         className="relative h-28"
         style={{ background: categoryTint(r.category) }}
       >
-        {r.hasImage ? (
-          <img
-            src={apiClient.imageUrl(r.id, r.updatedAt)}
-            alt=""
-            loading="lazy"
-            className="size-full object-cover"
-          />
-        ) : (
-          <FoodPlaceholder className="size-full bg-transparent" />
-        )}
+        <Cover r={r} lazy className="size-full" />
         {r.videoUrl && (
           <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-video/80 px-2 py-0.5 text-[11px] text-white">
             <svg
@@ -253,4 +245,36 @@ function RecipeCard({ r }: { r: RecipeHeader }) {
       </div>
     </Link>
   );
+}
+
+/**
+ * 前に保存したレシピの表紙を、出典のページから一度だけ探す（DEC-023）。
+ * 1件ずつ・1回の表示で5件まで（サイトに一度にたくさん取りに行かない）
+ */
+function useFindCovers(recipes: RecipeHeader[] | undefined) {
+  const qc = useQueryClient();
+  const tried = useRef(new Set<string>());
+  useEffect(() => {
+    const todo = (recipes ?? [])
+      .filter(
+        (r) =>
+          r.coverUrl === null &&
+          !r.hasImage &&
+          !r.videoUrl &&
+          r.sourceUrl &&
+          !tried.current.has(r.id),
+      )
+      .slice(0, 5);
+    if (!todo.length) return;
+    for (const r of todo) tried.current.add(r.id);
+    // 画面を離れても、始めた分は最後まで探す（途中でやめると、もう一度探さなくなるため）
+    void (async () => {
+      let found = false;
+      for (const r of todo) {
+        const res = await apiClient.findCover(r.id).catch(() => null);
+        if (res?.coverUrl) found = true;
+      }
+      if (found) void qc.invalidateQueries({ queryKey: ["recipes"] });
+    })();
+  }, [recipes, qc]);
 }

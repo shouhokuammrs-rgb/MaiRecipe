@@ -245,6 +245,8 @@ export function Import() {
               ...fields,
               sourceUrl: d.sourceUrl,
               videoUrl: d.videoUrl,
+              // 表紙は出典の画像を元の場所から表示する（保存しない。DEC-023）
+              coverUrl: d.coverUrl || null,
               origin: "import",
             })
           }

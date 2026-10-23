@@ -16,6 +16,7 @@ test("料理モードで作る", async ({ page }) => {
       genre: "和食",
       timeLabel: "20分",
       sourceUrl: "https://example.com/r/1",
+      coverUrl: "https://example.com/img/dummy.jpg",
       videoUrl: null,
       origin: "own",
       ingredients: [
@@ -30,6 +31,11 @@ test("料理モードで作る", async ({ page }) => {
   const { id } = (await res.json()) as { id: string };
 
   await page.goto(`/recipes/${id}`);
+  // 表紙：自分の写真が無いときは出典の画像。どこの画像か出し、自分の写真に変えられる（DEC-023）
+  await expect(page.getByText("画像：example.com")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "自分の写真にする" }),
+  ).toBeVisible();
   // 手順の「A」に中身を書き足す（材料は【A】の札で見せる）
   await expect(
     page.getByText("A（しょうゆ・みりん）を入れて味を見る"),

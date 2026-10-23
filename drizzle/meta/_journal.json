@@ -50,6 +50,13 @@
       "when": 1792483265896,
       "tag": "0006_import_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792734274216,
+      "tag": "0007_recipe_cover",
+      "breakpoints": true
     }
   ]
 }

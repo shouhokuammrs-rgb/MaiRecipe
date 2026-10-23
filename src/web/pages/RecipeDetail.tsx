@@ -9,7 +9,6 @@ import {
 } from "@/api/client";
 import {
   ErrorState,
-  FoodPlaceholder,
   Loading,
   PrimaryButton,
   SecondaryButton,
@@ -17,9 +16,10 @@ import {
 import { MicButton } from "@/components/MicButton";
 import { IngredientName } from "@/components/IngredientName";
 import { VideoEmbed } from "@/components/VideoEmbed";
+import { Cover } from "@/components/Cover";
+import { coverCredit } from "../../shared/cover";
 import { explainStep, normalizeGroups } from "../../shared/groups";
 import { shrinkImage } from "@/lib/image";
-import { categoryTint } from "@/lib/tint";
 import { cn } from "@/lib/utils";
 
 function md(ts: number) {
@@ -52,6 +52,8 @@ function DetailView({ r }: { r: Detail }) {
   const latest = r.versions[r.versions.length - 1]!;
   const view = r.versions.find((v) => v.id === viewId) ?? latest;
   const viewingOld = view.id !== latest.id;
+  // 出典の画像を表紙にしているときは、どこの画像か小さく出す（DEC-023）
+  const credit = r.videoUrl ? null : coverCredit(r);
   // 保存済みの「★しょうゆ」「(A)しょうゆ」も【A】として見せる
   const normIngs = normalizeGroups(view.ingredients, view.steps);
   const refresh = () => {
@@ -135,16 +137,8 @@ function DetailView({ r }: { r: Detail }) {
           <div className="bg-video px-3 pt-14 pb-3">
             <VideoEmbed url={r.videoUrl} className="[&_a]:text-white/70" />
           </div>
-        ) : r.hasImage ? (
-          <img
-            src={apiClient.imageUrl(r.id, r.updatedAt)}
-            alt={r.title}
-            className="h-56 w-full object-cover"
-          />
         ) : (
-          <div style={{ background: categoryTint(r.category) }}>
-            <FoodPlaceholder className="h-48 w-full bg-transparent" />
-          </div>
+          <Cover r={r} alt={r.title} className="h-56 w-full" />
         )}
         <button
           type="button"
@@ -156,6 +150,16 @@ function DetailView({ r }: { r: Detail }) {
         </button>
         {!r.videoUrl && (
           <>
+            {credit && (
+              <a
+                href={r.sourceUrl ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+                className="absolute bottom-3 left-3 z-10 max-w-[45%] truncate rounded-full bg-black/45 px-2.5 py-1 text-[11px] text-white"
+              >
+                画像：{credit}
+              </a>
+            )}
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
@@ -166,7 +170,9 @@ function DetailView({ r }: { r: Detail }) {
                 ? "保存中…"
                 : r.hasImage
                   ? "写真を変える"
-                  : "写真を追加"}
+                  : credit
+                    ? "自分の写真にする"
+                    : "写真を追加"}
             </button>
             <input
               ref={fileRef}

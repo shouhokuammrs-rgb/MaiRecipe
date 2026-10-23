@@ -75,6 +75,8 @@ export type RecipeHeader = {
   genre: string;
   timeLabel: string;
   hasImage: boolean;
+  /** 出典の画像の URL（null：まだ探していない・""：無かった）。DEC-023 */
+  coverUrl: string | null;
   videoUrl: string | null;
   sourceUrl: string | null;
   /** 最新版の番号（v◯ の表示用） */
@@ -257,6 +259,7 @@ export function forGroup(db: Db, groupId: string) {
         genre: r.genre,
         timeLabel: r.timeLabel,
         hasImage: r.hasImage,
+        coverUrl: r.coverUrl,
         videoUrl: r.videoUrl,
         sourceUrl: r.sourceUrl,
         versionCount: latestNo.get(r.id) ?? 1,
@@ -289,6 +292,7 @@ export function forGroup(db: Db, groupId: string) {
         videoUrl: r.videoUrl,
         origin: r.origin,
         hasImage: r.hasImage,
+        coverUrl: r.coverUrl,
         createdAt: r.createdAt.getTime(),
         updatedAt: r.updatedAt.getTime(),
         versions,
@@ -301,10 +305,19 @@ export function forGroup(db: Db, groupId: string) {
       };
     },
 
+    /** 出典の画像の URL を覚える（"" は「無かった」）。他のグループのレシピなら何もしない */
+    async setCoverUrl(recipeId: string, coverUrl: string) {
+      await db
+        .update(s.recipes)
+        .set({ coverUrl })
+        .where(and(eq(s.recipes.id, recipeId), eq(s.recipes.groupId, groupId)));
+    },
+
     async createRecipe(
       input: RecipeFields & {
         sourceUrl: string | null;
         videoUrl: string | null;
+        coverUrl?: string | null;
         origin: "import" | "own";
       },
       userId: string,
@@ -321,6 +334,7 @@ export function forGroup(db: Db, groupId: string) {
           timeLabel: input.timeLabel,
           sourceUrl: input.sourceUrl,
           videoUrl: input.videoUrl,
+          coverUrl: input.coverUrl ?? null,
           origin: input.origin,
           lastSeq: 1,
         }),

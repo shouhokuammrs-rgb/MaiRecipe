@@ -142,6 +142,11 @@ export const recipes = sqliteTable(
     hasImage: integer("has_image", { mode: "boolean" })
       .notNull()
       .default(false),
+    /**
+     * 出典の画像の URL（DEC-023）。画像はこちらに保存せず、元の場所から表示する。
+     * null はまだ探していない、"" は探したが無かった
+     */
+    coverUrl: text("cover_url"),
     /** 版の通し番号のカウンタ。版を消しても戻さない（番号を詰めない） */
     lastSeq: integer("last_seq").notNull().default(1),
     createdAt: createdAt(),

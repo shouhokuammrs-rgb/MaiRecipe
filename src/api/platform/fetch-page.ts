@@ -125,6 +125,8 @@ export type PageScan = {
   sections: { ingredients: RawIngredient[]; steps: string[] };
   /** 転送をたどった後の URL */
   url: string;
+  /** 共有用の画像（og:image）。相対のこともある。使う前に cleanImageUrl で直す */
+  image: string;
   /** 本文の文字（collectText のときだけ。ヘッダー・メニュー・script は除く） */
   bodyText: string;
 };
@@ -204,6 +206,7 @@ export async function scanPage(
   let foundRecipe = false;
   let title = "";
   let ogTitle = "";
+  let ogImage = "";
   let inTitle = false;
 
   // ---- 予備の読み取り ----
@@ -361,6 +364,13 @@ export async function scanPage(
     .on('meta[property="og:title"]', {
       element(el) {
         ogTitle = el.getAttribute("content") ?? "";
+      },
+    })
+    // 共有するとき用の画像（表紙に、元の場所から表示する。DEC-023）
+    .on('meta[property="og:image"], meta[name="twitter:image"]', {
+      element(el) {
+        if (!ogImage)
+          ogImage = (el.getAttribute("content") ?? "").slice(0, 2100);
       },
     })
     .on("title", {
@@ -541,6 +551,7 @@ export async function scanPage(
   return {
     jsonLd,
     title: (ogTitle || title).trim().slice(0, 100),
+    image: ogImage,
     sections: { ingredients, steps },
     url: finalUrl,
     bodyText: bodyText
