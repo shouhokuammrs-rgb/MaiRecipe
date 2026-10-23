@@ -107,7 +107,7 @@ function ImportJobsStrip() {
                 : "border border-field bg-card text-ink",
             )}
           >
-            {done ? "確かめる" : "手で入れる"}
+            {done || show.recipeId ? "確かめる" : "手で入れる"}
           </Link>
         </>
       ) : (

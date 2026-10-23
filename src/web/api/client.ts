@@ -126,6 +126,8 @@ export type ImportResult = {
 export type ImportJob = {
   id: string;
   url: string;
+  /** 保存済みのレシピの読み直しなら、そのレシピ（結果は新しい版として保存する） */
+  recipeId?: string | null;
   status: "running" | "done" | "failed";
   result: ImportResult | null;
   error: string | null;
@@ -248,6 +250,11 @@ export const apiClient = {
   /** 裏で読み取りを始める（すぐ返る。DEC-022） */
   startImport: (url: string) =>
     call<{ id: string }>("/import/jobs", { method: "POST", json: { url } }),
+  /** 保存済みのレシピを、出典から裏で読み直す */
+  rereadRecipe: (id: string) =>
+    call<{ id: string }>(`/recipes/${encodeURIComponent(id)}/reread`, {
+      method: "POST",
+    }),
   importJobs: () => call<{ jobs: ImportJob[] }>("/import/jobs"),
   dismissImportJob: (id: string) =>
     call<null>(`/import/jobs/${encodeURIComponent(id)}`, { method: "DELETE" }),

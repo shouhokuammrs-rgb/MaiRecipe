@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, ChevronLeft, GitBranch, ChefHat, Play } from "lucide-react";
+import {
+  Camera,
+  ChevronLeft,
+  GitBranch,
+  ChefHat,
+  Play,
+  RefreshCw,
+} from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -77,6 +84,10 @@ function DetailView({ r }: { r: Detail }) {
     base && people
       ? scaleIngredients(view.ingredients, base, people)
       : view.ingredients;
+  const reread = useMutation({
+    mutationFn: () => apiClient.rereadRecipe(r.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["import-jobs"] }),
+  });
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["recipe", r.id] });
     void qc.invalidateQueries({ queryKey: ["recipes"] });
@@ -292,6 +303,35 @@ function DetailView({ r }: { r: Detail }) {
             </SecondaryButton>
           )}
         </div>
+
+        {(r.sourceUrl || r.videoUrl) && (
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              disabled={reread.isPending || reread.isSuccess}
+              onClick={() => reread.mutate()}
+              className="flex h-11 items-center gap-1.5 self-start text-sm font-bold text-accent disabled:text-sub"
+            >
+              <RefreshCw className="size-4" />
+              {reread.isPending ? "始めています…" : "出典から読み直す"}
+            </button>
+            {reread.isSuccess && (
+              <p role="status" className="text-xs leading-5 text-herb">
+                読み直しを始めました。終わったら上に知らせが出るので、内容を確かめてから新しい版として保存してください（今の版は残ります）。
+              </p>
+            )}
+            {reread.isError && (
+              <p role="alert" className="text-xs text-danger">
+                {reread.error.message}
+              </p>
+            )}
+            {!reread.isPending && !reread.isSuccess && !reread.isError && (
+              <p className="text-xs leading-5 text-sub">
+                コツ・人数・動画の場面など、あとから足した読み取りも入ります。
+              </p>
+            )}
+          </div>
+        )}
 
         <section className="flex flex-col gap-2">
           <h2 className="flex flex-wrap items-center gap-x-2 text-base font-bold">
