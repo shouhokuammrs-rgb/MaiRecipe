@@ -54,6 +54,8 @@ export class AiBadOutput extends Error {}
 
 /** 一時的な失敗のあと、やり直すまで待つ時間 */
 const RETRY_WAIT_MS = 3000;
+/** これより早く失敗が返ったときだけやり直す（60秒＋3秒＋やり直しの最大150秒で、5分に収まる） */
+const RETRY_IF_FAILED_WITHIN_MS = 60_000;
 
 export type AiEnv = { AI?: WorkersAiBinding } & GeminiEnv;
 
@@ -97,11 +99,17 @@ export async function watchVideoWithAi(
       task.maxTokens,
     );
   let raw: string;
+  const started = Date.now();
   try {
     raw = await run();
   } catch (e) {
-    // Gemini 側の一時的な失敗（524 など）は、少し待って1回だけやり直す
-    if (!(e instanceof GeminiTemporary)) throw e;
+    // Gemini 側の一時的な失敗（524 など）は、少し待って1回だけやり直す。
+    // 失敗が返るまで長くかかったときはやり直さない（裏の読み取りの1手順は5分まで）
+    if (
+      !(e instanceof GeminiTemporary) ||
+      Date.now() - started > RETRY_IF_FAILED_WITHIN_MS
+    )
+      throw e;
     await new Promise((r) => setTimeout(r, RETRY_WAIT_MS));
     raw = await run();
   }
