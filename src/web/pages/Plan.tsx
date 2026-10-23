@@ -15,6 +15,7 @@ import { Empty, ErrorState, Loading, PageTitle } from "@/components/common";
 import { categoryTint } from "@/lib/tint";
 import { cn } from "@/lib/utils";
 import { MEAL_LABELS, MEALS, type Meal } from "../../shared/constants";
+import { SERVINGS_MAX } from "../../shared/servings";
 import { addDays, labelDate, todayJst, weekStart } from "../../shared/dates";
 
 export function Plan() {
@@ -49,6 +50,7 @@ export function Plan() {
     onMutate: () => {
       remove.reset();
       move.reset();
+      servings.reset();
     },
     onSuccess: () => {
       setPicker(null);
@@ -61,6 +63,7 @@ export function Plan() {
     onMutate: () => {
       add.reset();
       move.reset();
+      servings.reset();
     },
     onSuccess: refresh,
   });
@@ -70,11 +73,23 @@ export function Plan() {
     onMutate: () => {
       add.reset();
       remove.reset();
+      servings.reset();
+    },
+    onSuccess: refresh,
+  });
+  // 作り置きなどで、この献立だけ人数を変える（買い物リストもこの人数で計算する）
+  const servings = useMutation({
+    mutationFn: (p: { id: string; servings: number | null }) =>
+      apiClient.setPlanServings(p.id, p.servings),
+    onMutate: () => {
+      add.reset();
+      remove.reset();
+      move.reset();
     },
     onSuccess: refresh,
   });
   // 次の操作を始めたら（上の各 onMutate で）前のエラーは消えるので、常に高々1つだけ立つ
-  const actionError = add.error ?? remove.error ?? move.error;
+  const actionError = add.error ?? remove.error ?? move.error ?? servings.error;
 
   // API が 日付 → 朝昼晩 → 枠の中の順 で返すので、その順のまま枠ごとに分ける
   const bySlot = useMemo(() => {
@@ -201,13 +216,53 @@ export function Plan() {
                             className="flex min-h-11 items-center rounded-xl"
                             style={{ background: categoryTint(p.category) }}
                           >
-                            <button
-                              type="button"
-                              onClick={() => nav(`/recipes/${p.recipeId}`)}
-                              className="min-h-11 min-w-0 flex-1 px-3 py-2 text-left text-sm leading-snug font-bold"
-                            >
-                              {p.title}
-                            </button>
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              <button
+                                type="button"
+                                onClick={() => nav(`/recipes/${p.recipeId}`)}
+                                className="min-h-11 min-w-0 px-3 pt-2 text-left text-sm leading-snug font-bold"
+                              >
+                                {p.title}
+                              </button>
+                              {past ? (
+                                p.servings ? (
+                                  <span className="px-3 pb-2 text-xs text-sub">
+                                    {p.servings}人分
+                                  </span>
+                                ) : null
+                              ) : (
+                                <select
+                                  aria-label={`「${p.title}」を何人分作るか`}
+                                  // 保存中は選んだ値のまま見せる（戻って見えないように）
+                                  value={
+                                    (servings.isPending &&
+                                    servings.variables?.id === p.id
+                                      ? servings.variables.servings
+                                      : p.servings) ?? ""
+                                  }
+                                  disabled={servings.isPending}
+                                  onChange={(e) =>
+                                    servings.mutate({
+                                      id: p.id,
+                                      servings: e.target.value
+                                        ? Number(e.target.value)
+                                        : null,
+                                    })
+                                  }
+                                  className="mx-2 mb-1 min-h-11 self-start rounded-lg bg-transparent px-1 text-xs text-sub"
+                                >
+                                  <option value="">いつもの量</option>
+                                  {Array.from(
+                                    { length: SERVINGS_MAX },
+                                    (_, k) => k + 1,
+                                  ).map((n) => (
+                                    <option key={n} value={n}>
+                                      {n}人分
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
                             {!past && (
                               <>
                                 {i > 0 ? (

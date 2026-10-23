@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { MEALS, type Meal } from "../../shared/constants";
 import { addDays, isDate, todayJst } from "../../shared/dates";
-import { mealPlanSchema, planMoveSchema } from "../../shared/recipe";
+import {
+  mealPlanSchema,
+  planMoveSchema,
+  planServingsSchema,
+} from "../../shared/recipe";
 import { canonicalName } from "../../shared/ingredients";
 import { isSeasoning, shoppingHaveSchema } from "../../shared/pantry";
 import { aggregateShopping } from "../../shared/shopping";
@@ -36,6 +40,19 @@ plans.put("/", async (c) => {
 // ↓ items のルートは "/:date/:meal" より先に登録する（DELETE /items/:id が date="items" にも一致するため）
 plans.delete("/items/:id", async (c) => {
   await c.var.repo.deletePlanItem(c.req.param("id"), todayJst());
+  return c.body(null, 204);
+});
+
+plans.put("/items/:id/servings", async (c) => {
+  const parsed = planServingsSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) return badRequest(c, parsed.error);
+  await c.var.repo.setPlanServings(
+    c.req.param("id"),
+    parsed.data.servings,
+    todayJst(),
+  );
   return c.body(null, 204);
 });
 
@@ -81,7 +98,18 @@ shopping.get("/", async (c) => {
     // 調味料はいつも家にある扱い（「家にない」印が付いたときだけ買う）。ほかは冷蔵庫にあるか
     have: i.section === "調味料" ? !out.has(i.name) : pantry.has(i.name),
   }));
-  return c.json({ from, to, recipeCount: sources.length, people, items });
+  // 人数の分からないレシピは換算できないので、元の分量のままと知らせる
+  const unscaled = [
+    ...new Set(sources.filter((s) => !s.servings).map((s) => s.recipeTitle)),
+  ];
+  return c.json({
+    from,
+    to,
+    recipeCount: sources.length,
+    people,
+    unscaled,
+    items,
+  });
 });
 
 /** 買い物のチェック。調味料以外は冷蔵庫に入れる／戻す。調味料は「家にない」印を外す／付ける */

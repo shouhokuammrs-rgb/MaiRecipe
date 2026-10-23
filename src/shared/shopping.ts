@@ -11,6 +11,8 @@ export type ShoppingSource = {
   ingredients: Ingredient[];
   /** レシピが何人分か（分からなければ換算しない） */
   servings?: number | null;
+  /** この献立で何人分作るか（決めていなければ、ふだんの人数） */
+  people?: number | null;
 };
 
 export type ShoppingItem = {
@@ -41,8 +43,9 @@ export function aggregateShopping(
     }
   >();
   for (const src of sources) {
+    const want = src.people || people;
     const factor =
-      people && src.servings && src.servings > 0 ? people / src.servings : 1;
+      want && src.servings && src.servings > 0 ? want / src.servings : 1;
     for (const ing of src.ingredients) {
       const name = canonicalName(ing.name);
       if (!name) continue;

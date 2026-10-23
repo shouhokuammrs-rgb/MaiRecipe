@@ -111,8 +111,15 @@ export function Shopping() {
               ? `${labelDate(q.data.from).md}（今日）`
               : `${labelDate(q.data.from).md}〜${labelDate(q.data.to).md}`}{" "}
             の献立 {q.data.recipeCount}
-            品（各レシピの最新版）から作成。分量は{q.data.people}
-            人分に換算しています（人数は設定で変えられます）。過ぎた日は入りません。
+            品（各レシピの最新版）から作成。分量は、ふだんは{q.data.people}
+            人分、献立で人数を決めた品はその人数に換算しています。過ぎた日は入りません。
+          </p>
+        )}
+        {q.data && (q.data.unscaled?.length ?? 0) > 0 && (
+          <p className="rounded-xl bg-memo px-3 py-2 text-xs leading-6 text-memo-ink">
+            何人分か分からないレシピは、元の分量のまま入れています：
+            {q.data.unscaled!.join("・")}
+            。レシピの「材料・作り方を編集」で人数を入れると換算されます。
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">

@@ -259,6 +259,8 @@ export const mealPlans = sqliteTable(
       .references(() => recipes.id, { onDelete: "cascade" }),
     /** 枠の中の並び順（小さいほど上）。移行前の行は 0 */
     position: integer("position").notNull().default(0),
+    /** この献立で何人分作るか（作り置きなど）。null はふだん作る人数 */
+    servings: integer("servings"),
     createdAt: createdAt(),
   },
   (t) => [
