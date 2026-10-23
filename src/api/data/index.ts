@@ -425,7 +425,14 @@ export function forGroup(db: Db, groupId: string) {
           ? last.servings
           : input.servings;
       // コツを渡さなかった（古い画面）ときは前の版のまま
-      const tips = input.tips ?? last.tips;
+      // 手順が減ったときは、無くなった手順のコツを全体のコツにする
+      const tips =
+        input.tips ??
+        last.tips.map((t) =>
+          t.step !== null && t.step > input.steps.length
+            ? { ...t, step: null }
+            : t,
+        );
       if (JSON.stringify(tips) !== JSON.stringify(last.tips))
         changes.push("コツを直した");
       if ((last.servings || null) !== (servings || null))

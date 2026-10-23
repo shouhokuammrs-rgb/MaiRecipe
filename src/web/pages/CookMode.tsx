@@ -147,13 +147,17 @@ function CookView({
   const count = steps.length;
   const last = idx >= count - 1;
   const step = steps[idx] ?? "";
-  const stepTips = tipsForStep(tips, idx + 1);
+  const stepTips = tipsForStep(tips, idx + 1, count);
   // 全体のコツは、最初の手順のところに出す
   const shownTips =
-    idx === 0 ? [...tipsForStep(tips, null), ...stepTips] : stepTips;
+    idx === 0 ? [...tipsForStep(tips, null, count), ...stepTips] : stepTips;
   /** 手順を読む文（その手順のコツも続けて読む） */
   const stepSpeech = (i: number) => {
-    const t = tipsForStep(tips, i + 1);
+    // 最初の手順では、全体のコツも続けて読む（画面と同じ）
+    const t = [
+      ...(i === 0 ? tipsForStep(tips, null, count) : []),
+      ...tipsForStep(tips, i + 1, count),
+    ];
     return `${i + 1}。${steps[i]}${t.length ? `。コツ。${t.join("。")}` : ""}`;
   };
   const stepTimers = findTimers(step);

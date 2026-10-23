@@ -139,9 +139,12 @@ export type PageScan = {
 /** コツ・ポイントの欄の見出し（短いものだけ。「ポイント還元」などは違う） */
 const TIPS_HEAD =
   /^[\s【■●◆□▼〈<＜(（]*(?:コツ|ポイント|コツ・ポイント|ポイント・コツ|調理のポイント|作り方のポイント|作り方のコツ|料理のコツ|おいしく作るコツ)[\s】>＞)）:：]*$/;
+/** class で見出しになった要素（h タグでない）は、はっきりした言い方だけ（サイドバーの「ポイント」などを拾わない） */
+const TIPS_HEAD_STRICT =
+  /(?:コツ・ポイント|ポイント・コツ|調理のポイント|作り方のポイント|作り方のコツ|料理のコツ|おいしく作るコツ)/;
 const TIPS_TEXT_MAX = 1200;
 /** 構造化データの後に、コツの欄を探して読み進める量の上限 */
-const TIPS_EXTRA_BYTES = 400_000;
+const TIPS_EXTRA_BYTES = 150_000;
 
 const HEADINGS =
   "h1, h2, h3, h4, h5, h6, [class*=title], [class*=Title], [class*=head], [class*=Head]";
@@ -267,8 +270,10 @@ export async function scanPage(
     if (chromeDepth > 0) return;
     // コツ・ポイントの欄：次の見出し（h タグ）まで、文を集める
     if (itemDepth === 0) {
-      if (TIPS_HEAD.test(raw.trim())) tipsOpen = true;
-      else if (level !== null) tipsOpen = false;
+      const h = raw.trim();
+      // 次の見出し（class で見出しになった要素も）で閉じる
+      tipsOpen =
+        TIPS_HEAD.test(h) && (level !== null || TIPS_HEAD_STRICT.test(h));
     }
     if (itemDepth > 0) {
       // li の中の <span class="step-head">1</span> のような番号は、項目の文字から外す
@@ -534,7 +539,7 @@ export async function scanPage(
           openHeadings.length === 0 &&
           tipsText.length < TIPS_TEXT_MAX
         )
-          tipsText += t.text;
+          tipsText += t.text.slice(0, TIPS_TEXT_MAX - tipsText.length);
         if (!item && openHeadings.length === 0) return;
         for (const h of openHeadings)
           if (h.text.length < MAX_HEADING_CHARS) h.text += t.text;
@@ -564,7 +569,8 @@ export async function scanPage(
     )
     .on("p, li, br, dd, div", {
       element() {
-        if (tipsOpen && tipsText && !tipsText.endsWith("\n")) tipsText += "\n";
+        if (!tipsOpen || !tipsText) return;
+        if (!tipsText.endsWith("\n")) tipsText += "\n";
       },
     });
 
@@ -587,7 +593,8 @@ export async function scanPage(
       // 本文を集めるときは最後まで読む（構造化データが Recipe でも使えないことがあり、そのとき AI に本文が要る）。
       // 構造化データが取れた後も、コツ・ポイントの欄を読み終えるまで少しだけ読む（DEC-024）
       if (foundRecipe && foundAt === null) foundAt = total;
-      const tipsDone = Boolean(tipsText) && !tipsOpen;
+      const tipsDone =
+        (Boolean(tipsText) && !tipsOpen) || tipsText.length >= TIPS_TEXT_MAX;
       if (
         (foundAt !== null &&
           !opts.collectText &&

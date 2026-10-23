@@ -46,6 +46,27 @@ describe("コツ・ポイント", () => {
     ]);
   });
 
+  it("class だけの見出しのページでも、次の見出しでコツの欄を閉じる", async () => {
+    const page = PAGE.replace(
+      /<h2>コツ・ポイント<\/h2>[\s\S]*<\/body>/,
+      `<div class="sec-title">コツ・ポイント</div><p>弱火で</p>
+       <div class="sec-title">関連レシピ</div><p>宣伝の文</p>
+       <aside><div class="widget-title">ポイント</div><p>ポイント還元</p></aside></body>`,
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(page, { headers: { "content-type": "text/html" } }),
+    );
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", {
+        method: "POST",
+        body: { url: "https://example.com/r/2" },
+      })
+    ).json()) as { draft: { tips: Tip[] } };
+    expect(j.draft.tips).toEqual([{ step: null, text: "弱火で" }]);
+  });
+
   it("保存したコツは版に残り、渡さなければ前の版のまま。変えるとあゆみに書く", async () => {
     const me = await signUp();
     const tips = [{ step: 1, text: "よく冷やす" }];

@@ -26,6 +26,16 @@ describe("tipsFromText（ページのコツ・ポイント欄）", () => {
     expect(tipsFromText("手順9で", 5)[0]?.step).toBeNull();
   });
 
+  it("行頭の①②は箇条書きの番号として外し、手順にはしない", () => {
+    expect(tipsFromText("①玉ねぎはよく炒める\n②塩は最後に", 5)).toEqual([
+      { step: null, text: "玉ねぎはよく炒める" },
+      { step: null, text: "塩は最後に" },
+    ]);
+    expect(
+      tipsFromText("3分ほど煮る\n2〜3回に分けて", 5).map((t) => t.step),
+    ).toEqual([null, null]);
+  });
+
   it("件数と長さに上限がある。空なら空の配列", () => {
     const many = Array.from({ length: 20 }, (_, k) => `コツ${k}`).join("\n");
     expect(tipsFromText(many)).toHaveLength(TIPS_MAX);
@@ -67,5 +77,10 @@ describe("tipsForStep", () => {
     ];
     expect(tipsForStep(tips, 1)).toEqual(["a", "c"]);
     expect(tipsForStep(tips, null)).toEqual(["b"]);
+  });
+  it("手順の数を超えた番号のコツは、全体のコツとして出す", () => {
+    const tips = [{ step: 5, text: "x" }];
+    expect(tipsForStep(tips, null, 3)).toEqual(["x"]);
+    expect(tipsForStep(tips, 5, 3)).toEqual([]);
   });
 });

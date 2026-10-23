@@ -330,25 +330,29 @@ function DetailView({ r }: { r: Detail }) {
                 </span>
                 <span className="flex flex-col gap-1 pt-0.5 text-sm leading-7">
                   {explainStep(s, view.ingredients)}
-                  {tipsForStep(view.tips ?? [], k + 1).map((t, j) => (
-                    <span
-                      key={j}
-                      className="rounded-lg bg-herb-soft px-2.5 py-1 text-[13px] leading-6 text-herb"
-                    >
-                      コツ：{t}
-                    </span>
-                  ))}
+                  {tipsForStep(view.tips ?? [], k + 1, view.steps.length).map(
+                    (t, j) => (
+                      <span
+                        key={j}
+                        className="rounded-lg bg-herb-soft px-2.5 py-1 text-[13px] leading-6 text-herb"
+                      >
+                        コツ：{t}
+                      </span>
+                    ),
+                  )}
                 </span>
               </li>
             ))}
           </ol>
-          {tipsForStep(view.tips ?? [], null).length > 0 && (
+          {tipsForStep(view.tips ?? [], null, view.steps.length).length > 0 && (
             <div className="rounded-2xl bg-herb-soft p-3.5 text-herb">
               <h3 className="text-sm font-bold">コツ・ポイント</h3>
               <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-sm leading-7">
-                {tipsForStep(view.tips ?? [], null).map((t, k) => (
-                  <li key={k}>{t}</li>
-                ))}
+                {tipsForStep(view.tips ?? [], null, view.steps.length).map(
+                  (t, k) => (
+                    <li key={k}>{t}</li>
+                  ),
+                )}
               </ul>
             </div>
           )}

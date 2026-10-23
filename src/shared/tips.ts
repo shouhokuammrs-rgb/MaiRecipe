@@ -17,7 +17,8 @@ export const tipSchema = z.object({
 });
 export const tipsSchema = z.array(tipSchema).max(TIPS_MAX);
 
-const BULLET = /^[・･\-－*＊●○◆◇■□▼▽★☆✅>＞※]+\s*/u;
+const BULLET =
+  /^(?:[・･\-－*＊●○◆◇■□▼▽★☆✅>＞※]+|[①-⑳](?![のではをにまかでら]))\s*/u;
 const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
 
 const clip = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, TIP_MAX);
@@ -29,8 +30,9 @@ function stepIn(text: string, stepCount: number): number | null {
   const m = s.match(/(?:手順|工程|ステップ|STEP)\s*(\d{1,2})/i);
   if (m) n = Number(m[1]);
   else {
-    const c = [...text].find((ch) => CIRCLED.includes(ch));
-    if (c) n = CIRCLED.indexOf(c) + 1;
+    // 「③の」「②で」のように助詞が続くときだけ（行頭の ①② は箇条書きの番号）
+    const c = text.match(/([①-⑳])(?:の|で|は|を|に|まで|から)/u);
+    if (c) n = CIRCLED.indexOf(c[1]!) + 1;
   }
   return n && n >= 1 && n <= stepCount ? n : null;
 }
@@ -70,7 +72,18 @@ export function parseAiTips(raw: unknown, stepCount: number): Tip[] {
   return out;
 }
 
-/** その手順（1始まり）のコツ。null で全体のコツ */
-export function tipsForStep(tips: Tip[], step: number | null): string[] {
-  return tips.filter((t) => t.step === step).map((t) => t.text);
+/**
+ * その手順（1始まり）のコツ。null で全体のコツ。
+ * stepCount を渡すと、手順の数を超えた番号のコツ（手順を消した後など）も全体のコツとして出す
+ */
+export function tipsForStep(
+  tips: Tip[],
+  step: number | null,
+  stepCount?: number,
+): string[] {
+  const at = (t: Tip) =>
+    t.step !== null && stepCount !== undefined && t.step > stepCount
+      ? null
+      : t.step;
+  return tips.filter((t) => at(t) === step).map((t) => t.text);
 }
