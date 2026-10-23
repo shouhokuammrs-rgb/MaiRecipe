@@ -25,6 +25,9 @@ describe("canSignUp", () => {
   });
 });
 
+/** Google ログインから作られるときの出どころ（型を満たすだけ） */
+const SOURCE = { method: "oauth" } as never;
+
 describe("アカウントを作るときの見張り（Better Auth）", () => {
   it("本番の設定（DEV_LOGIN なし）では、招待されていない人のアカウントは作られない", async () => {
     const { createAuth } = await import("../../src/api/auth");
@@ -32,14 +35,38 @@ describe("アカウントを作るときの見張り（Better Auth）", () => {
     await signUp(); // 誰かがいる状態
     const ctx = await createAuth({ ...E, DEV_LOGIN: undefined }).$context;
     const stranger = await ctx.internalAdapter
-      .createUser({
-        email: "nobody@example.test",
-        name: "x",
-        emailVerified: true,
-      })
+      .createUser(
+        { email: "nobody@example.test", name: "x", emailVerified: true },
+        SOURCE,
+      )
       .catch(() => null);
     expect(stranger).toBeNull();
     const rows = await db().query.user.findMany();
     expect(rows.some((u) => u.email === "nobody@example.test")).toBe(false);
+  });
+
+  it("招待されたメールでも、確認されていないメールでは作られない", async () => {
+    const { createAuth } = await import("../../src/api/auth");
+    const E = env as unknown as Parameters<typeof createAuth>[0];
+    const owner = await signUp();
+    await api(owner, "/group/invites", {
+      method: "POST",
+      body: { email: "unverified@example.test" },
+    });
+    const ctx = await createAuth({ ...E, DEV_LOGIN: undefined }).$context;
+    const u = await ctx.internalAdapter
+      .createUser(
+        { email: "unverified@example.test", name: "x", emailVerified: false },
+        SOURCE,
+      )
+      .catch(() => null);
+    expect(u).toBeNull();
+    const ok = await ctx.internalAdapter
+      .createUser(
+        { email: "unverified@example.test", name: "x", emailVerified: true },
+        SOURCE,
+      )
+      .catch(() => null);
+    expect(ok?.email).toBe("unverified@example.test");
   });
 });

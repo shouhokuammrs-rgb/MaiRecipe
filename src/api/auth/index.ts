@@ -59,7 +59,13 @@ export function createAuth(env: AuthEnv) {
         create: {
           before: async (user) => {
             if (isDevLogin(env)) return;
-            if (!user.email || !(await canSignUp(db, user.email))) return false;
+            // 確認済みのメールだけ（招待への参加と同じ決まり。membership.ts）
+            if (
+              !user.email ||
+              user.emailVerified !== true ||
+              !(await canSignUp(db, user.email))
+            )
+              return false;
           },
         },
       },
