@@ -201,6 +201,11 @@ export const apiClient = {
     call<{ servings: number | null }>(`/recipes/${id}/servings`, {
       method: "POST",
     }),
+  /** 同じ出典のレシピが保存済みか（無ければ null） */
+  findBySource: (url: string) =>
+    call<{ recipe: { id: string; title: string } | null }>(
+      `/recipes/by-source?url=${encodeURIComponent(url)}`,
+    ).then((r) => r.recipe),
   deleteRecipe: (id: string) =>
     call<void>(`/recipes/${id}`, { method: "DELETE" }),
   addVersion: (id: string, input: RecipeFields & { memoId?: string }) =>

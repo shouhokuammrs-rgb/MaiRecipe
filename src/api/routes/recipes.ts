@@ -68,6 +68,12 @@ recipes.post("/", async (c) => {
   return c.json({ id }, 201);
 });
 
+/** 同じ出典のレシピが保存済みか（取り込む前に「保存済みです」と知らせる） */
+recipes.get("/by-source", async (c) => {
+  const url = (c.req.query("url") ?? "").trim().slice(0, LIMITS.urlMax);
+  return c.json({ recipe: url ? await c.var.repo.findBySource(url) : null });
+});
+
 recipes.post("/find", async (c) => {
   const parsed = findSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);

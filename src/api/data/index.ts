@@ -22,6 +22,7 @@ import { LIMITS } from "../../shared/constants";
 import { diffVersions } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
 import { canonicalName } from "../../shared/ingredients";
+import { sourceKey } from "../../shared/source-key";
 import { isSeasoning, sortPantry } from "../../shared/pantry";
 import type { SessionUser } from "../app-env";
 import * as s from "./schema";
@@ -323,6 +324,31 @@ export function forGroup(db: Db, groupId: string) {
           createdAt: m.createdAt.getTime(),
         })),
       };
+    },
+
+    /**
+     * 同じ出典（URL・YouTube の動画）のレシピがグループにあれば返す（二重の取り込みを知らせる）。
+     * 表記の揺れをそろえて比べるので、グループのレシピの出典を読んで JS で突き合わせる
+     */
+    async findBySource(
+      url: string,
+    ): Promise<{ id: string; title: string } | null> {
+      const key = sourceKey(url);
+      if (!key) return null;
+      const rows = await db
+        .select({
+          id: s.recipes.id,
+          title: s.recipes.title,
+          sourceUrl: s.recipes.sourceUrl,
+          videoUrl: s.recipes.videoUrl,
+        })
+        .from(s.recipes)
+        .where(inGroup)
+        .orderBy(desc(s.recipes.updatedAt));
+      const hit = rows.find((r) =>
+        [r.sourceUrl, r.videoUrl].some((u) => u && sourceKey(u) === key),
+      );
+      return hit ? { id: hit.id, title: hit.title } : null;
     },
 
     /** 出典の画像の URL を覚える（"" は「無かった」）。他のグループのレシピなら何もしない */
