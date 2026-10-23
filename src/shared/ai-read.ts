@@ -84,12 +84,8 @@ const aiRecipeSchema = z.object({
     )
     .default([]),
   steps: z
-    .array(
-      z.union([
-        z.string(),
-        z.object({ text: z.string(), at: z.unknown().optional() }),
-      ]),
-    )
+    // 1つの手順の形が崩れていても、全体を捨てない（読めない手順だけ捨てる）
+    .array(z.unknown())
     .default([]),
   time: z.string().optional().default(""),
   servings: z.unknown().optional(),
@@ -131,13 +127,25 @@ export function parseAiRecipe(raw: string): AiRecipe | null {
     .slice(0, LIMITS.ingredientsMax);
   // 手順と時刻は、空の手順を除いたあとも同じ並びにそろえる
   const pairs = r.data.steps
-    .map((s) => ({
-      text: clip(typeof s === "string" ? s : s.text, LIMITS.stepMax).replace(
-        /^(\d+|[①-⑳])[.)．、\s]*/u,
-        "",
-      ),
-      at: typeof s === "string" ? null : parseSceneTime(s.at),
-    }))
+    .map((s) => {
+      const o =
+        s && typeof s === "object"
+          ? (s as {
+              text?: unknown;
+              step?: unknown;
+              at?: unknown;
+              time?: unknown;
+            })
+          : null;
+      const raw = typeof s === "string" ? s : (o?.text ?? o?.step);
+      return {
+        text: clip(typeof raw === "string" ? raw : "", LIMITS.stepMax).replace(
+          /^(\d+|[①-⑳])[.)．、\s]*/u,
+          "",
+        ),
+        at: o ? parseSceneTime(o.at ?? o.time) : null,
+      };
+    })
     .filter((p) => p.text)
     .slice(0, LIMITS.stepsMax);
   const steps = pairs.map((p) => p.text);

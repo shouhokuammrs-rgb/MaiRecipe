@@ -11,10 +11,12 @@ describe("parseSceneTime", () => {
     [42, 42],
     ["75", 75],
     ["1分23秒", 83],
+    ["120秒", 120],
+    [35.4, 35],
   ])("%j → %s", (raw, n) => {
     expect(parseSceneTime(raw)).toBe(n);
   });
-  it.each([[""], [null], ["abc"], [-1], ["1:99"], [999999]])(
+  it.each([[""], [null], ["abc"], [-1], ["1:99"], [999999], ["1:75:00"]])(
     "読めなければ null（%j）",
     (raw) => {
       expect(parseSceneTime(raw)).toBeNull();
@@ -39,6 +41,14 @@ describe("parseAiRecipe（手順の時刻）", () => {
     expect(r?.steps).toEqual(["割る", "混ぜる", "焼く"]);
     expect(r?.stepTimes).toEqual([10, null, 65]);
   });
+  it("形の崩れた手順が1つあっても、その手順だけ捨てる", () => {
+    const r = parseAiRecipe(
+      '{"ingredients":[{"name":"卵"}],"steps":[{"text":null,"at":"0:10"},{"step":"焼く","time":"0:20"},"盛る"]}',
+    );
+    expect(r?.steps).toEqual(["焼く", "盛る"]);
+    expect(r?.stepTimes).toEqual([20, null]);
+  });
+
   it("時刻が1つも無ければ空の配列", () => {
     expect(
       parseAiRecipe('{"ingredients":[{"name":"卵"}],"steps":["割る"]}')

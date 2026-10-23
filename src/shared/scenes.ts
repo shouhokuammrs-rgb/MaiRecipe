@@ -13,15 +13,16 @@ export const stepTimesSchema = z
 /** "1:23" "01:02:03" "1分23秒" 83 を秒にする。読めなければ null */
 export function parseSceneTime(raw: unknown): number | null {
   let n: number | null = null;
-  if (typeof raw === "number") n = raw;
+  if (typeof raw === "number")
+    n = Number.isFinite(raw) ? Math.floor(raw) : null;
   else if (typeof raw === "string") {
     const s = raw.normalize("NFKC").trim();
     let m = s.match(/^(?:(\d{1,2}):)?(\d{1,3}):(\d{2})$/);
     if (m) {
       const sec = Number(m[3]);
-      if (sec >= 60) return null;
+      if (sec >= 60 || (m[1] !== undefined && Number(m[2]) >= 60)) return null;
       n = Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + sec;
-    } else if ((m = s.match(/^(?:(\d{1,3})分)?(?:(\d{1,2})秒)?$/)) && s)
+    } else if ((m = s.match(/^(?:(\d{1,3})分)?(?:(\d{1,5})秒)?$/)) && s)
       n = Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0);
     else if (/^\d{1,5}$/.test(s)) n = Number(s);
   }

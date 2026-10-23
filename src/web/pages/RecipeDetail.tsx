@@ -66,8 +66,11 @@ function DetailView({ r }: { r: Detail }) {
   // 人数を変えたときだけ分量を換算して見せる（保存はしない）
   const [picked, setPicked] = useState<number | null>(null);
   // 手順の「▶ 1:23」を押したら、上の動画をその場面から再生する
-  const [sceneAt, setSceneAt] = useState<number | null>(null);
-  const times = view.stepTimes ?? [];
+  const [sceneAt, setSceneAt] = useState<{ at: number; n: number } | null>(
+    null,
+  );
+  const times =
+    view.stepTimes?.length === view.steps.length ? view.stepTimes : [];
   const base = view.servings || null;
   const people = base ? (picked ?? base) : null;
   const shownIngs =
@@ -344,7 +347,8 @@ function DetailView({ r }: { r: Detail }) {
                       className="flex h-9 items-center gap-1 self-start rounded-full border border-field bg-card px-3 text-xs font-bold text-accent-deep"
                       aria-label={`動画の${formatClock(times[k]!)}から、手順${k + 1}の場面を再生`}
                       onClick={() => {
-                        setSceneAt(times[k]!);
+                        const at = times[k]!;
+                        setSceneAt((s) => ({ at, n: (s?.n ?? 0) + 1 }));
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
                     >
