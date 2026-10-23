@@ -4,6 +4,7 @@ import {
   scaleAmount,
   scaleIngredients,
   servingsFromText,
+  servingsNearIngredients,
 } from "../../src/shared/servings";
 
 describe("parseServings（構造化データの recipeYield）", () => {
@@ -35,6 +36,17 @@ describe("servingsFromText（概要欄・ページの文）", () => {
     expect(servingsFromText("材料（4人前）")).toBe(4);
     expect(servingsFromText("■材料 3〜4人分")).toBe(3);
   });
+  it("材料の見出しの近くの人数を、他の人数より先に使う", () => {
+    expect(servingsFromText("本日1人前限定！\n【材料】\n(3人分)\n卵 2個")).toBe(
+      3,
+    );
+    expect(servingsNearIngredients("本日1人前限定")).toBeNull();
+  });
+  it("英語の範囲・makes", () => {
+    expect(parseServings("6 to 8 servings")).toBe(6);
+    expect(parseServings("Makes 4")).toBe(4);
+  });
+
   it("人数が無ければ null", () => {
     expect(servingsFromText("鶏もも肉 300g\n塩 少々")).toBeNull();
     expect(servingsFromText("10個分")).toBeNull();
@@ -68,6 +80,12 @@ describe("scaleAmount", () => {
     expect(scaleAmount("大さじ1", 0.25)).toBe("小さじ3/4");
     expect(scaleAmount("小さじ1", 3)).toBe("大さじ1");
     expect(scaleAmount("小さじ1", 2)).toBe("小さじ2");
+  });
+
+  it("小さじ1/4より少なければ少々・g は分数にしない", () => {
+    expect(scaleAmount("小さじ1/3", 0.5)).toBe("少々");
+    expect(scaleAmount("小さじ1/4", 1.5)).toBe("小さじ1/3");
+    expect(scaleAmount("5g", 0.5)).toBe("2.5g");
   });
 
   it("数えられない分量・倍率1はそのまま", () => {

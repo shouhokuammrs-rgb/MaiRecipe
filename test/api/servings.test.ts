@@ -138,6 +138,40 @@ describe("何人分か", () => {
     expect((await getRecipe(me, id)).versions[0]!.servings).toBeNull();
   });
 
+  it("ページが無い（404）ときは「無かった」として覚え、もう探さない", async () => {
+    const me = await signUp();
+    const id = await create(me, { ...sampleRecipe, videoUrl: null });
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response("no", { status: 404 }));
+    const r = (await (
+      await api(me, `/recipes/${id}/servings`, { method: "POST" })
+    ).json()) as { servings: number | null };
+    expect(r.servings).toBe(0);
+    const calls = spy.mock.calls.length;
+    await api(me, `/recipes/${id}/servings`, { method: "POST" });
+    expect(spy.mock.calls.length).toBe(calls);
+  });
+
+  it("人が「分からない」を選んだ版は、出典から探して上書きしない", async () => {
+    const me = await signUp();
+    const id = await create(me, {
+      ...sampleRecipe,
+      videoUrl: null,
+      servings: 4,
+    });
+    const { videoUrl: _v, sourceUrl: _s, origin: _o, ...fields } = sampleRecipe;
+    await api(me, `/recipes/${id}/versions`, {
+      method: "POST",
+      body: { ...fields, servings: null },
+    });
+    const spy = mockHtml(ld({ recipeYield: "2人分" }));
+    await api(me, `/recipes/${id}/servings`, { method: "POST" });
+    expect(spy).not.toHaveBeenCalled();
+    const r = await getRecipe(me, id);
+    expect(r.versions.map((v) => v.servings)).toEqual([4, null]);
+  });
+
   it("買い物リストは、ふだん作る人数（設定）に換算する", async () => {
     const me = await signUp();
     const id = await create(me, {

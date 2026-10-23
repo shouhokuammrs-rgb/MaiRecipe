@@ -26,14 +26,32 @@ export function parseServings(raw: unknown): number | null {
   if (/^\d+$/.test(s)) return inRange(Number(s));
   const m =
     s.match(/(\d+)\s*(?:[〜~\-–]\s*\d+\s*)?(?:人分|人前|名分|人)/) ??
-    s.match(/(\d+)\s*(?:[〜~\-–]\s*\d+\s*)?servings?/i) ??
-    s.match(/serves\s*(\d+)/i);
+    s.match(/(\d+)\s*(?:(?:[〜~\-–]|to)\s*\d+\s*)?servings?/i) ??
+    s.match(/(?:serves|makes)\s*(\d+)/i);
   return m ? inRange(Number(m[1])) : null;
 }
 
-/** 文の中の最初の「2人分」「4人前」から人数（概要欄・材料の見出し）。無ければ null */
+const PEOPLE = /(\d+)\s*(?:[〜~\-–]\s*\d+\s*)?(?:人分|人前)/;
+
+/**
+ * 「材料」の見出しの行か、その次の行にある人数（「【材料】(2人分)」）。無ければ null。
+ * 概要欄の「本日1人前限定」のような、材料と関係ない人数を拾わないため
+ */
+export function servingsNearIngredients(text: string): number | null {
+  const lines = half(text).split(/\r?\n/);
+  for (let k = 0; k < lines.length; k++) {
+    if (!/材料/.test(lines[k]!)) continue;
+    const m = lines[k]!.match(PEOPLE) ?? lines[k + 1]?.match(PEOPLE);
+    if (m) return inRange(Number(m[1]));
+  }
+  return null;
+}
+
+/** 材料の見出しの人数。無ければ文の中の最初の「2人分」「4人前」。どちらも無ければ null */
 export function servingsFromText(text: string): number | null {
-  const m = half(text).match(/(\d+)\s*(?:[〜~\-–]\s*\d+\s*)?(?:人分|人前)/);
+  const near = servingsNearIngredients(text);
+  if (near) return near;
+  const m = half(text).match(PEOPLE);
   return m ? inRange(Number(m[1])) : null;
 }
 
@@ -49,8 +67,16 @@ const INNER = new RegExp(
 const WHOLE_UNIT = /^\s*(?:g|ml|mL|cc)/;
 
 function fmt(n: number, rest: string): string {
-  if (WHOLE_UNIT.test(rest) && n >= 10) return String(Math.round(n));
+  // g・ml は分数にしない（10以上は整数、それより少なければ小数1桁）
+  if (WHOLE_UNIT.test(rest))
+    return String(n >= 10 ? Math.round(n) : Math.round(n * 10) / 10);
   return formatNumber(n);
+}
+
+function snapSpoon(x: number): number {
+  const q = Math.round(x * 4) / 4;
+  const t = Math.round(x * 3) / 3;
+  return Math.abs(q - x) <= Math.abs(t - x) ? q : t;
 }
 
 /** 分量を倍率で換算する（"大さじ2" × 0.5 → "大さじ1"）。読めなければそのまま */
@@ -79,6 +105,10 @@ export function scaleAmount(amount: string, factor: number): string {
     k /= 3;
     x = qa * k;
   }
+  // 小さじ1/4 より少ない量は計りにくいので「少々」
+  if (!b && spoon === "小さじ" && x < 0.24) return "少々";
+  // 大さじ・小さじは計れる量（1/4・1/3 刻み）にそろえる
+  if (spoon && !b) x = snapSpoon(x);
   const rest = restRaw.replace(
     INNER,
     (_, open: string, n: string, close: string) => {

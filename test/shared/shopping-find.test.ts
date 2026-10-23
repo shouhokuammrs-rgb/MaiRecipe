@@ -127,4 +127,24 @@ describe("aggregateShopping（人数の換算）", () => {
     );
     expect(items.find((i) => i.name === "合いびき肉")?.amount).toBe("300g");
   });
+
+  it("範囲・（200g）・約 も換算する", () => {
+    const amounts = aggregateShopping(
+      [
+        {
+          recipeTitle: "a",
+          servings: 4,
+          ingredients: [
+            { name: "じゃがいも", amount: "2〜4個" },
+            { name: "しめじ", amount: "1袋（200g）" },
+            { name: "豚こま肉", amount: "約200g" },
+          ],
+        },
+      ],
+      2,
+    ).map((i) => `${i.name}:${i.amount}`);
+    expect(amounts).toContain("じゃがいも:1〜2個");
+    expect(amounts).toContain("しめじ:1/2袋（100g）");
+    expect(amounts).toContain("豚こま肉:約100g");
+  });
 });

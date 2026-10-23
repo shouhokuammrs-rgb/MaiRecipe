@@ -19,8 +19,8 @@ export function useHousehold(): number | null {
 export function useFindServings(r: RecipeDetail) {
   const qc = useQueryClient();
   const tried = useRef(new Set<string>());
-  const latest = r.versions[r.versions.length - 1];
-  const need = latest?.servings === null;
+  // どの版にも人数が無いときだけ（人が「分からない」を選んだ版は探さない）
+  const need = r.versions.every((v) => v.servings === null);
   useEffect(() => {
     if (!need || tried.current.has(r.id)) return;
     tried.current.add(r.id);

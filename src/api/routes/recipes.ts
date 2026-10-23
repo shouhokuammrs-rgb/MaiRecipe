@@ -13,7 +13,15 @@ import {
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
 import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
-import { scanPage, youtubeSnippet } from "../platform/fetch-page";
+import {
+  FetchPageError,
+  scanPage,
+  youtubeSnippet,
+} from "../platform/fetch-page";
+
+const isTransient = (e: FetchPageError) =>
+  e.message === "ページを取得できませんでした" ||
+  /（(?:5\d\d|429)）/.test(e.message);
 
 export const recipes = new Hono<AppEnv>();
 
@@ -148,7 +156,9 @@ recipes.post("/:id/servings", async (c) => {
   const id = c.req.param("id");
   const r = await c.var.repo.getRecipe(id);
   const latest = r.versions[r.versions.length - 1];
-  if (!latest || latest.servings !== null)
+  // 探すのは、どの版にも人数が無い（人数を読む前に保存した）レシピだけ。
+  // 人が「分からない」を選んだ版は上書きしない
+  if (!latest || r.versions.some((v) => v.servings !== null))
     return c.json({ servings: latest?.servings ?? null });
   let found: number | null = null;
   const video = r.videoUrl ? parseVideoUrl(r.videoUrl) : null;
@@ -164,8 +174,11 @@ recipes.post("/:id/servings", async (c) => {
       if (!snip) return c.json({ servings: null });
       found = servingsFromText(snip.description);
     }
-  } catch {
-    return c.json({ servings: null });
+  } catch (e) {
+    // 一時的な失敗（不通・時間切れ・相手の 5xx）は覚えない。次に開いたときにまた探す。
+    // ページが無い・レシピのページでない などは、何度読んでも同じなので「無かった」として覚える
+    if (!(e instanceof FetchPageError) || isTransient(e))
+      return c.json({ servings: null });
   }
   await c.var.repo.fillServings(id, found ?? 0);
   return c.json({ servings: found ?? 0 });

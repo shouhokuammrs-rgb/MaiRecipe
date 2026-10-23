@@ -134,7 +134,7 @@ function HouseholdSection() {
           <select
             className="h-11 rounded-xl border border-field bg-card px-3 text-base"
             disabled={!q.data || save.isPending}
-            value={save.variables ?? q.data?.servings ?? 2}
+            value={save.isPending ? save.variables : (q.data?.servings ?? 2)}
             onChange={(e) => save.mutate(Number(e.target.value))}
           >
             {Array.from({ length: SERVINGS_MAX }, (_, k) => k + 1).map((n) => (

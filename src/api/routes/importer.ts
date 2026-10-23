@@ -19,7 +19,10 @@ import {
 import { LIMITS } from "../../shared/constants";
 import { cleanImageUrl, jsonLdImage } from "../../shared/cover";
 import { addGroupsFromPage } from "../../shared/groups";
-import { servingsFromText } from "../../shared/servings";
+import {
+  servingsFromText,
+  servingsNearIngredients,
+} from "../../shared/servings";
 import {
   aiReadSchema,
   findUnverified,
@@ -504,8 +507,11 @@ async function readWithAi(
       );
       const recipe = {
         ...watched,
-        // 人数は投稿者が概要欄に書いた値を優先
-        servings: servingsFromText(source) ?? watched.servings,
+        // 人数は概要欄の材料の見出し → AI → 概要欄のどこか、の順
+        servings:
+          servingsNearIngredients(source) ??
+          watched.servings ??
+          servingsFromText(source),
       };
       if (recipe.steps.length > 0 || source.trim().length < 20)
         return aiDraftBody(recipe, title, video.watchUrl, null, true);
@@ -531,8 +537,14 @@ async function readWithAi(
   } catch (e) {
     return aiError(e);
   }
-  // 人数は元の文に書いてあればそちらを優先（AI の読み違いを避ける）
-  recipe = { ...recipe, servings: servingsFromText(source) ?? recipe.servings };
+  // 人数は材料の見出しに書いてあればそちらを優先（AI の読み違いを避ける）
+  recipe = {
+    ...recipe,
+    servings:
+      servingsNearIngredients(source) ??
+      recipe.servings ??
+      servingsFromText(source),
+  };
   const notices = [
     unverifiedNotice(findUnverified(recipe.ingredients, source)),
     watchNote && !recipe.steps.length

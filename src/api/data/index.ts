@@ -412,8 +412,12 @@ export function forGroup(db: Db, groupId: string) {
       if (last.timeLabel !== input.timeLabel)
         changes.push(`時間 → ${input.timeLabel || "なし"}`);
       // 人数を渡さなかった（古い画面）ときは前の版のまま
+      // 0（出典にも無かった）の版から「分からない」で直したときも 0 のまま（もう探さない）
       const servings =
-        input.servings === undefined ? last.servings : input.servings;
+        input.servings === undefined ||
+        (input.servings === null && last.servings === 0)
+          ? last.servings
+          : input.servings;
       if ((last.servings || null) !== (servings || null))
         changes.push(servings ? `${servings}人分にした` : "人数 → なし");
       if (!changes.length) return null;

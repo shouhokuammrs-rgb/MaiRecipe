@@ -3,6 +3,7 @@ import { formatAmount, parseAmount } from "./amount";
 import type { ShopSection } from "./constants";
 import { SHOP_SECTIONS } from "./constants";
 import { canonicalName, shopSection } from "./ingredients";
+import { scaleAmount } from "./servings";
 import type { Ingredient } from "./recipe";
 
 export type ShoppingSource = {
@@ -45,7 +46,10 @@ export function aggregateShopping(
     for (const ing of src.ingredients) {
       const name = canonicalName(ing.name);
       if (!name) continue;
-      const p = parseAmount(ing.amount);
+      // 分量の文字ごと換算してから読む（範囲・（200g）・約・各 も換算される）
+      const p = parseAmount(
+        factor === 1 ? ing.amount : scaleAmount(ing.amount, factor),
+      );
       // 数えられる分量は単位ごとに合計。「少々」「適量」などは名前ごとに1行
       const key =
         p.qty === null ? `${name}|${p.unit || "-"}` : `${name}|${p.unit}`;
@@ -61,7 +65,7 @@ export function aggregateShopping(
         };
         map.set(key, e);
       }
-      if (p.qty !== null && e.qty !== null) e.qty += p.qty * factor;
+      if (p.qty !== null && e.qty !== null) e.qty += p.qty;
       if (!e.recipes.includes(src.recipeTitle)) e.recipes.push(src.recipeTitle);
       const raw = ing.name.trim();
       if (raw !== name && !e.merged.includes(raw)) e.merged.push(raw);
