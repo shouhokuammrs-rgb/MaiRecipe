@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useRecipe } from "@/lib/offlineRecipes";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/api/client";
 import { ErrorState, Loading, SubHeader } from "@/components/common";
@@ -12,10 +13,7 @@ export function RecipeEdit() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
-  const q = useQuery({
-    queryKey: ["recipe", id],
-    queryFn: () => apiClient.getRecipe(id),
-  });
+  const q = useRecipe(id);
 
   const save = useMutation({
     mutationFn: (fields: Parameters<typeof apiClient.addVersion>[1]) =>

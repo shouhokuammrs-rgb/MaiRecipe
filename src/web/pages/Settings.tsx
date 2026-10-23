@@ -11,6 +11,7 @@ import {
 } from "@/components/common";
 import { InviteBanner } from "@/components/InviteBanner";
 import { authClient } from "@/lib/auth-client";
+import { clearOfflineRecipes } from "@/lib/offlineRecipes";
 import { cn } from "@/lib/utils";
 import { SERVINGS_MAX } from "../../shared/servings";
 
@@ -23,6 +24,7 @@ export function Settings() {
   const logout = async () => {
     await authClient.signOut();
     qc.clear();
+    clearOfflineRecipes();
     nav("/login", { replace: true });
   };
 

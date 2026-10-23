@@ -8,10 +8,11 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient, type PlanEntry } from "@/api/client";
 import { Empty, ErrorState, Loading, PageTitle } from "@/components/common";
+import { prefetchRecipes } from "@/lib/offlineRecipes";
 import { categoryTint } from "@/lib/tint";
 import { cn } from "@/lib/utils";
 import { MEAL_LABELS, MEALS, type Meal } from "../../shared/constants";
@@ -33,6 +34,15 @@ export function Plan() {
     queryKey: ["plans", start],
     queryFn: () => apiClient.plans(start, end),
   });
+  // 今日・明日の献立のレシピは、先に読んで端末に残す（台所で電波が切れても料理モードで見られる）
+  useEffect(() => {
+    const today = todayJst();
+    const tomorrow = addDays(today, 1);
+    const ids = (plans.data?.plans ?? [])
+      .filter((p) => p.date === today || p.date === tomorrow)
+      .map((p) => p.recipeId);
+    if (ids.length) prefetchRecipes(qc, ids);
+  }, [plans.data, qc]);
   const addingRecipe = useQuery({
     queryKey: ["recipe", adding],
     queryFn: () => apiClient.getRecipe(adding!),
