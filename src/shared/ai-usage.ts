@@ -18,6 +18,32 @@ export const AI_BUDGETS: Record<UsageKey, { label: string; perDay: number }> = {
   },
 };
 
+/**
+ * 会社ごとの「1日」の区切り。無料枠の回数が戻る時刻に合わせる
+ * （Gemini は太平洋時間の0時＝日本時間の16〜17時、Workers AI は UTC の0時＝日本時間の9時）
+ */
+const DAY_ZONE: Record<string, string> = {
+  gemini: "America/Los_Angeles",
+  "workers-ai": "UTC",
+};
+
+/** その作業を数える日付（YYYY-MM-DD。会社の区切りで） */
+export function usageDay(key: UsageKey, now = new Date()): string {
+  const zone = DAY_ZONE[key.split(":")[0]!] ?? "UTC";
+  // en-CA は YYYY-MM-DD の形で出る
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+/** 今日の分で、止めるまでに使える回数 */
+export function stopAt(key: UsageKey): number {
+  return Math.floor(AI_BUDGETS[key].perDay * STOP_RATIO);
+}
+
 /** この割合に達したら止める */
 export const STOP_RATIO = 0.9;
 

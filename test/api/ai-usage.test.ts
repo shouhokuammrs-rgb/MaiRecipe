@@ -1,8 +1,7 @@
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkersAiBinding } from "../../src/api/platform/workers-ai";
-import { todayJst } from "../../src/shared/dates";
-import { AI_BUDGETS, STOP_RATIO } from "../../src/shared/ai-usage";
+import { AI_BUDGETS, STOP_RATIO, usageDay } from "../../src/shared/ai-usage";
 import { api, sampleRecipe, signUp } from "./helpers";
 
 // AI の使用量（DEC-025）：日ごとの回数を数え、目安の9割で止める
@@ -22,7 +21,7 @@ const setUsed = (key: keyof typeof AI_BUDGETS, count: number) =>
   E.DB.prepare(
     "INSERT INTO ai_usage (day, key, count) VALUES (?, ?, ?) ON CONFLICT(day, key) DO UPDATE SET count = excluded.count",
   )
-    .bind(todayJst(), key, count)
+    .bind(usageDay(key), key, count)
     .run();
 const stopAt = (key: keyof typeof AI_BUDGETS) =>
   Math.floor(AI_BUDGETS[key].perDay * STOP_RATIO);

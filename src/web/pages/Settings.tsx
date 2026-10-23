@@ -120,7 +120,7 @@ function AiUsageSection() {
         ) : (
           q.data.items.map((i) => {
             const ratio = Math.min(1, i.used / Math.max(1, i.stopAt));
-            const stopped = i.used >= i.stopAt;
+            const stopped = i.available && i.used >= i.stopAt;
             return (
               <div key={i.key} className="flex flex-col gap-1">
                 <div className="flex justify-between gap-2">
@@ -131,9 +131,11 @@ function AiUsageSection() {
                       stopped ? "font-bold text-danger" : "text-sub",
                     )}
                   >
-                    {stopped
-                      ? "今日は止めています"
-                      : `${i.used} / ${i.stopAt} 回`}
+                    {!i.available
+                      ? "使っていない設定です"
+                      : stopped
+                        ? "今日は止めています"
+                        : `${i.used} / ${i.stopAt} 回`}
                   </span>
                 </div>
                 <div
@@ -147,11 +149,7 @@ function AiUsageSection() {
                   <div
                     className={cn(
                       "h-full rounded-full",
-                      stopped
-                        ? "bg-danger"
-                        : ratio > 0.7
-                          ? "bg-accent"
-                          : "bg-herb",
+                      stopped ? "bg-danger" : "bg-herb",
                     )}
                     style={{ width: `${ratio * 100}%` }}
                   />
@@ -162,8 +160,10 @@ function AiUsageSection() {
         )}
         <p className="text-xs leading-5 text-sub">
           AI
-          は無料の枠だけで使っています。お金はかかりません。無料の目安の9割に達したら、その日は止めて、翌日（日本時間の0時）にまた使えます。取り込みは
-          AI が止まっても、サイトのレシピ情報や手入力で続けられます。
+          は無料の枠だけで使っています。お金はかかりません。無料の目安の9割に達したら、その日は止めます。回数が戻るのは、Gemini
+          は日本時間の16〜17時ごろ、Workers AI
+          は9時です（会社ごとの1日の区切り）。取り込みは AI
+          が止まっても、サイトのレシピ情報や手入力で続けられます。
         </p>
       </div>
     </section>

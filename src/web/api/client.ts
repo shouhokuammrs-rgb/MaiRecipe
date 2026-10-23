@@ -323,8 +323,14 @@ export const apiClient = {
   /** 今日の AI の使用量（DEC-025） */
   aiUsage: () =>
     call<{
-      day: string;
-      items: { key: string; label: string; used: number; stopAt: number }[];
+      items: {
+        key: string;
+        label: string;
+        used: number;
+        stopAt: number;
+        /** 鍵・バインディングがあって使える設定か */
+        available: boolean;
+      }[];
     }>("/ai/usage"),
   setHouseholdServings: (servings: number) =>
     call<{ servings: number }>("/group/servings", {

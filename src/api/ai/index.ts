@@ -24,7 +24,7 @@ import {
 import { runWorkersAi, type WorkersAiBinding } from "../platform/workers-ai";
 import { aiMeter } from "../data/usage";
 import type { UsageKey } from "../../shared/ai-usage";
-import { AiQuotaExceeded } from "../platform/workers-ai";
+import { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
 
 export { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
 
@@ -70,10 +70,7 @@ export class AiDailyStop extends AiQuotaExceeded {}
  * 数えるのは呼ぶ前（失敗しても会社側の回数には数えられる）
  */
 async function take(env: AiEnv, key: UsageKey): Promise<boolean> {
-  const meter = aiMeter(env);
-  if (await meter.stopped(key)) return false;
-  await meter.record(key);
-  return true;
+  return aiMeter(env).take(key);
 }
 
 async function takeOrThrow(env: AiEnv, key: UsageKey) {
@@ -94,6 +91,7 @@ export async function readRecipeWithAi(
 ): Promise<AiRecipe> {
   const task = TASKS.read_recipe;
   const { system, user } = buildReadPrompt(source, title);
+  if (!env.AI) throw new AiUnavailable("Workers AI がつながっていません");
   await takeOrThrow(env, "workers-ai:read_recipe");
   const raw = await runWorkersAi(
     env.AI,
@@ -172,8 +170,18 @@ export async function assistCooking(
     }
   }
   if (reply) return { ...reply, via: "gemini" };
-  if (!env.AI && geminiError) throw geminiError;
-  await takeOrThrow(env, "workers-ai:cook_assist");
+  if (!env.AI) {
+    if (geminiError) throw geminiError;
+    throw new AiUnavailable("Workers AI がつながっていません");
+  }
+  if (!(await take(env, "workers-ai:cook_assist")))
+    // Gemini が自分の側で失敗していたら、その理由を優先して伝える
+    throw (
+      geminiError ??
+      new AiDailyStop(
+        "今日の AI の無料分の9割を使ったので、止めています。明日また使えます",
+      )
+    );
   reply = parseAssistReply(
     await runWorkersAi(env.AI, task.fallback, system, user, 1500),
   );
