@@ -1,4 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRecipe } from "@/lib/offlineRecipes";
+import { OfflineNotice } from "@/components/OfflineNotice";
 import {
   Camera,
   ChevronLeft,
@@ -42,14 +44,16 @@ function md(ts: number) {
 
 export function RecipeDetail() {
   const { id = "" } = useParams();
-  const q = useQuery({
-    queryKey: ["recipe", id],
-    queryFn: () => apiClient.getRecipe(id),
-  });
+  const q = useRecipe(id);
   if (q.isPending) return <Loading />;
   if (q.isError)
     return <ErrorState error={q.error} retry={() => q.refetch()} />;
-  return <DetailView r={q.data} />;
+  return (
+    <>
+      <OfflineNotice at={q.data.offlineSavedAt} />
+      <DetailView r={q.data} />
+    </>
+  );
 }
 
 function DetailView({ r }: { r: Detail }) {

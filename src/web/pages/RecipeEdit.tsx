@@ -13,6 +13,7 @@ export function RecipeEdit() {
   const qc = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const q = useQuery({
+    // 編集は必ず最新の版から（端末に残した古い内容で版を作らない）
     queryKey: ["recipe", id],
     queryFn: () => apiClient.getRecipe(id),
   });

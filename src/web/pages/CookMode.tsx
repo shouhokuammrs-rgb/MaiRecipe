@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,6 +11,8 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRecipe } from "@/lib/offlineRecipes";
+import { OfflineNotice } from "@/components/OfflineNotice";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiClient, ApiError } from "@/api/client";
 import { ErrorState, Loading } from "@/components/common";
@@ -46,10 +47,7 @@ import { sceneUrl } from "../../shared/scene-url";
 export function CookMode() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
-  const q = useQuery({
-    queryKey: ["recipe", id],
-    queryFn: () => apiClient.getRecipe(id),
-  });
+  const q = useRecipe(id);
   if (q.isPending) return <Loading />;
   if (q.isError)
     return <ErrorState error={q.error} retry={() => q.refetch()} />;
@@ -70,6 +68,7 @@ export function CookMode() {
       : null;
   return (
     <CookView
+      offlineAt={r.offlineSavedAt}
       recipeId={r.id}
       versionId={v.id}
       title={v.title}
@@ -122,7 +121,10 @@ function CookView({
   tips,
   videoUrl,
   stepTimes,
+  offlineAt,
 }: {
+  /** 端末に残していたレシピを出しているとき、残した時刻 */
+  offlineAt?: number;
   recipeId: string;
   versionId: string;
   title: string;
@@ -498,6 +500,7 @@ function CookView({
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[480px] flex-col bg-paper">
+      <OfflineNotice at={offlineAt} />
       {/* 上：閉じる・料理名・何番目か */}
       <header className="flex items-center gap-2 px-2 pt-[max(env(safe-area-inset-top),8px)]">
         <button

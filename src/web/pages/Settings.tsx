@@ -11,6 +11,7 @@ import {
 } from "@/components/common";
 import { InviteBanner } from "@/components/InviteBanner";
 import { authClient } from "@/lib/auth-client";
+import { clearOfflineRecipes } from "@/lib/offlineRecipes";
 import { cn } from "@/lib/utils";
 import { SERVINGS_MAX } from "../../shared/servings";
 
@@ -21,6 +22,8 @@ export function Settings() {
   const user = session.data?.user;
 
   const logout = async () => {
+    // 先に消す（ログアウトに失敗しても残さない）
+    clearOfflineRecipes();
     await authClient.signOut();
     qc.clear();
     nav("/login", { replace: true });
