@@ -9,6 +9,12 @@ import {
   type AssistReply,
 } from "../../shared/assist";
 import {
+  buildMemoPrompt,
+  parseMemoChanges,
+  type MemoChange,
+  type MemoRecipe,
+} from "../../shared/memo-apply";
+import {
   buildReadPrompt,
   buildVideoPrompt,
   parseAiRecipe,
@@ -44,6 +50,14 @@ const TASKS = {
     // 考える分も上限に数えられるので、短い答えでも余裕を持たせる
     maxTokens: 4096,
     /** Gemini が使えないときの予備 */
+    fallback: "@cf/openai/gpt-oss-120b",
+  },
+  memo_apply: {
+    provider: "gemini",
+    model: "gemini-3.6-flash",
+    thinkingLevel: "low",
+    maxTokens: 4096,
+    timeoutMs: 30_000,
     fallback: "@cf/openai/gpt-oss-120b",
   },
   watch_video: {
@@ -192,4 +206,55 @@ export async function assistCooking(
   if (!reply) throw new AiBadOutput("答えを作れませんでした");
   // どちらが答えたかを返す（遅い・答えが変なときに見分けるため）
   return { ...reply, via: "workers-ai" };
+}
+
+/**
+ * メモから、レシピの変更案を出す（#23 / DEC-027）。Gemini が使えなければ Workers AI。
+ * 返事は変更案の一覧（確かめ済み）。読めなければ AiBadOutput
+ */
+export async function suggestMemoChanges(
+  env: AiEnv,
+  recipe: MemoRecipe,
+  memo: string,
+): Promise<MemoChange[]> {
+  const task = TASKS.memo_apply;
+  const { system, user } = buildMemoPrompt(recipe, memo);
+  let geminiError: unknown = null;
+  if (hasGemini(env) && (await take(env, "gemini:memo_apply"))) {
+    try {
+      const raw = await runGeminiText(
+        env,
+        task.model,
+        system,
+        user,
+        task.maxTokens,
+        task.thinkingLevel,
+        task.timeoutMs,
+      );
+      const changes = parseMemoChanges(raw, recipe, memo);
+      if (changes) return changes;
+      // 読めない返事は、予備の AI に回す
+      geminiError = new AiBadOutput("変更案を作れませんでした");
+    } catch (e) {
+      geminiError = e;
+    }
+  }
+  if (!env.AI) {
+    if (geminiError) throw geminiError;
+    throw new AiUnavailable("AI がつながっていません");
+  }
+  if (!(await take(env, "workers-ai:memo_apply")))
+    throw (
+      geminiError ??
+      new AiDailyStop(
+        "今日の AI の無料分の9割を使ったので、止めています。明日また使えます",
+      )
+    );
+  const changes = parseMemoChanges(
+    await runWorkersAi(env.AI, task.fallback, system, user, 2000),
+    recipe,
+    memo,
+  );
+  if (!changes) throw new AiBadOutput("変更案を作れませんでした");
+  return changes;
 }
