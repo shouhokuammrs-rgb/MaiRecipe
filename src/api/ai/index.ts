@@ -231,7 +231,10 @@ export async function suggestMemoChanges(
         task.thinkingLevel,
         task.timeoutMs,
       );
-      if (raw.includes('"changes"')) return parseMemoChanges(raw, recipe, memo);
+      const changes = parseMemoChanges(raw, recipe, memo);
+      if (changes) return changes;
+      // 読めない返事は、予備の AI に回す
+      geminiError = new AiBadOutput("変更案を作れませんでした");
     } catch (e) {
       geminiError = e;
     }
@@ -247,8 +250,11 @@ export async function suggestMemoChanges(
         "今日の AI の無料分の9割を使ったので、止めています。明日また使えます",
       )
     );
-  const raw = await runWorkersAi(env.AI, task.fallback, system, user, 2000);
-  if (!raw.includes('"changes"'))
-    throw new AiBadOutput("変更案を作れませんでした");
-  return parseMemoChanges(raw, recipe, memo);
+  const changes = parseMemoChanges(
+    await runWorkersAi(env.AI, task.fallback, system, user, 2000),
+    recipe,
+    memo,
+  );
+  if (!changes) throw new AiBadOutput("変更案を作れませんでした");
+  return changes;
 }

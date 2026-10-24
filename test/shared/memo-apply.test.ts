@@ -70,7 +70,7 @@ describe("parseMemoChanges", () => {
   });
 
   it("番号と中身を確かめ、メモの言葉が本当にメモにあるかで「メモより」「AI の推測」を分ける", () => {
-    const changes = parseMemoChanges(raw, recipe, MEMO);
+    const changes = parseMemoChanges(raw, recipe, MEMO)!;
     expect(changes.map((c) => [c.kind, c.action, c.grounded])).toEqual([
       ["ingredient", "update", true],
       ["ingredient", "add", true],
@@ -99,7 +99,54 @@ describe("parseMemoChanges", () => {
         MEMO,
       ),
     ).toEqual([]);
-    expect(parseMemoChanges("ごめんなさい", recipe, MEMO)).toEqual([]);
+    // 読めない返事は null（「案が無い」と分ける）
+    expect(parseMemoChanges("ごめんなさい", recipe, MEMO)).toBeNull();
+    expect(parseMemoChanges('{"changes": 1}', recipe, MEMO)).toBeNull();
+  });
+
+  it("「。」や1文字はメモの言葉とみなさない", () => {
+    const one = (quote: string) =>
+      parseMemoChanges(
+        JSON.stringify({
+          changes: [{ kind: "ingredient", action: "remove", index: 1, quote }],
+        }),
+        recipe,
+        MEMO,
+      )![0]!.grounded;
+    expect(one("。")).toBe(false);
+    expect(one("!!")).toBe(false);
+    expect(one("た")).toBe(false);
+    expect(one("甘すぎた")).toBe(true);
+  });
+
+  it("同じ材料への2つ目の「変える・消す」は使わない。番号は数字だけ・範囲外の「後に足す」は使わない", () => {
+    const changes = parseMemoChanges(
+      JSON.stringify({
+        changes: [
+          {
+            kind: "ingredient",
+            action: "update",
+            index: 2,
+            name: "砂糖",
+            amount: "大さじ1",
+          },
+          { kind: "ingredient", action: "remove", index: 2 },
+          { kind: "ingredient", action: "remove", index: true },
+          { kind: "ingredient", action: "remove", index: "3" },
+          { kind: "step", action: "add", after: 99, text: "どこかに" },
+          { kind: "step", action: "add", after: false, text: "先頭？" },
+        ],
+      }),
+      recipe,
+      MEMO,
+    )!;
+    expect(changes.map((c) => [c.kind, c.action])).toEqual([
+      ["ingredient", "update"],
+      ["ingredient", "remove"],
+      ["step", "add"],
+    ]);
+    expect(changes[1]).toMatchObject({ index: 3 });
+    expect(changes[2]).toMatchObject({ after: null, text: "先頭？" });
   });
 });
 
@@ -141,7 +188,7 @@ describe("applyMemoChanges", () => {
       }),
       recipe,
       MEMO,
-    );
+    )!;
     const out = applyMemoChanges(recipe, changes);
     expect(out.ingredients).toEqual([
       { name: "鶏もも肉", amount: "1枚" },

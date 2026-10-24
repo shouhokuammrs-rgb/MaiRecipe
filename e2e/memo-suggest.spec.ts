@@ -31,10 +31,14 @@ test("メモから AI の変更案を選んで、新しい版にする", async (
   });
   const { id: memoId } = (await memo.json()) as { id: string };
 
+  const detail = await page.request.get(`/api/recipes/${id}`);
+  const VERSION_ID = (
+    (await detail.json()) as { recipe: { versions: { id: string }[] } }
+  ).recipe.versions[0]!.id;
   await page.route(`**/api/recipes/${id}/memos/${memoId}/suggest`, (r) =>
     r.fulfill({
       json: {
-        versionId: "x",
+        versionId: VERSION_ID,
         changes: [
           {
             kind: "ingredient",
@@ -75,6 +79,10 @@ test("メモから AI の変更案を選んで、新しい版にする", async (
     .getByRole("button", { name: "選んだ 1 件を下の編集欄に入れる" })
     .click();
   await expect(page.getByLabel("材料2の分量")).toHaveValue("大さじ1");
+  // 編集欄を作り直しても、案と「入れました」は残る
+  await expect(
+    page.getByText("選んだ変更を下の編集欄に入れました"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "v2 として保存" }).click();
   await expect(
     page.getByRole("heading", { name: "ダミーの照り焼き" }),

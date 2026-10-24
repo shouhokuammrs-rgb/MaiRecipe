@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { LIMITS } from "./constants";
 import type { Ingredient } from "./recipe";
-import { TIP_MAX, type Tip } from "./tips";
+import { TIP_MAX, TIPS_MAX, type Tip } from "./tips";
 
 export type MemoRecipe = {
   title: string;
@@ -97,9 +97,12 @@ const str = (max: number) =>
 const num = z
   .unknown()
   .transform((v) =>
-    v === null || v === undefined || v === "" ? null : Number(v),
-  )
-  .transform((v) => (v !== null && Number.isInteger(v) ? v : null));
+    typeof v === "number" && Number.isInteger(v)
+      ? v
+      : typeof v === "string" && /^\d+$/.test(v.trim())
+        ? Number(v)
+        : null,
+  );
 
 const rawChange = z.object({
   kind: z.string(),
@@ -120,23 +123,31 @@ const squash = (s: string) =>
 
 const MAX_CHANGES = 15;
 
-/** AI の返事を確かめて、使える変更案だけにする。読めなければ空 */
+/** メモの言葉とみなす最短の長さ（「。」や1文字はどのメモにもあるので数えない） */
+const QUOTE_MIN = 2;
+
+/**
+ * AI の返事を確かめて、使える変更案だけにする。
+ * 返事が読めなければ null（「案が無い」の空の配列と分ける）
+ */
 export function parseMemoChanges(
   raw: string,
   recipe: MemoRecipe,
   memo: string,
-): MemoChange[] {
+): MemoChange[] | null {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) return [];
+  if (start < 0 || end <= start) return null;
   let json: unknown;
   try {
     json = JSON.parse(raw.slice(start, end + 1));
   } catch {
-    return [];
+    return null;
   }
   const list = (json as { changes?: unknown })?.changes;
-  if (!Array.isArray(list)) return [];
+  if (!Array.isArray(list)) return null;
+  /** 同じ材料・手順への2つ目以降の「変える・消す」は使わない（どちらが効くか分からなくなる） */
+  const touched = new Set<string>();
   const memoKey = squash(memo);
   const nIng = recipe.ingredients.length;
   const nStep = recipe.steps.length;
@@ -148,7 +159,8 @@ export function parseMemoChanges(
     if (!p.success) continue;
     const c = p.data;
     const quote = c.quote ?? "";
-    const grounded = quote.length > 0 && memoKey.includes(squash(quote));
+    const q = squash(quote);
+    const grounded = q.length >= QUOTE_MIN && memoKey.includes(q);
     const meta = {
       reason: c.reason ?? "",
       quote: grounded ? quote : "",
@@ -196,9 +208,23 @@ export function parseMemoChanges(
       } else if (c.action === "remove" && inRange(c.index, nStep))
         change = { kind: "step", action: "remove", index: c.index!, ...meta };
       else if (c.action === "add" && c.text) {
-        const after =
-          c.after === 0 || inRange(c.after, nStep) ? c.after! : null;
-        change = { kind: "step", action: "add", after, text: c.text, ...meta };
+        // 範囲外の番号は、どこに入れたいのか分からないので使わない
+        if (c.after === null || c.after === undefined)
+          change = {
+            kind: "step",
+            action: "add",
+            after: null,
+            text: c.text,
+            ...meta,
+          };
+        else if (c.after === 0 || inRange(c.after, nStep))
+          change = {
+            kind: "step",
+            action: "add",
+            after: c.after,
+            text: c.text,
+            ...meta,
+          };
       }
     } else if (c.kind === "tip" && c.action === "add" && c.text) {
       change = {
@@ -208,6 +234,11 @@ export function parseMemoChanges(
         text: c.text.slice(0, TIP_MAX),
         ...meta,
       };
+    }
+    if (change && (change.action === "update" || change.action === "remove")) {
+      const key = `${change.kind}:${(change as { index: number }).index}`;
+      if (touched.has(key)) change = null;
+      else touched.add(key);
     }
     if (change) out.push(change);
     if (out.length >= MAX_CHANGES) break;
@@ -264,25 +295,29 @@ export function applyMemoChanges(
     const at = ordered.findIndex((r) => r.orig === orig);
     return at >= 0 ? at + 1 : null;
   };
-  const tips: Tip[] = [
-    ...recipe.tips.map((t) => ({ ...t, step: renumber(t.step) })),
-    ...changes
-      .filter((c) => c.kind === "tip")
-      .map((c) => ({
-        step: renumber((c as { step: number | null }).step),
-        text: (c as { text: string }).text,
-      })),
-  ];
+  const tips: Tip[] = (
+    [
+      ...recipe.tips.map((t) => ({ ...t, step: renumber(t.step) })),
+      ...changes
+        .filter((c) => c.kind === "tip")
+        .map((c) => ({
+          step: renumber((c as { step: number | null }).step),
+          text: (c as { text: string }).text,
+        })),
+    ] as Tip[]
+  ).slice(0, TIPS_MAX);
+  // 保存できる件数を超えないように（超えた分は入れない）
+  const keptRows = ordered.slice(0, LIMITS.stepsMax);
   return {
     ...recipe,
     ingredients: [
       ...ings.filter((i): i is Ingredient => i !== null),
       ...addedIngs,
-    ],
-    steps: ordered.map((r) => r.text),
+    ].slice(0, LIMITS.ingredientsMax),
+    steps: keptRows.map((r) => r.text),
     ...(recipe.stepTimes?.length === recipe.steps.length
       ? {
-          stepTimes: ordered.map((r) =>
+          stepTimes: keptRows.map((r) =>
             r.orig ? (recipe.stepTimes![r.orig - 1] ?? null) : null,
           ),
         }

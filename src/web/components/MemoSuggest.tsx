@@ -47,16 +47,19 @@ export function MemoSuggest({
   recipeId: string;
   memoId: string;
   ingredients: { name: string; amount: string }[];
-  onApply: (changes: MemoChange[]) => void;
+  /** 入れられたら true（案を作った後に新しい版ができていたら false） */
+  onApply: (versionId: string, changes: MemoChange[]) => boolean;
 }) {
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [applied, setApplied] = useState(false);
+  const [stale, setStale] = useState(false);
   const ask = useMutation({
     mutationFn: () => apiClient.suggestMemoChanges(recipeId, memoId),
     onSuccess: (r) => {
       // メモに基づく案だけ、最初から選んでおく（AI の推測は自分で選ぶ）
       setPicked(new Set(r.changes.flatMap((c, k) => (c.grounded ? [k] : []))));
       setApplied(false);
+      setStale(false);
     },
   });
 
@@ -143,13 +146,37 @@ export function MemoSuggest({
           type="button"
           disabled={!picked.size}
           onClick={() => {
-            onApply(changes.filter((_, k) => picked.has(k)));
-            setApplied(true);
+            const ok = onApply(
+              ask.data.versionId,
+              changes.filter((_, k) => picked.has(k)),
+            );
+            if (ok) setApplied(true);
+            else setStale(true);
           }}
           className="h-11 text-sm"
         >
           選んだ {picked.size} 件を下の編集欄に入れる
         </SecondaryButton>
+      )}
+      {stale && (
+        <div className="flex flex-col gap-1.5">
+          <p role="alert" className="text-xs leading-5 text-danger">
+            案を作ったあとに新しい版ができたので、入れられませんでした。今の版でもう一度出してください。
+          </p>
+          <SecondaryButton
+            type="button"
+            disabled={ask.isPending}
+            onClick={() => ask.mutate()}
+            className="h-11 text-sm"
+          >
+            {ask.isPending ? "AI が考えています…" : "変更案を出し直す"}
+          </SecondaryButton>
+        </div>
+      )}
+      {!applied && !stale && (
+        <p className="text-xs leading-5 text-sub">
+          入れると、下の編集欄はいまの最新版に選んだ案を足した内容になります（入れる前に手で直したところは元に戻ります）。
+        </p>
       )}
     </fieldset>
   );
