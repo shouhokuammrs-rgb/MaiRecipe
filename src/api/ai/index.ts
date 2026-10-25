@@ -412,7 +412,7 @@ export async function suggestRecipeIdeas(
       )
     );
   const out = parseIdeas(
-    await runWorkersAi(env.AI, task.fallback, system, user, 4000),
+    await runWorkersAi(env.AI, task.fallback, system, user, 8000),
   );
   if (!out?.length) throw new AiBadOutput("レシピの案を作れませんでした");
   return out;

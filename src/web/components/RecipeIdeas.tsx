@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient, type RecipeFields } from "@/api/client";
 import { PrimaryButton, SecondaryButton } from "@/components/common";
+import { apiErrorMessage } from "@/lib/utils";
 
 /**
  * 選んだ食材で、AI に新しいレシピを考えてもらう（#15 / DEC-029）。
@@ -34,6 +35,7 @@ export function RecipeIdeas({ terms }: { terms: string[] }) {
   return (
     <section
       aria-label="AI が考えるレシピ"
+      aria-busy={ask.isPending}
       className="flex flex-col gap-3 rounded-2xl border border-field bg-card p-3.5"
     >
       <h2 className="flex items-center gap-1.5 text-sm font-bold">
@@ -71,7 +73,17 @@ export function RecipeIdeas({ terms }: { terms: string[] }) {
       </SecondaryButton>
       {ask.isError && (
         <p role="alert" className="text-sm leading-6 text-danger">
-          {ask.error.message}
+          {apiErrorMessage(ask.error)}
+        </p>
+      )}
+      {ask.isPending && (
+        <p role="status" className="sr-only">
+          AI が考えています
+        </p>
+      )}
+      {ask.data && ideas.length === 0 && (
+        <p role="status" className="text-sm text-sub">
+          案を作れませんでした。もう一度試してください。
         </p>
       )}
       {ideas.length > 0 && (
@@ -124,7 +136,7 @@ export function RecipeIdeas({ terms }: { terms: string[] }) {
       )}
       {save.isError && (
         <p role="alert" className="text-sm text-danger">
-          {save.error.message}
+          {apiErrorMessage(save.error)}
         </p>
       )}
     </section>

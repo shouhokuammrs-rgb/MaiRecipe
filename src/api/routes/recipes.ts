@@ -25,6 +25,7 @@ import {
   AiQuotaExceeded,
   AiUnavailable,
   suggestMemoChanges,
+  GeminiRateLimited,
   suggestRecipeIdeas,
 } from "../ai";
 import { ideaSchema } from "../../shared/ai-idea";
@@ -116,12 +117,14 @@ recipes.post("/ideas", async (c) => {
         { error: "今日の AI の無料分の9割を使ったので、止めています。" },
         429,
       );
+    if (e instanceof GeminiRateLimited)
+      return c.json(
+        { error: "AI が混み合っています。1分ほど待ってから試してください。" },
+        429,
+      );
     if (e instanceof AiQuotaExceeded)
       return c.json(
-        {
-          error:
-            "AI の無料分の上限に当たりました。少し待ってから試してください。",
-        },
+        { error: "今日の AI の無料分を使い切りました。明日また使えます。" },
         429,
       );
     if (e instanceof AiUnavailable)

@@ -1,7 +1,13 @@
 // 冷蔵庫の食材から、AI に新しいレシピを考えてもらう（#15 の2つ目 / DEC-029）。ここは純粋な部分。
 // 出典の無いレシピなので、保存すると「AI が考えたレシピ（出典なし）」として分けて見せる（DEC-012）
 import { z } from "zod";
-import { CATEGORIES, GENRES, type Category, type Genre } from "./constants";
+import {
+  CATEGORIES,
+  GENRES,
+  LIMITS,
+  type Category,
+  type Genre,
+} from "./constants";
 import { parseAiRecipe, type AiRecipe } from "./ai-read";
 
 /** 一度に出す案の数 */
@@ -10,7 +16,7 @@ export const IDEAS_MAX = 3;
 export const ideaSchema = z.object({
   /** 使いたい食材（冷蔵庫で選んだもの） */
   use: z
-    .array(z.string().trim().max(30))
+    .array(z.string().trim().max(LIMITS.ingredientNameMax))
     .transform((a) => a.filter(Boolean))
     .pipe(z.array(z.string()).min(1).max(10)),
   wish: z.string().trim().max(100).default(""),
@@ -66,9 +72,11 @@ export function parseIdeas(raw: string): RecipeIdea[] | null {
   if (!Array.isArray(list)) return null;
   const out: RecipeIdea[] = [];
   for (const item of list) {
-    if (!item || typeof item !== "object") continue;
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const r = parseAiRecipe(JSON.stringify(item));
     if (!r || !r.title || !r.ingredients.length || !r.steps.length) continue;
+    // 同じ料理名の2つ目は捨てる（違う料理を出す）
+    if (out.some((x) => x.title === r.title)) continue;
     const o = item as { category?: unknown; genre?: unknown };
     const { stepTimes: _drop, ...rest } = r;
     out.push({

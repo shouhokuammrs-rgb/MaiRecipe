@@ -91,3 +91,15 @@ describe("parseIdeas", () => {
     expect(parseIdeas('{"ideas":[]}')).toEqual([]);
   });
 });
+
+describe("parseIdeas の崩れた返事", () => {
+  it("配列の案と、同じ名前の2つ目は捨てる", () => {
+    const one = {
+      title: "煮物",
+      ingredients: [{ name: "大根" }],
+      steps: ["煮る"],
+    };
+    const raw = JSON.stringify({ ideas: [[one], one, one] });
+    expect(parseIdeas(raw)!.map((i) => i.title)).toEqual(["煮物"]);
+  });
+});
