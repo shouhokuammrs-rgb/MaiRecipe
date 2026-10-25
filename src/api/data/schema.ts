@@ -134,7 +134,7 @@ export const recipes = sqliteTable(
     /** 出典。取り込んだレシピは消せない（DEC-011） */
     sourceUrl: text("source_url"),
     videoUrl: text("video_url"),
-    origin: text("origin", { enum: ["import", "own"] })
+    origin: text("origin", { enum: ["import", "own", "ai"] })
       .notNull()
       .default("import"),
     /** 将来の SNS 用。今は常に private */

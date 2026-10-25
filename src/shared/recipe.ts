@@ -63,7 +63,8 @@ export const createRecipeSchema = z.object({
     ])
     .nullable()
     .default(null),
-  origin: z.enum(["import", "own"]).default("import"),
+  /** import：取り込み・own：自分で書いた・ai：AI が考えた（出典なし。DEC-029） */
+  origin: z.enum(["import", "own", "ai"]).default("import"),
   ingredients: ingredientsSchema,
   steps: stepsSchema,
 });

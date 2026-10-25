@@ -25,7 +25,9 @@ import {
   AiQuotaExceeded,
   AiUnavailable,
   suggestMemoChanges,
+  suggestRecipeIdeas,
 } from "../ai";
+import { ideaSchema } from "../../shared/ai-idea";
 
 const isTransient = (e: FetchPageError) =>
   e.message === "ページを取得できませんでした" ||
@@ -87,6 +89,53 @@ recipes.post("/find", async (c) => {
   if (!parsed.success) return badRequest(c, parsed.error);
   const all = await c.var.repo.allLatestIngredients();
   return c.json({ results: findByIngredients(parsed.data.terms, all) });
+});
+
+/**
+ * 冷蔵庫の食材から、AI に新しいレシピを考えてもらう（#15 / DEC-029）。保存はしない。
+ * 冷蔵庫のほかの食材も「使ってよい」として渡す（グループの中から読む）
+ */
+recipes.post("/ideas", async (c) => {
+  const parsed = ideaSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return badRequest(c, parsed.error);
+  if (!c.env.AI && !c.env.GEMINI_API_KEY)
+    return c.json({ error: "今は AI を使えない設定です。" }, 503);
+  const { use, wish } = parsed.data;
+  const chosen = new Set(use);
+  const others = (await c.var.repo.listPantry())
+    .map((p) => p.name)
+    .filter((n) => !chosen.has(n))
+    .slice(0, 30);
+  try {
+    return c.json({
+      ideas: await suggestRecipeIdeas(c.env, { use, others, wish }),
+    });
+  } catch (e) {
+    if (e instanceof AiDailyStop)
+      return c.json(
+        { error: "今日の AI の無料分の9割を使ったので、止めています。" },
+        429,
+      );
+    if (e instanceof AiQuotaExceeded)
+      return c.json(
+        {
+          error:
+            "AI の無料分の上限に当たりました。少し待ってから試してください。",
+        },
+        429,
+      );
+    if (e instanceof AiUnavailable)
+      return c.json(
+        { error: "今は AI につながりません。少し待ってから試してください。" },
+        503,
+      );
+    if (e instanceof AiBadOutput)
+      return c.json(
+        { error: "レシピの案を作れませんでした。もう一度試してください。" },
+        422,
+      );
+    throw e;
+  }
 });
 
 recipes.get("/:id", async (c) => {

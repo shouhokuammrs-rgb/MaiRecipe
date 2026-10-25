@@ -271,6 +271,13 @@ function DetailView({ r }: { r: Detail }) {
           </div>
         </div>
 
+        {r.origin === "ai" && (
+          <p className="rounded-xl bg-memo px-3 py-2.5 text-[13px] leading-6 text-memo-ink">
+            AI
+            が考えたレシピです（出典なし）。分量や火の通りは確かめてから作ってください。
+          </p>
+        )}
+
         {viewingOld && (
           <div className="flex items-center justify-between gap-2 rounded-xl bg-memo px-3 py-2.5 text-[13px]">
             v{view.seq}
