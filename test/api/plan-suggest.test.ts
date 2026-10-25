@@ -1,17 +1,31 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AI_BUDGETS, STOP_RATIO, usageDay } from "../../src/shared/ai-usage";
 import { addDays, todayJst } from "../../src/shared/dates";
 import { api, sampleRecipe, signUp } from "./helpers";
 
 // AI に献立を考えてもらう（#15 / DEC-028）。本物の AI は呼ばない
-const E = env as unknown as { GEMINI_API_KEY?: string; AI?: unknown };
+const E = env as unknown as {
+  GEMINI_API_KEY?: string;
+  AI?: unknown;
+  DB: D1Database;
+};
 beforeEach(() => {
   delete E.AI;
 });
-afterEach(() => {
+afterEach(async () => {
   delete E.GEMINI_API_KEY;
+  delete E.AI;
   vi.restoreAllMocks();
+  await E.DB.prepare("DELETE FROM ai_usage").run();
 });
+
+const useUp = (key: keyof typeof AI_BUDGETS) =>
+  E.DB.prepare(
+    "INSERT INTO ai_usage (day, key, count) VALUES (?, ?, ?) ON CONFLICT(day, key) DO UPDATE SET count = excluded.count",
+  )
+    .bind(usageDay(key), key, Math.floor(AI_BUDGETS[key].perDay * STOP_RATIO))
+    .run();
 
 const gemini = (text: string) =>
   new Response(
@@ -103,10 +117,48 @@ describe("POST /api/plans/suggest", () => {
     );
   });
 
-  it("グループをまたいだ漏れがない：他人のレシピは AI に渡さない", async () => {
+  it("Gemini が駄目なら Workers AI に回し、どちらも9割なら呼ばずに 429", async () => {
+    E.GEMINI_API_KEY = "k";
+    const me = await signUp();
+    await recipe(me, "ダミーの唐揚げ");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response("busy", { status: 503 }));
+    const run = vi.fn(async () => ({
+      response: JSON.stringify({
+        plan: [{ date: todayJst(), meal: "dinner", items: [1] }],
+      }),
+    }));
+    E.AI = { run };
+    const res = await suggest(me, { days: 1, meals: ["dinner"] });
+    expect(res.status).toBe(200);
+    expect(run).toHaveBeenCalledTimes(1);
+
+    await useUp("gemini:plan_suggest");
+    await useUp("workers-ai:plan_suggest");
+    fetchSpy.mockClear();
+    run.mockClear();
+    const stopped = await suggest(me, { days: 1, meals: ["dinner"] });
+    expect(stopped.status).toBe(429);
+    expect(((await stopped.json()) as { error: string }).error).toContain(
+      "9割",
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("グループをまたいだ漏れがない：他人のレシピ・冷蔵庫・献立は AI に渡さない", async () => {
     E.GEMINI_API_KEY = "k";
     const owner = await signUp();
-    await recipe(owner, "ひみつの煮込み");
+    const secret = await recipe(owner, "ひみつの煮込み");
+    await api(owner, "/pantry", {
+      method: "POST",
+      body: { names: ["ひみつのかぶ"] },
+    });
+    await api(owner, "/plans", {
+      method: "PUT",
+      body: { date: todayJst(), meal: "dinner", recipeId: secret },
+    });
     const other = await signUp();
     await recipe(other, "自分のカレー");
     const bodies: string[] = [];
@@ -118,5 +170,6 @@ describe("POST /api/plans/suggest", () => {
     expect(res.status).toBe(200);
     expect(bodies[0]).toContain("自分のカレー");
     expect(bodies[0]).not.toContain("ひみつの煮込み");
+    expect(bodies[0]).not.toContain("ひみつのかぶ");
   });
 });

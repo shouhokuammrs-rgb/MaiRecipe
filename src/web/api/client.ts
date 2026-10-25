@@ -310,13 +310,13 @@ export const apiClient = {
 
   plans: (from: string, to: string) =>
     call<{ plans: PlanEntry[]; today: string }>(`/plans?from=${from}&to=${to}`),
-  /** 枠の最後に1品足す（同じレシピが既にあれば何もしない） */
   /** 保存しているレシピから AI に献立を考えてもらう（保存はしない） */
   suggestPlan: (input: { days: number; meals: Meal[]; wish: string }) =>
     call<{ suggestions: PlanSuggestionView[] }>("/plans/suggest", {
       method: "POST",
       json: input,
     }),
+  /** 枠の最後に1品足す（同じレシピが既にあれば何もしない） */
   addPlan: (date: string, meal: Meal, recipeId: string) =>
     call<void>("/plans", { method: "PUT", json: { date, meal, recipeId } }),
   deletePlanItem: (id: string) =>

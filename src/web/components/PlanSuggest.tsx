@@ -25,23 +25,31 @@ export function PlanSuggest() {
   /** 選んだ品（"日付|食事|レシピ"） */
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const ask = useMutation({
-    mutationFn: () => apiClient.suggestPlan({ days, meals, wish }),
-    onSuccess: (r) =>
-      setPicked(
-        new Set(
-          r.suggestions.flatMap((s) =>
-            s.recipes.map((x) => `${s.date}|${s.meal}|${x.id}`),
-          ),
-        ),
-      ),
-  });
   const save = useMutation({
     mutationFn: async (
       rows: { date: string; meal: Meal; recipeId: string }[],
     ) => {
-      // 1品ずつ足す（同じ枠に同じレシピがあれば API が何もしない）
-      for (const r of rows) await apiClient.addPlan(r.date, r.meal, r.recipeId);
+      // 1品ずつ足す（同じ枠に同じレシピがあれば API が何もしない）。
+      // 入った品は選択から外し、途中で失敗したら残りだけもう一度押せるようにする
+      let done = 0;
+      for (const r of rows) {
+        try {
+          await apiClient.addPlan(r.date, r.meal, r.recipeId);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "入れられませんでした";
+          throw new Error(
+            done
+              ? `${done} 品は入りました。残りは入れられませんでした（${msg}）。もう一度押してください`
+              : msg,
+          );
+        }
+        done += 1;
+        setPicked((prev) => {
+          const next = new Set(prev);
+          next.delete(`${r.date}|${r.meal}|${r.recipeId}`);
+          return next;
+        });
+      }
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["plans"] });
@@ -53,6 +61,18 @@ export function PlanSuggest() {
     },
   });
 
+  const ask = useMutation({
+    mutationFn: () => apiClient.suggestPlan({ days, meals, wish }),
+    onMutate: () => save.reset(),
+    onSuccess: (r) =>
+      setPicked(
+        new Set(
+          r.suggestions.flatMap((s) =>
+            s.recipes.map((x) => `${s.date}|${s.meal}|${x.id}`),
+          ),
+        ),
+      ),
+  });
   if (!open)
     return (
       <SecondaryButton

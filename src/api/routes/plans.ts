@@ -134,14 +134,23 @@ plans.post("/suggest", async (c) => {
         category: r.category,
         genre: r.genre ?? "",
         ingredients: r.ingredients
+          .slice(0, 12)
           .map((i) => canonicalName(i.name))
           .filter((n) => n && !isSeasoning(n))
           .slice(0, 5),
       })),
-    pantry: pantry.map((p) => ({
-      name: p.name,
-      soon: isExpiringSoon(p.expiresOn, today),
-    })),
+    // 長くなりすぎないように、期限が近いものから50個まで
+    pantry: [...pantry]
+      .sort(
+        (a, b) =>
+          Number(isExpiringSoon(b.expiresOn, today)) -
+          Number(isExpiringSoon(a.expiresOn, today)),
+      )
+      .slice(0, 50)
+      .map((p) => ({
+        name: p.name,
+        soon: isExpiringSoon(p.expiresOn, today),
+      })),
     recent: [...new Set(recentPlans.map((p) => p.title))],
     planned: planned.map((p) => ({
       date: p.date,
