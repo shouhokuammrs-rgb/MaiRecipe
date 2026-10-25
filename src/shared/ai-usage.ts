@@ -9,7 +9,9 @@ export type UsageKey =
   | "workers-ai:cook_assist"
   | "gemini:memo_apply"
   | "gemini:read_photo"
-  | "workers-ai:memo_apply";
+  | "workers-ai:memo_apply"
+  | "gemini:plan_suggest"
+  | "workers-ai:plan_suggest";
 
 export const AI_BUDGETS: Record<UsageKey, { label: string; perDay: number }> = {
   "gemini:watch_video": { label: "動画を見て読む（Gemini）", perDay: 40 },
@@ -20,6 +22,11 @@ export const AI_BUDGETS: Record<UsageKey, { label: string; perDay: number }> = {
     perDay: 60,
   },
   "gemini:memo_apply": { label: "メモから変更案（Gemini）", perDay: 40 },
+  "gemini:plan_suggest": { label: "献立の提案（Gemini）", perDay: 20 },
+  "workers-ai:plan_suggest": {
+    label: "献立の提案の予備（Workers AI）",
+    perDay: 20,
+  },
   "gemini:read_photo": { label: "写真から読む（Gemini）", perDay: 30 },
   "workers-ai:memo_apply": {
     label: "メモから変更案の予備（Workers AI）",

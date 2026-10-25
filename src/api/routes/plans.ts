@@ -7,7 +7,23 @@ import {
   planServingsSchema,
 } from "../../shared/recipe";
 import { canonicalName } from "../../shared/ingredients";
-import { isSeasoning, shoppingHaveSchema } from "../../shared/pantry";
+import {
+  isExpiringSoon,
+  isSeasoning,
+  shoppingHaveSchema,
+} from "../../shared/pantry";
+import {
+  PLAN_RECIPES_MAX,
+  planSuggestSchema,
+  type PlanInput,
+} from "../../shared/ai-plan";
+import {
+  AiBadOutput,
+  AiDailyStop,
+  AiQuotaExceeded,
+  AiUnavailable,
+  suggestPlan,
+} from "../ai";
 import { aggregateShopping } from "../../shared/shopping";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
@@ -74,6 +90,111 @@ plans.delete("/:date/:meal", async (c) => {
     return c.json({ error: "入力を確認してください" }, 400);
   await c.var.repo.deletePlan(date, meal);
   return c.body(null, 204);
+});
+
+/**
+ * 保存しているレシピから、AI に献立を考えてもらう（#15 / DEC-028）。保存はしない（画面で選んで入れる）。
+ * レシピ・冷蔵庫・献立はセッションのグループからだけ読む
+ */
+plans.post("/suggest", async (c) => {
+  const parsed = planSuggestSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) return badRequest(c, parsed.error);
+  if (!c.env.AI && !c.env.GEMINI_API_KEY)
+    return c.json({ error: "今は AI を使えない設定です。" }, 503);
+  const { days, meals, wish } = parsed.data;
+  const today = todayJst();
+  const dates = Array.from({ length: days }, (_, k) => addDays(today, k));
+  const [recipes, pantry, recentPlans, planned] = await Promise.all([
+    c.var.repo.recommendRecipes(),
+    c.var.repo.listPantry(),
+    c.var.repo.listPlans(addDays(today, -7), addDays(today, -1)),
+    c.var.repo.listPlans(today, dates[dates.length - 1]!),
+  ]);
+  if (!recipes.length)
+    return c.json(
+      {
+        error:
+          "保存しているレシピがまだありません。先にレシピを取り込んでください。",
+      },
+      422,
+    );
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const input: PlanInput = {
+    dates,
+    meals,
+    wish,
+    recipes: [...recipes]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, PLAN_RECIPES_MAX)
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        category: r.category,
+        genre: r.genre ?? "",
+        ingredients: r.ingredients
+          .slice(0, 12)
+          .map((i) => canonicalName(i.name))
+          .filter((n) => n && !isSeasoning(n))
+          .slice(0, 5),
+      })),
+    // 長くなりすぎないように、期限が近いものから50個まで
+    pantry: [...pantry]
+      .sort(
+        (a, b) =>
+          Number(isExpiringSoon(b.expiresOn, today)) -
+          Number(isExpiringSoon(a.expiresOn, today)),
+      )
+      .slice(0, 50)
+      .map((p) => ({
+        name: p.name,
+        soon: isExpiringSoon(p.expiresOn, today),
+      })),
+    recent: [...new Set(recentPlans.map((p) => p.title))],
+    planned: planned.map((p) => ({
+      date: p.date,
+      meal: p.meal,
+      title: p.title,
+    })),
+  };
+  try {
+    const suggestions = await suggestPlan(c.env, input);
+    return c.json({
+      suggestions: suggestions.map((s) => ({
+        ...s,
+        recipes: s.recipeIds.flatMap((id) => {
+          const r = byId.get(id);
+          return r ? [{ id, title: r.title, category: r.category }] : [];
+        }),
+      })),
+    });
+  } catch (e) {
+    if (e instanceof AiDailyStop)
+      return c.json(
+        { error: "今日の AI の無料分の9割を使ったので、止めています。" },
+        429,
+      );
+    if (e instanceof AiQuotaExceeded)
+      return c.json(
+        {
+          error:
+            "AI の無料分の上限に当たりました。少し待ってから試してください。",
+        },
+        429,
+      );
+    if (e instanceof AiUnavailable)
+      return c.json(
+        { error: "今は AI につながりません。少し待ってから試してください。" },
+        503,
+      );
+    if (e instanceof AiBadOutput)
+      return c.json(
+        { error: "献立を作れませんでした。もう一度試してください。" },
+        422,
+      );
+    throw e;
+  }
 });
 
 export const shopping = new Hono<AppEnv>();
