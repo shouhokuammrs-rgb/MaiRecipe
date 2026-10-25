@@ -9,6 +9,11 @@ import {
   type AssistReply,
 } from "../../shared/assist";
 import {
+  buildIdeaPrompt,
+  parseIdeas,
+  type RecipeIdea,
+} from "../../shared/ai-idea";
+import {
   buildPlanPrompt,
   parsePlanSuggestion,
   type PlanInput,
@@ -78,6 +83,15 @@ const TASKS = {
     model: "gemini-3.6-flash",
     thinkingLevel: "low",
     maxTokens: 4096,
+    timeoutMs: 30_000,
+    fallback: "@cf/openai/gpt-oss-120b",
+  },
+  recipe_idea: {
+    provider: "gemini",
+    model: "gemini-3.6-flash",
+    thinkingLevel: "low",
+    // 3つの案（材料・手順つき）を書き切れるように
+    maxTokens: 8192,
     timeoutMs: 30_000,
     fallback: "@cf/openai/gpt-oss-120b",
   },
@@ -357,4 +371,49 @@ export async function readPhotoWithAi(
   const recipe = parseAiRecipe(raw);
   if (!recipe) throw new AiBadOutput("写真からレシピを読み取れませんでした");
   return recipe;
+}
+
+/** 冷蔵庫の食材から、新しいレシピの案を考えてもらう（#15 / DEC-029）。保存はしない。Gemini がだめなら Workers AI */
+export async function suggestRecipeIdeas(
+  env: AiEnv,
+  input: { use: string[]; others: string[]; wish: string },
+): Promise<RecipeIdea[]> {
+  const task = TASKS.recipe_idea;
+  const { system, user } = buildIdeaPrompt(input);
+  let geminiError: unknown = null;
+  if (hasGemini(env) && (await take(env, "gemini:recipe_idea"))) {
+    try {
+      const out = parseIdeas(
+        await runGeminiText(
+          env,
+          task.model,
+          system,
+          user,
+          task.maxTokens,
+          task.thinkingLevel,
+          task.timeoutMs,
+        ),
+      );
+      if (out?.length) return out;
+      geminiError = new AiBadOutput("レシピの案を作れませんでした");
+    } catch (e) {
+      geminiError = e;
+    }
+  }
+  if (!env.AI) {
+    if (geminiError) throw geminiError;
+    throw new AiUnavailable("AI がつながっていません");
+  }
+  if (!(await take(env, "workers-ai:recipe_idea")))
+    throw (
+      geminiError ??
+      new AiDailyStop(
+        "今日の AI の無料分の9割を使ったので、止めています。明日また使えます",
+      )
+    );
+  const out = parseIdeas(
+    await runWorkersAi(env.AI, task.fallback, system, user, 8000),
+  );
+  if (!out?.length) throw new AiBadOutput("レシピの案を作れませんでした");
+  return out;
 }

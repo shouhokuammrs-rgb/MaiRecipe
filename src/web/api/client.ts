@@ -89,7 +89,7 @@ export type Memo = {
 };
 
 export type RecipeDetail = Omit<RecipeHeader, "versionCount"> & {
-  origin: "import" | "own";
+  origin: "import" | "own" | "ai";
   createdAt: number;
   versions: Version[];
   memos: Memo[];
@@ -206,9 +206,15 @@ export const apiClient = {
       sourceUrl: string | null;
       videoUrl: string | null;
       coverUrl?: string | null;
-      origin: "import" | "own";
+      origin: "import" | "own" | "ai";
     },
   ) => call<{ id: string }>("/recipes", { method: "POST", json: input }),
+  /** 冷蔵庫の食材から AI に新しいレシピを考えてもらう（出典なし。保存はしない。DEC-029） */
+  recipeIdeas: (input: { use: string[]; wish: string }) =>
+    call<{ ideas: RecipeFields[] }>("/recipes/ideas", {
+      method: "POST",
+      json: input,
+    }),
   /** 前に保存したレシピの表紙を、出典のページから一度だけ探す（DEC-023） */
   findCover: (id: string) =>
     call<{ coverUrl: string | null }>(`/recipes/${id}/cover`, {

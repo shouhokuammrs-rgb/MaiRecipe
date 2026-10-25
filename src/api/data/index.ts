@@ -387,7 +387,7 @@ export function forGroup(db: Db, groupId: string) {
         sourceUrl: string | null;
         videoUrl: string | null;
         coverUrl?: string | null;
-        origin: "import" | "own";
+        origin: "import" | "own" | "ai";
       },
       userId: string,
     ): Promise<string> {

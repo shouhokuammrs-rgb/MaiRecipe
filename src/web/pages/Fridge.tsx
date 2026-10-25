@@ -13,6 +13,7 @@ import {
 } from "@/components/common";
 import { MicButton } from "@/components/MicButton";
 import { RecoCard } from "@/components/RecoCard";
+import { RecipeIdeas } from "@/components/RecipeIdeas";
 import { Toast, useToast } from "@/components/Toast";
 import { apiErrorMessage, cn } from "@/lib/utils";
 import { addDays, labelDate } from "../../shared/dates";
@@ -152,7 +153,11 @@ export function Fridge() {
               </PrimaryButton>
             )}
             {terms.length > 0 && (
-              <FindSection terms={terms} today={today} onToast={show} />
+              <>
+                <FindSection terms={terms} today={today} onToast={show} />
+                {/* 選び直したら案も消す */}
+                <RecipeIdeas key={terms.join("|")} terms={terms} />
+              </>
             )}
           </>
         )}
