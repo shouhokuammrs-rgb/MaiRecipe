@@ -109,43 +109,94 @@ export async function runGeminiVideo(
   return extractGeminiText(body);
 }
 
+/** 送られた写真が JPEG の base64 でない（読む前に止める） */
+export class PhotoInvalid extends Error {}
+/** Gemini が写真を読まなかった（書き写しすぎ・安全・長すぎ・形式など。待っても同じ） */
+export class PhotoUnreadable extends Error {}
+
+/** base64 に使える字（A-Z a-z 0-9 + / =）だけ true */
+const B64 = new Uint8Array(256);
+for (const ch of "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+  B64[ch.charCodeAt(0)] = 1;
+const JPEG_HEAD = [47, 57, 106, 47]; // "/9j/"
+
 /**
- * 写真を見せて読ませる（料理本のページ）。写真は画面で縮めた JPEG の base64 を、そのまま渡す
- * （ここでは画像の中身を触らない・変換しない。DEC-008）
+ * 写真を見せて読ませる（料理本のページ）。写真は画面で縮めた JPEG の base64 の文字を、
+ * 受け取ったまま Gemini への依頼の中に流し込む（文字に直したり、JSON を作り直したりしない。
+ * 無料プランの CPU 10ms を守るため。DEC-008）。流しながら1字ずつ base64 の字かを確かめる
+ * （JSON の中に別の値を差し込まれないように）
  */
 export async function runGeminiImage(
   env: GeminiEnv,
   model: string,
   prompt: string,
-  jpegBase64: string,
+  photo: { body: ReadableStream<Uint8Array>; length: number },
   maxTokens: number,
 ): Promise<string> {
   const key = env.GEMINI_API_KEY;
   if (!key) throw new AiUnavailable("Gemini の鍵がありません");
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    '{"contents":[{"parts":[{"inline_data":{"mime_type":"image/jpeg","data":"',
+  );
+  const tail = enc.encode(
+    `"}},{"text":${JSON.stringify(prompt)}}]}],"generationConfig":${JSON.stringify(
+      {
+        temperature: 0.1,
+        maxOutputTokens: maxTokens,
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingLevel: "low" },
+      },
+    )}}`,
+  );
+  const { readable, writable } = new FixedLengthStream(
+    head.length + photo.length + tail.length,
+  );
+  let invalid: Error | null = null;
+  const pump = (async () => {
+    const w = writable.getWriter();
+    const r = photo.body.getReader();
+    try {
+      await w.write(head);
+      let seen = 0;
+      for (;;) {
+        const { done, value } = await r.read();
+        if (done) break;
+        for (let k = 0; k < value.length; k++) {
+          const b = value[k]!;
+          const at = seen + k;
+          if (!B64[b] || (at < 4 && b !== JPEG_HEAD[at]))
+            throw new PhotoInvalid("JPEG の写真だけ読めます");
+        }
+        seen += value.length;
+        if (seen > photo.length)
+          throw new PhotoInvalid("写真の大きさが合いません");
+        await w.write(value);
+      }
+      if (seen !== photo.length || seen < 4)
+        throw new PhotoInvalid("写真の大きさが合いません");
+      await w.write(tail);
+      await w.close();
+    } catch (e) {
+      invalid =
+        e instanceof PhotoInvalid
+          ? e
+          : new PhotoInvalid("写真を受け取れませんでした");
+      await w.abort(invalid).catch(() => {});
+      await r.cancel().catch(() => {});
+    }
+  })();
   let res: Response;
   try {
     res = await fetch(`${ENDPOINT}/${model}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { inline_data: { mime_type: "image/jpeg", data: jpegBase64 } },
-              { text: prompt },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: maxTokens,
-          responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: "low" },
-        },
-      }),
+      body: readable,
       signal: AbortSignal.timeout(60_000),
     });
   } catch (e) {
+    await pump;
+    if (invalid) throw invalid;
     const timeout = (e as Error)?.name === "TimeoutError";
     throw new AiUnavailable(
       timeout
@@ -153,17 +204,22 @@ export async function runGeminiImage(
         : "Gemini につながりませんでした",
     );
   }
+  await pump;
+  if (invalid) throw invalid;
   if (res.status === 429) throw await quotaError(res);
   if (!res.ok) {
     const msg = `Gemini がエラーを返しました（${res.status}）`;
-    throw res.status >= 500 ? new GeminiTemporary(msg) : new AiUnavailable(msg);
+    if (res.status >= 500) throw new GeminiTemporary(msg);
+    // 写真が読めない形式など（待っても同じ）
+    throw new PhotoUnreadable(msg);
   }
   const body = (await res.json().catch(() => null)) as {
     candidates?: { finishReason?: string }[];
   } | null;
   const finish = body?.candidates?.[0]?.finishReason;
+  // 書き写しすぎ（RECITATION）・安全・長すぎなどは、やり直しても同じなので「読めなかった」
   if (finish && finish !== "STOP")
-    throw new AiUnavailable(`写真を読めませんでした（${finish}）`);
+    throw new PhotoUnreadable(`写真を読めませんでした（${finish}）`);
   return extractGeminiText(body);
 }
 

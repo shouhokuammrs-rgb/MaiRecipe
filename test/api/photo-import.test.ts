@@ -34,7 +34,8 @@ describe("POST /api/import/photo", () => {
     E.GEMINI_API_KEY = "k";
     const bodies: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_u, init) => {
-      bodies.push(String(init?.body));
+      // 写真は流し込みで送るので、本文は読んでから確かめる
+      bodies.push(await new Response(init?.body).text());
       return new Response(
         JSON.stringify({
           candidates: [{ content: { parts: [{ text: REPLY }] } }],
@@ -60,21 +61,64 @@ describe("POST /api/import/photo", () => {
       videoUrl: null,
     });
     // 写真はそのまま Gemini に渡し、鍵は URL に入れない
-    expect(bodies[0]).toContain(JPEG);
-    expect(bodies[0]).toContain("image/jpeg");
+    const sent = JSON.parse(bodies[0]!) as {
+      contents: {
+        parts: { inline_data?: { mime_type: string; data: string } }[];
+      }[];
+    };
+    expect(sent.contents[0]!.parts[0]!.inline_data).toEqual({
+      mime_type: "image/jpeg",
+      data: JPEG,
+    });
+    const usage = (await (await api(me, "/ai/usage")).json()) as {
+      items: { key: string; used: number }[];
+    };
+    expect(usage.items.find((i) => i.key === "gemini:read_photo")!.used).toBe(
+      1,
+    );
     const list = (await (await api(me, "/recipes")).json()) as {
       recipes: unknown[];
     };
     expect(list.recipes).toEqual([]);
   });
 
-  it("JPEG でない・大きすぎる写真は受け付けない", async () => {
+  it("JPEG の base64 でない写真は、AI の返事を待たずに 400", async () => {
+    E.GEMINI_API_KEY = "k";
+    // 流し込みを読み切ろうとして、止められる
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_u, init) => {
+      await new Response(init?.body).text();
+      return new Response("{}");
+    });
+    const me = await signUp();
+    expect((await post(me, "hello")).status).toBe(400);
+    // JSON に別の値を差し込もうとする文字
+    expect((await post(me, '/9j/AAA"},"x":"y')).status).toBe(400);
+  });
+
+  it("大きすぎる写真は、読む前に 413", async () => {
     E.GEMINI_API_KEY = "k";
     const spy = vi.spyOn(globalThis, "fetch");
     const me = await signUp();
-    expect((await post(me, "hello")).status).toBe(400);
-    expect((await post(me, "/9j/" + "A".repeat(1_500_000))).status).toBe(413);
+    const res = await api(me, "/import/photo", {
+      method: "POST",
+      raw: JPEG,
+      headers: { "content-type": "text/plain", "content-length": "1500000" },
+    });
+    expect(res.status).toBe(413);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("Gemini が書き写しすぎ（RECITATION）で止めたら、撮り直しを勧める 422", async () => {
+    E.GEMINI_API_KEY = "k";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_u, init) => {
+      await new Response(init?.body).text();
+      return new Response(
+        JSON.stringify({ candidates: [{ finishReason: "RECITATION" }] }),
+      );
+    });
+    const me = await signUp();
+    const res = await post(me, JPEG);
+    expect(res.status).toBe(422);
   });
 
   it("AI が使えない設定なら 503", async () => {

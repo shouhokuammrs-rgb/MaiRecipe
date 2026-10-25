@@ -284,7 +284,6 @@ export const apiClient = {
         | { type: "step"; number: number }
         | null;
     }>("/assist", { method: "POST", json: input }),
-  /** AI（無料）で読み取る。押した時だけ（DEC-012）。保存はしない */
   /** 料理本の写真（縮めた JPEG の base64）から読む。保存はしない */
   importPhoto: (jpegBase64: string) =>
     call<ImportResult>("/import/photo", {
@@ -292,6 +291,7 @@ export const apiClient = {
       body: jpegBase64,
       headers: { "content-type": "text/plain" },
     }),
+  /** AI（無料）で読み取る。押した時だけ（DEC-012）。保存はしない */
   importAi: (input: { url?: string; text?: string; title?: string }) =>
     call<ImportResult>("/import/ai", { method: "POST", json: input }),
   reportImport: (url: string) =>

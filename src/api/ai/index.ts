@@ -23,6 +23,7 @@ import {
 } from "../../shared/ai-read";
 import {
   GeminiTemporary,
+  PhotoUnreadable,
   hasGemini,
   runGeminiText,
   runGeminiImage,
@@ -35,7 +36,11 @@ import type { UsageKey } from "../../shared/ai-usage";
 import { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
 
 export { AiQuotaExceeded, AiUnavailable } from "../platform/workers-ai";
-export { GeminiRateLimited, GeminiTemporary } from "../platform/gemini";
+export {
+  GeminiRateLimited,
+  GeminiTemporary,
+  PhotoInvalid,
+} from "../platform/gemini";
 
 /** 作業名 → 使う AI。入れ替えはここの1行で済む */
 const TASKS = {
@@ -269,19 +274,25 @@ export async function suggestMemoChanges(
 /** 料理本の写真から材料と手順を読む（#15）。写真は保存しない。読めなければ AiBadOutput */
 export async function readPhotoWithAi(
   env: AiEnv,
-  jpegBase64: string,
+  photo: { body: ReadableStream<Uint8Array>; length: number },
 ): Promise<AiRecipe> {
   if (!hasGemini(env))
     throw new AiUnavailable("写真を読む AI の鍵がありません");
   const task = TASKS.read_photo;
   await takeOrThrow(env, "gemini:read_photo");
-  const raw = await runGeminiImage(
-    env,
-    task.model,
-    buildPhotoPrompt(),
-    jpegBase64,
-    task.maxTokens,
-  );
+  let raw: string;
+  try {
+    raw = await runGeminiImage(
+      env,
+      task.model,
+      buildPhotoPrompt(),
+      photo,
+      task.maxTokens,
+    );
+  } catch (e) {
+    if (e instanceof PhotoUnreadable) throw new AiBadOutput(e.message);
+    throw e;
+  }
   const recipe = parseAiRecipe(raw);
   if (!recipe) throw new AiBadOutput("写真からレシピを読み取れませんでした");
   return recipe;

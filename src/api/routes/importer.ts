@@ -36,6 +36,7 @@ import {
   AiUnavailable,
   GeminiRateLimited,
   GeminiTemporary,
+  PhotoInvalid,
   canWatchVideo,
   readPhotoWithAi,
   readRecipeWithAi,
@@ -672,18 +673,22 @@ const PHOTO_BASE64_MAX = 1_400_000;
  * 中身を触らずに AI に渡す（DEC-008）。写真は保存しない。結果は下書き（保存は画面で確かめてから）
  */
 importer.post("/photo", async (c) => {
-  const data = (await c.req.text()).trim();
-  if (data.length > PHOTO_BASE64_MAX)
+  // 読む前に大きさを確かめる（大きな本文をメモリに読み込まない）
+  const length = Number(c.req.header("content-length"));
+  if (!Number.isInteger(length) || length < 4)
+    return c.json({ error: "写真を受け取れませんでした" }, 411);
+  if (length > PHOTO_BASE64_MAX)
     return c.json({ error: "写真が大きすぎます。撮り直してください" }, 413);
-  // JPEG の base64 は "/9j/" で始まる
-  if (!data.startsWith("/9j/"))
-    return c.json({ error: "JPEG の写真だけ読めます" }, 400);
+  const body = c.req.raw.body;
+  if (!body) return c.json({ error: "写真を受け取れませんでした" }, 411);
   if (!canWatchVideo(c.env))
     return c.json({ error: "今は写真を読む AI を使えない設定です。" }, 503);
   let recipe: AiRecipe;
   try {
-    recipe = await readPhotoWithAi(c.env, data);
+    recipe = await readPhotoWithAi(c.env, { body, length });
   } catch (e) {
+    if (e instanceof PhotoInvalid)
+      return c.json({ error: "JPEG の写真だけ読めます" }, 400);
     const r = aiError(e);
     if (r.ok) throw e;
     return c.json(
@@ -714,6 +719,8 @@ importer.post("/photo", async (c) => {
       videoUrl: null,
     },
     message:
-      "AI（無料）が写真を読み取りました。読み間違えることがあるので、分量と手順を確かめてから保存してください。写真は保存していません。",
+      recipe.ingredients.length || recipe.steps.length
+        ? "AI（無料）が写真を読み取りました。読み間違えることがあるので、分量と手順を確かめてから保存してください。"
+        : "写真から材料と作り方を見つけられませんでした。文字がはっきり写るように撮り直すか、手で入れてください。",
   });
 });

@@ -140,9 +140,13 @@ export function Import() {
     mutationFn: (u: string) => apiClient.reportImport(u),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["import-reports"] }),
   });
+  // 写真から読んだときの本の名前（保存したらメモに「出典：…」として残す）
+  const [photoSource, setPhotoSource] = useState("");
   const save = useMutation({
     mutationFn: apiClient.createRecipe,
     onSuccess: async ({ id }) => {
+      if (result?.kind === "photo" && photoSource)
+        await apiClient.addMemo(id, `出典：${photoSource}`).catch(() => {});
       // 保存した読み取りは一覧から消す
       if (activeJob)
         await apiClient.dismissImportJob(activeJob).catch(() => {});
@@ -281,6 +285,16 @@ export function Import() {
                   <span>{result.notice}</span>
                 </div>
               )}
+              {!result.found && result.kind === "photo" && (
+                <SecondaryButton
+                  onClick={() => {
+                    setResult(null);
+                    setMode("photo");
+                  }}
+                >
+                  撮り直す
+                </SecondaryButton>
+              )}
               {!result.found && d.sourceUrl && (
                 <div className="flex flex-col gap-2">
                   <PrimaryButton
@@ -360,7 +374,7 @@ export function Import() {
 
   return (
     <>
-      <SubHeader title="URL・動画から取り込み" back="/" />
+      <SubHeader title="レシピを取り込む" back="/" />
       <div className="flex flex-col gap-4 px-5 pt-5 pb-10">
         <div
           role="group"
@@ -387,7 +401,12 @@ export function Import() {
         </div>
 
         {mode === "photo" ? (
-          <PhotoImport onResult={setResult} />
+          <PhotoImport
+            onResult={(r, source) => {
+              setPhotoSource(source);
+              setResult(r);
+            }}
+          />
         ) : mode === "url" ? (
           <form
             className="flex flex-col gap-4"

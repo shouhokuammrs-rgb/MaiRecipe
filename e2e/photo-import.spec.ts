@@ -41,6 +41,9 @@ test("写真からレシピを読み取って保存する", async ({ page }) => 
 
   await page.goto("/import");
   await page.getByRole("button", { name: "写真から" }).click();
+  await page
+    .getByLabel("本の名前・ページ（任意・出典として残します）")
+    .fill("ダミーの本 p.12");
   await page.getByLabel("レシピの写真を選ぶ").setInputFiles({
     name: "page.jpg",
     mimeType: "image/jpeg",
@@ -56,4 +59,14 @@ test("写真からレシピを読み取って保存する", async ({ page }) => 
   await expect(
     page.getByRole("heading", { name: "ダミーの肉じゃが" }),
   ).toBeVisible();
+  // 本の名前は「出典：…」のメモとして残る
+  const id = page.url().split("/recipes/")[1]!;
+  const detail = (await (
+    await page.request.get(`/api/recipes/${id}`)
+  ).json()) as {
+    recipe: { memos: { text: string }[] };
+  };
+  expect(detail.recipe.memos.map((m) => m.text)).toEqual([
+    "出典：ダミーの本 p.12",
+  ]);
 });
