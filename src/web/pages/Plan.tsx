@@ -13,6 +13,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiClient, type PlanEntry } from "@/api/client";
 import { Empty, ErrorState, Loading, PageTitle } from "@/components/common";
 import { prefetchRecipes, recipeQuery } from "@/lib/offlineRecipes";
+import { PlanSuggest } from "@/components/PlanSuggest";
 import { categoryTint } from "@/lib/tint";
 import { cn } from "@/lib/utils";
 import { MEAL_LABELS, MEALS, type Meal } from "../../shared/constants";
@@ -143,6 +144,7 @@ export function Plan() {
       </PageTitle>
 
       <div className="flex flex-col gap-2 px-5 pb-2">
+        {!adding && <PlanSuggest />}
         {adding && addingRecipe.data && (
           <div className="flex items-center justify-between gap-2 rounded-xl bg-accent-soft px-3 py-2.5 text-[13px] text-accent-deep">
             「{addingRecipe.data.title}」を入れる枠をタップ

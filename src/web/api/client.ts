@@ -135,6 +135,15 @@ export type ImportJob = {
   createdAt: number;
 };
 
+/** AI の献立の案（1つの枠＝日付×食事） */
+export type PlanSuggestionView = {
+  date: string;
+  meal: Meal;
+  reason: string;
+  recipeIds: string[];
+  recipes: { id: string; title: string; category: string }[];
+};
+
 export type PlanEntry = {
   id: string;
   date: string;
@@ -294,6 +303,12 @@ export const apiClient = {
   plans: (from: string, to: string) =>
     call<{ plans: PlanEntry[]; today: string }>(`/plans?from=${from}&to=${to}`),
   /** 枠の最後に1品足す（同じレシピが既にあれば何もしない） */
+  /** 保存しているレシピから AI に献立を考えてもらう（保存はしない） */
+  suggestPlan: (input: { days: number; meals: Meal[]; wish: string }) =>
+    call<{ suggestions: PlanSuggestionView[] }>("/plans/suggest", {
+      method: "POST",
+      json: input,
+    }),
   addPlan: (date: string, meal: Meal, recipeId: string) =>
     call<void>("/plans", { method: "PUT", json: { date, meal, recipeId } }),
   deletePlanItem: (id: string) =>

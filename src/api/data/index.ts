@@ -682,6 +682,7 @@ export function forGroup(db: Db, groupId: string) {
             id: s.recipes.id,
             title: s.recipes.title,
             category: s.recipes.category,
+            genre: s.recipes.genre,
             updatedAt: s.recipes.updatedAt,
           })
           .from(s.recipes)
@@ -691,6 +692,7 @@ export function forGroup(db: Db, groupId: string) {
         id: r.id,
         title: r.title,
         category: r.category,
+        genre: r.genre,
         updatedAt: r.updatedAt.getTime(),
         ingredients: latest.get(r.id)?.ingredients ?? [],
       }));

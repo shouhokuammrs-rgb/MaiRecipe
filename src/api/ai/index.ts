@@ -9,6 +9,12 @@ import {
   type AssistReply,
 } from "../../shared/assist";
 import {
+  buildPlanPrompt,
+  parsePlanSuggestion,
+  type PlanInput,
+  type PlanSuggestion,
+} from "../../shared/ai-plan";
+import {
   buildMemoPrompt,
   parseMemoChanges,
   type MemoChange,
@@ -53,6 +59,14 @@ const TASKS = {
     fallback: "@cf/openai/gpt-oss-120b",
   },
   memo_apply: {
+    provider: "gemini",
+    model: "gemini-3.6-flash",
+    thinkingLevel: "low",
+    maxTokens: 4096,
+    timeoutMs: 30_000,
+    fallback: "@cf/openai/gpt-oss-120b",
+  },
+  plan_suggest: {
     provider: "gemini",
     model: "gemini-3.6-flash",
     thinkingLevel: "low",
@@ -257,4 +271,51 @@ export async function suggestMemoChanges(
   );
   if (!changes) throw new AiBadOutput("変更案を作れませんでした");
   return changes;
+}
+
+/** 保存しているレシピから、献立を考えてもらう（#15 / DEC-028）。Gemini がだめなら Workers AI */
+export async function suggestPlan(
+  env: AiEnv,
+  input: PlanInput,
+): Promise<PlanSuggestion[]> {
+  const task = TASKS.plan_suggest;
+  const { system, user } = buildPlanPrompt(input);
+  let geminiError: unknown = null;
+  if (hasGemini(env) && (await take(env, "gemini:plan_suggest"))) {
+    try {
+      const out = parsePlanSuggestion(
+        await runGeminiText(
+          env,
+          task.model,
+          system,
+          user,
+          task.maxTokens,
+          task.thinkingLevel,
+          task.timeoutMs,
+        ),
+        input,
+      );
+      if (out) return out;
+      geminiError = new AiBadOutput("献立を作れませんでした");
+    } catch (e) {
+      geminiError = e;
+    }
+  }
+  if (!env.AI) {
+    if (geminiError) throw geminiError;
+    throw new AiUnavailable("AI がつながっていません");
+  }
+  if (!(await take(env, "workers-ai:plan_suggest")))
+    throw (
+      geminiError ??
+      new AiDailyStop(
+        "今日の AI の無料分の9割を使ったので、止めています。明日また使えます",
+      )
+    );
+  const out = parsePlanSuggestion(
+    await runWorkersAi(env.AI, task.fallback, system, user, 2000),
+    input,
+  );
+  if (!out) throw new AiBadOutput("献立を作れませんでした");
+  return out;
 }

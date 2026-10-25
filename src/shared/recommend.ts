@@ -16,6 +16,7 @@ export type RecoRecipe = {
   id: string;
   title: string;
   category: string;
+  genre?: string;
   updatedAt: number;
   ingredients: Ingredient[];
 };
