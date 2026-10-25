@@ -28,9 +28,10 @@ import {
 import { jobLabel, jobResult, useImportJobs } from "@/lib/importJobs";
 import { PrimaryButton, SecondaryButton, SubHeader } from "@/components/common";
 import { RecipeEditor } from "@/components/RecipeEditor";
+import { PhotoImport } from "@/components/PhotoImport";
 import { VideoEmbed } from "@/components/VideoEmbed";
 
-type Mode = "url" | "text";
+type Mode = "url" | "text" | "photo";
 
 /** 貼り付けた文章は端末の中で材料と手順に分ける（API には送らない） */
 const TEXT_MAX = 20_000;
@@ -139,9 +140,13 @@ export function Import() {
     mutationFn: (u: string) => apiClient.reportImport(u),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["import-reports"] }),
   });
+  // 写真から読んだときの本の名前（保存したらメモに「出典：…」として残す）
+  const [photoSource, setPhotoSource] = useState("");
   const save = useMutation({
     mutationFn: apiClient.createRecipe,
     onSuccess: async ({ id }) => {
+      if (result?.kind === "photo" && photoSource)
+        await apiClient.addMemo(id, `出典：${photoSource}`).catch(() => {});
       // 保存した読み取りは一覧から消す
       if (activeJob)
         await apiClient.dismissImportJob(activeJob).catch(() => {});
@@ -258,7 +263,11 @@ export function Import() {
                 <span>
                   {result.message}
                   <br />
-                  出典：<span className="break-all">{d.sourceUrl}</span>
+                  {d.sourceUrl && (
+                    <>
+                      出典：<span className="break-all">{d.sourceUrl}</span>
+                    </>
+                  )}
                   {d.videoUrl && d.videoUrl !== d.sourceUrl && (
                     <>
                       <br />
@@ -276,12 +285,22 @@ export function Import() {
                   <span>{result.notice}</span>
                 </div>
               )}
-              {!result.found && (
+              {!result.found && result.kind === "photo" && (
+                <SecondaryButton
+                  onClick={() => {
+                    setResult(null);
+                    setMode("photo");
+                  }}
+                >
+                  撮り直す
+                </SecondaryButton>
+              )}
+              {!result.found && d.sourceUrl && (
                 <div className="flex flex-col gap-2">
                   <PrimaryButton
                     disabled={aiRead.isPending}
                     onClick={() =>
-                      aiRead.mutate({ url: d.sourceUrl, title: d.title })
+                      aiRead.mutate({ url: d.sourceUrl ?? "", title: d.title })
                     }
                   >
                     <Sparkles className="size-4" />
@@ -296,7 +315,7 @@ export function Import() {
                   )}
                   <SecondaryButton
                     onClick={() => {
-                      setUrl(d.sourceUrl);
+                      setUrl(d.sourceUrl ?? "");
                       setFallbackTitle(d.title);
                       setResult(null);
                       setActiveJob(null);
@@ -311,7 +330,7 @@ export function Import() {
                   </SecondaryButton>
                   <SecondaryButton
                     disabled={report.isPending || report.isSuccess}
-                    onClick={() => report.mutate(d.sourceUrl)}
+                    onClick={() => report.mutate(d.sourceUrl ?? "")}
                   >
                     <Flag className="size-4" />
                     {report.isSuccess
@@ -355,17 +374,18 @@ export function Import() {
 
   return (
     <>
-      <SubHeader title="URL・動画から取り込み" back="/" />
+      <SubHeader title="レシピを取り込む" back="/" />
       <div className="flex flex-col gap-4 px-5 pt-5 pb-10">
         <div
           role="group"
           aria-label="取り込み方"
-          className="grid grid-cols-2 gap-1 rounded-xl bg-chip p-1"
+          className="grid grid-cols-3 gap-1 rounded-xl bg-chip p-1"
         >
           {(
             [
               ["url", "URL から"],
               ["text", "文章を貼って"],
+              ["photo", "写真から"],
             ] as const
           ).map(([m, label]) => (
             <button
@@ -380,7 +400,14 @@ export function Import() {
           ))}
         </div>
 
-        {mode === "url" ? (
+        {mode === "photo" ? (
+          <PhotoImport
+            onResult={(r, source) => {
+              setPhotoSource(source);
+              setResult(r);
+            }}
+          />
+        ) : mode === "url" ? (
           <form
             className="flex flex-col gap-4"
             onSubmit={(e) => {

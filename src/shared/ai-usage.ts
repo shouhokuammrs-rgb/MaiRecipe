@@ -8,6 +8,7 @@ export type UsageKey =
   | "workers-ai:read_recipe"
   | "workers-ai:cook_assist"
   | "gemini:memo_apply"
+  | "gemini:read_photo"
   | "workers-ai:memo_apply";
 
 export const AI_BUDGETS: Record<UsageKey, { label: string; perDay: number }> = {
@@ -19,6 +20,7 @@ export const AI_BUDGETS: Record<UsageKey, { label: string; perDay: number }> = {
     perDay: 60,
   },
   "gemini:memo_apply": { label: "メモから変更案（Gemini）", perDay: 40 },
+  "gemini:read_photo": { label: "写真から読む（Gemini）", perDay: 30 },
   "workers-ai:memo_apply": {
     label: "メモから変更案の予備（Workers AI）",
     perDay: 30,
