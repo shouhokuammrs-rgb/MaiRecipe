@@ -109,6 +109,64 @@ export async function runGeminiVideo(
   return extractGeminiText(body);
 }
 
+/**
+ * 写真を見せて読ませる（料理本のページ）。写真は画面で縮めた JPEG の base64 を、そのまま渡す
+ * （ここでは画像の中身を触らない・変換しない。DEC-008）
+ */
+export async function runGeminiImage(
+  env: GeminiEnv,
+  model: string,
+  prompt: string,
+  jpegBase64: string,
+  maxTokens: number,
+): Promise<string> {
+  const key = env.GEMINI_API_KEY;
+  if (!key) throw new AiUnavailable("Gemini の鍵がありません");
+  let res: Response;
+  try {
+    res = await fetch(`${ENDPOINT}/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { inline_data: { mime_type: "image/jpeg", data: jpegBase64 } },
+              { text: prompt },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: maxTokens,
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e) {
+    const timeout = (e as Error)?.name === "TimeoutError";
+    throw new AiUnavailable(
+      timeout
+        ? "写真を読むのに時間がかかりすぎました"
+        : "Gemini につながりませんでした",
+    );
+  }
+  if (res.status === 429) throw await quotaError(res);
+  if (!res.ok) {
+    const msg = `Gemini がエラーを返しました（${res.status}）`;
+    throw res.status >= 500 ? new GeminiTemporary(msg) : new AiUnavailable(msg);
+  }
+  const body = (await res.json().catch(() => null)) as {
+    candidates?: { finishReason?: string }[];
+  } | null;
+  const finish = body?.candidates?.[0]?.finishReason;
+  if (finish && finish !== "STOP")
+    throw new AiUnavailable(`写真を読めませんでした（${finish}）`);
+  return extractGeminiText(body);
+}
+
 /** 文章だけで頼む（お料理アシスタント）。返事は JSON の文字 */
 export async function runGeminiText(
   env: GeminiEnv,

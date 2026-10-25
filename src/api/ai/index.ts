@@ -16,6 +16,7 @@ import {
 } from "../../shared/memo-apply";
 import {
   buildReadPrompt,
+  buildPhotoPrompt,
   buildVideoPrompt,
   parseAiRecipe,
   type AiRecipe,
@@ -24,6 +25,7 @@ import {
   GeminiTemporary,
   hasGemini,
   runGeminiText,
+  runGeminiImage,
   runGeminiVideo,
   type GeminiEnv,
 } from "../platform/gemini";
@@ -59,6 +61,11 @@ const TASKS = {
     maxTokens: 4096,
     timeoutMs: 30_000,
     fallback: "@cf/openai/gpt-oss-120b",
+  },
+  read_photo: {
+    provider: "gemini",
+    model: "gemini-3.6-flash",
+    maxTokens: 8192,
   },
   watch_video: {
     provider: "gemini",
@@ -257,4 +264,25 @@ export async function suggestMemoChanges(
   );
   if (!changes) throw new AiBadOutput("変更案を作れませんでした");
   return changes;
+}
+
+/** 料理本の写真から材料と手順を読む（#15）。写真は保存しない。読めなければ AiBadOutput */
+export async function readPhotoWithAi(
+  env: AiEnv,
+  jpegBase64: string,
+): Promise<AiRecipe> {
+  if (!hasGemini(env))
+    throw new AiUnavailable("写真を読む AI の鍵がありません");
+  const task = TASKS.read_photo;
+  await takeOrThrow(env, "gemini:read_photo");
+  const raw = await runGeminiImage(
+    env,
+    task.model,
+    buildPhotoPrompt(),
+    jpegBase64,
+    task.maxTokens,
+  );
+  const recipe = parseAiRecipe(raw);
+  if (!recipe) throw new AiBadOutput("写真からレシピを読み取れませんでした");
+  return recipe;
 }

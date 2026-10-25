@@ -28,9 +28,10 @@ import {
 import { jobLabel, jobResult, useImportJobs } from "@/lib/importJobs";
 import { PrimaryButton, SecondaryButton, SubHeader } from "@/components/common";
 import { RecipeEditor } from "@/components/RecipeEditor";
+import { PhotoImport } from "@/components/PhotoImport";
 import { VideoEmbed } from "@/components/VideoEmbed";
 
-type Mode = "url" | "text";
+type Mode = "url" | "text" | "photo";
 
 /** 貼り付けた文章は端末の中で材料と手順に分ける（API には送らない） */
 const TEXT_MAX = 20_000;
@@ -258,7 +259,11 @@ export function Import() {
                 <span>
                   {result.message}
                   <br />
-                  出典：<span className="break-all">{d.sourceUrl}</span>
+                  {d.sourceUrl && (
+                    <>
+                      出典：<span className="break-all">{d.sourceUrl}</span>
+                    </>
+                  )}
                   {d.videoUrl && d.videoUrl !== d.sourceUrl && (
                     <>
                       <br />
@@ -276,12 +281,12 @@ export function Import() {
                   <span>{result.notice}</span>
                 </div>
               )}
-              {!result.found && (
+              {!result.found && d.sourceUrl && (
                 <div className="flex flex-col gap-2">
                   <PrimaryButton
                     disabled={aiRead.isPending}
                     onClick={() =>
-                      aiRead.mutate({ url: d.sourceUrl, title: d.title })
+                      aiRead.mutate({ url: d.sourceUrl ?? "", title: d.title })
                     }
                   >
                     <Sparkles className="size-4" />
@@ -296,7 +301,7 @@ export function Import() {
                   )}
                   <SecondaryButton
                     onClick={() => {
-                      setUrl(d.sourceUrl);
+                      setUrl(d.sourceUrl ?? "");
                       setFallbackTitle(d.title);
                       setResult(null);
                       setActiveJob(null);
@@ -311,7 +316,7 @@ export function Import() {
                   </SecondaryButton>
                   <SecondaryButton
                     disabled={report.isPending || report.isSuccess}
-                    onClick={() => report.mutate(d.sourceUrl)}
+                    onClick={() => report.mutate(d.sourceUrl ?? "")}
                   >
                     <Flag className="size-4" />
                     {report.isSuccess
@@ -360,12 +365,13 @@ export function Import() {
         <div
           role="group"
           aria-label="取り込み方"
-          className="grid grid-cols-2 gap-1 rounded-xl bg-chip p-1"
+          className="grid grid-cols-3 gap-1 rounded-xl bg-chip p-1"
         >
           {(
             [
               ["url", "URL から"],
               ["text", "文章を貼って"],
+              ["photo", "写真から"],
             ] as const
           ).map(([m, label]) => (
             <button
@@ -380,7 +386,9 @@ export function Import() {
           ))}
         </div>
 
-        {mode === "url" ? (
+        {mode === "photo" ? (
+          <PhotoImport onResult={setResult} />
+        ) : mode === "url" ? (
           <form
             className="flex flex-col gap-4"
             onSubmit={(e) => {

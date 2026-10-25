@@ -91,3 +91,14 @@ describe("プロンプト", () => {
     expect(user).toContain("題名");
   });
 });
+
+describe("buildPhotoPrompt（料理本の写真）", () => {
+  it("写っている文字だけを使い、材料・手順・人数・コツを JSON で返させる", async () => {
+    const { buildPhotoPrompt } = await import("../../src/shared/ai-read");
+    const p = buildPhotoPrompt();
+    expect(p).toContain("写真に写っている");
+    expect(p).toContain('"servings"');
+    expect(p).toContain('"tips"');
+    expect(p).toContain("想像で足さない");
+  });
+});
