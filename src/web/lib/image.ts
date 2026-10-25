@@ -3,7 +3,15 @@ const MAX_SIDE = 1600;
 const MAX_BYTES = 1_000_000;
 
 export async function shrinkImage(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // HEIC など、この端末で開けない形式
+    throw new Error(
+      "この形式の写真は読めません。JPEG か PNG の写真を選んでください",
+    );
+  }
   const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
   const w = Math.round(bitmap.width * scale);
   const h = Math.round(bitmap.height * scale);

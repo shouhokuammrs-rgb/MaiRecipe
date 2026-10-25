@@ -36,7 +36,9 @@ import {
   AiUnavailable,
   GeminiRateLimited,
   GeminiTemporary,
+  PhotoInvalid,
   canWatchVideo,
+  readPhotoWithAi,
   readRecipeWithAi,
   watchVideoWithAi,
 } from "../ai";
@@ -661,4 +663,64 @@ importer.post("/ai", async (c) => {
   if (!parsed.success) return badRequest(c, parsed.error);
   const r = await readWithAi(c.env, parsed.data);
   return r.ok ? c.json(r.body) : c.json({ error: r.error }, r.status);
+});
+
+/** 写真の base64 の上限（画面で長辺1600px・1MB 以下に縮めてから送る。base64 で約1.37倍） */
+const PHOTO_BASE64_MAX = 1_400_000;
+
+/**
+ * 料理本・レシピカードの写真から読む（#15）。写真は画面で縮めた JPEG を base64 の文字で受け取り、
+ * 中身を触らずに AI に渡す（DEC-008）。写真は保存しない。結果は下書き（保存は画面で確かめてから）
+ */
+importer.post("/photo", async (c) => {
+  // 読む前に大きさを確かめる（大きな本文をメモリに読み込まない）
+  const length = Number(c.req.header("content-length"));
+  if (!Number.isInteger(length) || length < 4)
+    return c.json({ error: "写真を受け取れませんでした" }, 411);
+  if (length > PHOTO_BASE64_MAX)
+    return c.json({ error: "写真が大きすぎます。撮り直してください" }, 413);
+  const body = c.req.raw.body;
+  if (!body) return c.json({ error: "写真を受け取れませんでした" }, 411);
+  if (!canWatchVideo(c.env))
+    return c.json({ error: "今は写真を読む AI を使えない設定です。" }, 503);
+  let recipe: AiRecipe;
+  try {
+    recipe = await readPhotoWithAi(c.env, { body, length });
+  } catch (e) {
+    if (e instanceof PhotoInvalid)
+      return c.json({ error: "JPEG の写真だけ読めます" }, 400);
+    const r = aiError(e);
+    if (r.ok) throw e;
+    return c.json(
+      {
+        error:
+          r.status === 422
+            ? "写真からレシピを読み取れませんでした。文字がはっきり写るように撮り直すか、手で入れてください。"
+            : r.error,
+      },
+      r.status,
+    );
+  }
+  const title = recipe.title || "写真から読んだレシピ";
+  const hints = [title, ...recipe.ingredients.map((i) => i.name)];
+  return c.json({
+    kind: "photo",
+    found: recipe.ingredients.length > 0 || recipe.steps.length > 0,
+    draft: {
+      title: title.slice(0, LIMITS.titleMax),
+      ingredients: recipe.ingredients,
+      steps: recipe.steps,
+      timeLabel: recipe.timeLabel,
+      servings: recipe.servings,
+      tips: recipe.tips,
+      category: guessCategory(hints),
+      genre: guessGenre(hints),
+      sourceUrl: null,
+      videoUrl: null,
+    },
+    message:
+      recipe.ingredients.length || recipe.steps.length
+        ? "AI（無料）が写真を読み取りました。読み間違えることがあるので、分量と手順を確かめてから保存してください。"
+        : "写真から材料と作り方を見つけられませんでした。文字がはっきり写るように撮り直すか、手で入れてください。",
+  });
 });
