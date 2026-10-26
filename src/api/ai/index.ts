@@ -103,6 +103,8 @@ const TASKS = {
   watch_video: {
     provider: "gemini",
     model: "gemini-3.8-flash",
+    /** 上のモデルが混んでいる（503 など）ときに替える、別のモデル（混雑はモデルごと） */
+    backupModel: "gemini-3.6-flash",
     // 15分ほどの動画でも手順まで書き切れるように
     maxTokens: 16384,
   },
@@ -168,13 +170,16 @@ export async function watchVideoWithAi(
   description: string,
   /** 呼ぶ側（裏の読み取り）が待ってやり直すとき true。ここでのすぐのやり直しはしない */
   noQuickRetry = false,
+  /** 前の回で混んでいたとき true（予備のモデルで見る） */
+  useBackup = false,
 ): Promise<AiRecipe> {
   const task = TASKS.watch_video;
+  const model = useBackup ? task.backupModel : task.model;
   const run = async () => {
     await takeOrThrow(env, "gemini:watch_video");
     return runGeminiVideo(
       env,
-      task.model,
+      model,
       buildVideoPrompt(title, description),
       videoUrl,
       task.maxTokens,

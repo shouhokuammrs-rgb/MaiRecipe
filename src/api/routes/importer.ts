@@ -231,7 +231,11 @@ export async function importFromUrl(
    * 裏の読み取りでまだやり直せるとき true。動画を見る AI が一時的に失敗したら（Google 側の混雑など）、
    * 文章の AI や規則に落とさず ImportRetryLater を投げる（呼ぶ側が少し待ってやり直す）
    */
-  opts: { retryLater?: boolean } = {},
+  opts: {
+    retryLater?: boolean;
+    /** 裏の読み取りで何回目か（0 から）。2回目からは動画を見る AI を予備のモデルにする */
+    attempt?: number;
+  } = {},
 ): Promise<ImportBody> {
   const video = parseVideoUrl(url);
   if (video) {
@@ -471,7 +475,7 @@ async function readWithAi(
   input: AiInput,
   /** 取り込みで既に取ってきた文章（もう一度取りに行かない） */
   pre?: { source: string; title: string; sourceUrl?: string },
-  opts: { retryLater?: boolean } = {},
+  opts: { retryLater?: boolean; attempt?: number } = {},
 ): Promise<AiOutcome> {
   const { url, text } = input;
   let title = input.title ?? pre?.title ?? "";
@@ -511,6 +515,8 @@ async function readWithAi(
   let watchError: AiOutcome | null = null;
   // 動画を見る AI がだめだった理由（文章を読む AI に回したとき、画面で知らせる）
   let watchNote: string | null = null;
+  /** 動画を見る AI が混んでいて読めなかった（後から読み直せば通ることが多い） */
+  let watchBusy = false;
   if (video && !text && canWatchVideo(env)) {
     try {
       const watched = await watchVideoWithAi(
@@ -519,6 +525,7 @@ async function readWithAi(
         title,
         source,
         opts.retryLater,
+        (opts.attempt ?? 0) >= 1,
       );
       const recipe = {
         ...watched,
@@ -537,13 +544,19 @@ async function readWithAi(
           e instanceof Error ? e.message : "一時的に読めませんでした",
         );
       watchError = aiError(e);
-      watchNote =
-        e instanceof Error && e.message ? e.message : "動画を読めませんでした";
+      watchBusy = e instanceof GeminiTemporary;
+      watchNote = watchBusy
+        ? "Google の AI が混み合っていました"
+        : e instanceof Error && e.message
+          ? e.message
+          : "動画を読めませんでした";
     }
   }
   if (source.trim().length < 20 || (watchError && !env.AI))
     return (
-      watchError ?? {
+      (watchError && watchBusy
+        ? { ok: false as const, status: 503 as const, error: BUSY_NOTICE }
+        : watchError) ?? {
         ok: false,
         status: 422,
         error: "読み取れる文章がありませんでした。",
@@ -567,7 +580,9 @@ async function readWithAi(
   const notices = [
     unverifiedNotice(findUnverified(recipe.ingredients, source)),
     watchNote && !recipe.steps.length
-      ? `手順は動画の中で話しているだけのようです。動画を見る AI では読めませんでした（${watchNote}）。手順は手で入れてください。`
+      ? watchBusy
+        ? BUSY_NOTICE
+        : `手順は動画の中で話しているだけのようです。動画を見る AI では読めませんでした（${watchNote}）。手順は手で入れてください。`
       : null,
   ].filter(Boolean);
   return aiDraftBody(
@@ -584,6 +599,10 @@ async function readWithAi(
 export class ImportRetryLater extends Error {}
 
 /** Google 側の一時的な失敗（混雑・5xx・1分あたりの上限）。今日の分を使い切ったときは違う */
+/** 動画を見る AI が混んでいて読めなかったときの知らせ（後から読み直せる） */
+const BUSY_NOTICE =
+  "Google の AI が混み合っていて、動画を見て手順を読めませんでした。保存したあと、レシピの画面の「出典から読み直す」で後からもう一度読めます";
+
 function isTemporary(e: unknown): boolean {
   return e instanceof GeminiTemporary || e instanceof GeminiRateLimited;
 }

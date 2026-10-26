@@ -19,10 +19,11 @@ const inline: RunStep = (_name, fn) => fn();
 
 /**
  * 動画を見る AI が Google 側の混雑などで一時的に失敗したときの、やり直すまでの待ち時間。
- * 1回の読み取りは最悪で約3分（ページ・概要欄の取得 約30秒＋動画を見る 150秒。すぐのやり直しはしない）。
- * 3回＋待ち2分で約11分（読み取り中が15分を超えると止まった扱いになるので、それより短く）
+ * 混雑は数分続くことがあるので合わせて5分待つ。2回目からは予備のモデルで見る（混雑はモデルごと）。
+ * 1回の読み取りは最悪で約3分（ページ・概要欄の取得 約30秒＋動画を見る 150秒）なので、
+ * 4回＋待ち5分で最悪約17分（読み取り中が25分を超えると止まった扱い。IMPORT_JOB_STUCK_MS）
  */
-export const RETRY_WAITS_MS = [30_000, 90_000];
+export const RETRY_WAITS_MS = [30_000, 90_000, 180_000];
 
 type ReadOutcome = { result: unknown } | { retry: string };
 
@@ -49,6 +50,7 @@ export async function runImportJob(
             return {
               result: await importFromUrl(env, p.url, {
                 retryLater: canRetry,
+                attempt,
               }),
             };
           } catch (e) {

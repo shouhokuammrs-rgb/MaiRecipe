@@ -36,7 +36,7 @@ const IMPORT_JOBS_RUNNING_MAX = 5;
  * これより長く「読み取り中」のままなら、止まったとみなす。
  * Workflow の読み取り（5分まで × やり直し1回 ＋ 待ち）より長くする
  */
-const IMPORT_JOB_STUCK_MS = 15 * 60_000;
+const IMPORT_JOB_STUCK_MS = 25 * 60_000;
 
 export function openDb(d1: D1Database): Db {
   return drizzle(d1, { schema: s });

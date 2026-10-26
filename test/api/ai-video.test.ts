@@ -386,6 +386,24 @@ describe("手順が書かれていない動画は、Gemini に動画を見せる
     expect(j.notice).toContain("途中で切れました");
   });
 
+  it("Gemini が混んでいて読めず、文章の AI でも手順が無ければ、後から読み直せると知らせる（数字は出さない）", async () => {
+    E.GEMINI_API_KEY = "test-gemini-key";
+    E.AI = {
+      run: vi.fn(async () => ({
+        response:
+          '{"title":"きのこパスタ","ingredients":[{"name":"しめじ","amount":"1/2パック"}],"steps":[]}',
+      })),
+    };
+    mockFetch(() => json({}, 503));
+    const me = await signUp();
+    const j = (await (
+      await api(me, "/import", { method: "POST", body: { url: WATCH } })
+    ).json()) as { notice: string | null };
+    expect(j.notice).toContain("混み合って");
+    expect(j.notice).toContain("出典から読み直す");
+    expect(j.notice).not.toContain("503");
+  });
+
   it("Gemini が一時的に失敗（524）したら、1回だけやり直す", async () => {
     E.GEMINI_API_KEY = "test-gemini-key";
     let n = 0;
