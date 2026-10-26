@@ -204,6 +204,62 @@ describe("cleanPageTitle", () => {
 });
 
 describe("parseDescriptionRecipe", () => {
+  it("見出しのすぐ下の罫線は飛ばす（下線のつもり）", () => {
+    const desc = [
+      "【材料】",
+      "━━━━━━",
+      "豚肉 200g",
+      "玉ねぎ 1個",
+      "【作り方】",
+      "━━━━━━",
+      "1. 切る",
+      "2. 焼く",
+    ].join("\n");
+    const r = parseDescriptionRecipe(desc);
+    expect(r?.ingredients.map((i) => i.name)).toEqual(["豚肉", "玉ねぎ"]);
+    expect(r?.steps).toEqual(["切る", "焼く"]);
+  });
+
+  it("材料の行の中の URL（買える場所のリンク）は外して続ける", () => {
+    const desc = [
+      "【材料】",
+      "豚肉 200g",
+      "白だし（https://amzn.to/x） 大さじ1",
+      "玉ねぎ 1個",
+    ].join("\n");
+    expect(
+      parseDescriptionRecipe(desc)?.ingredients.map((i) => i.name),
+    ).toEqual(["豚肉", "白だし", "玉ねぎ"]);
+  });
+
+  it("罫線（＊＊＊＊ など）の行と、URL のある行で材料を終える", () => {
+    const desc = [
+      "ダミーのきのこパスタを作ります。",
+      "＊＊＊＊＊",
+      "●材料(約1人前)",
+      "玉ねぎ　　1/4個",
+      "しめじ　　1/2pc",
+      "醤油・酒・みりん　大さじ1",
+      "＊＊＊＊＊",
+      "●ダミーのケーキのご購入はこちら。",
+      "https://shop.example.test/",
+    ].join("\n");
+    expect(parseDescriptionRecipe(desc)?.ingredients).toEqual([
+      { name: "玉ねぎ", amount: "1/4個" },
+      { name: "しめじ", amount: "1/2pc" },
+      { name: "醤油・酒・みりん", amount: "大さじ1" },
+    ]);
+    const noRuler = [
+      "●材料",
+      "玉ねぎ　1/4個",
+      "寄付のお知らせ https://shop.example.test/",
+      "●ダミーのご購入はこちら。",
+    ].join("\n");
+    expect(parseDescriptionRecipe(noRuler)?.ingredients).toEqual([
+      { name: "玉ねぎ", amount: "1/4個" },
+    ]);
+  });
+
   it("【材料】【作り方】の区切りから材料と手順を取り出す", () => {
     expect(parseDescriptionRecipe(DESCRIPTION_WITH_RECIPE)).toEqual({
       ingredients: [
