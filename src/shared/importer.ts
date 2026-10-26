@@ -492,6 +492,8 @@ export function parseDescriptionRecipe(
   let afterBlank = false;
   /** 今読んでいる材料のまとまり（A・★ など） */
   let group: string | null = null;
+  /** 今の見出しが始まったときに読んであった材料・手順の数（見出しのすぐ下の罫線を見分ける） */
+  let sectionStart = -1;
   for (const rawLine of description.split(/\r?\n/).slice(0, 400)) {
     const line = rawLine.trim();
     if (!line) {
@@ -501,6 +503,7 @@ export function parseDescriptionRecipe(
     const marker = descMarker(line);
     if (marker) {
       mode = marker;
+      sectionStart = ingredients.length + steps.length;
       if (marker !== "other") seenMarker = true;
       afterBlank = false;
       continue;
@@ -509,20 +512,32 @@ export function parseDescriptionRecipe(
       mode = null;
       continue;
     }
-    // 「＊＊＊＊」などの罫線は、まとまりの区切り（この後は宣伝のことが多い）
+    // 「＊＊＊＊」などの罫線は、まとまりの区切り（この後は宣伝のことが多い）。
+    // ただし見出しのすぐ下（まだ何も読んでいない）の罫線は下線なので飛ばす
     if (RULER.test(line)) {
-      mode = null;
-      group = null;
+      if (ingredients.length + steps.length !== sectionStart) {
+        mode = null;
+        group = null;
+      }
       continue;
     }
-    // 材料の途中に URL のある行が来たら、材料は終わり（お知らせ・宣伝の行）
+    // 材料の行の URL（買える場所のリンク）は外す。外して分量が残らなければ、お知らせ・宣伝の行なので材料は終わり
+    let line2 = line;
     if (mode === "ingredients" && /https?:\/\//.test(line)) {
-      mode = null;
-      continue;
+      line2 = line
+        .replace(/https?:\/\/\S+?(?=[）)\s]|$)/g, "")
+        .replace(/[（(]\s*[）)]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const rest = splitIngredientLine(line2.replace(DESC_BULLET, ""));
+      if (!rest.name || !startsWithAmount(rest.amount)) {
+        mode = null;
+        continue;
+      }
     }
-    const bulleted = DESC_BULLET.test(line);
+    const bulleted = DESC_BULLET.test(line2);
     if (mode === "ingredients") {
-      const body = line.replace(DESC_BULLET, "");
+      const body = line2.replace(DESC_BULLET, "");
       // ＜タレ＞（A）のような、まとまりの名前だけの行：続く材料の頭に【A】を付ける
       const head = body.match(/^[<＜(（【[［](.{0,6})[>＞)）】\]］]$/u);
       if (head) {

@@ -204,6 +204,34 @@ describe("cleanPageTitle", () => {
 });
 
 describe("parseDescriptionRecipe", () => {
+  it("見出しのすぐ下の罫線は飛ばす（下線のつもり）", () => {
+    const desc = [
+      "【材料】",
+      "━━━━━━",
+      "豚肉 200g",
+      "玉ねぎ 1個",
+      "【作り方】",
+      "━━━━━━",
+      "1. 切る",
+      "2. 焼く",
+    ].join("\n");
+    const r = parseDescriptionRecipe(desc);
+    expect(r?.ingredients.map((i) => i.name)).toEqual(["豚肉", "玉ねぎ"]);
+    expect(r?.steps).toEqual(["切る", "焼く"]);
+  });
+
+  it("材料の行の中の URL（買える場所のリンク）は外して続ける", () => {
+    const desc = [
+      "【材料】",
+      "豚肉 200g",
+      "白だし（https://amzn.to/x） 大さじ1",
+      "玉ねぎ 1個",
+    ].join("\n");
+    expect(
+      parseDescriptionRecipe(desc)?.ingredients.map((i) => i.name),
+    ).toEqual(["豚肉", "白だし", "玉ねぎ"]);
+  });
+
   it("罫線（＊＊＊＊ など）の行と、URL のある行で材料を終える", () => {
     const desc = [
       "ダミーのきのこパスタを作ります。",
