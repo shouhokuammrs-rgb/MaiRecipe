@@ -100,7 +100,7 @@ describe("POST /api/import/jobs（裏で読み取る）", () => {
     const me = await signUp();
     const id = await start(me);
     await E.DB.prepare("UPDATE import_jobs SET updated_at = ? WHERE id = ?")
-      .bind(Date.now() - 26 * 60_000, id)
+      .bind(Date.now() - 36 * 60_000, id)
       .run();
     const [job] = await jobsOf(me);
     expect(job!.status).toBe("failed");
@@ -132,7 +132,7 @@ describe("止まった読み取り・始められなかった読み取り", () =
     for (let i = 0; i < 5; i++) {
       const id = await start(me, `https://example.com/s/${i}`);
       await E.DB.prepare("UPDATE import_jobs SET updated_at = ? WHERE id = ?")
-        .bind(Date.now() - 26 * 60_000, id)
+        .bind(Date.now() - 36 * 60_000, id)
         .run();
     }
     await start(me, "https://example.com/s/new");

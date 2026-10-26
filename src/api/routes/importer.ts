@@ -598,11 +598,11 @@ async function readWithAi(
 /** 少し待てば読めそうな失敗（裏の読み取りなら、待ってやり直す） */
 export class ImportRetryLater extends Error {}
 
-/** Google 側の一時的な失敗（混雑・5xx・1分あたりの上限）。今日の分を使い切ったときは違う */
 /** 動画を見る AI が混んでいて読めなかったときの知らせ（後から読み直せる） */
 const BUSY_NOTICE =
   "Google の AI が混み合っていて、動画を見て手順を読めませんでした。保存したあと、レシピの画面の「出典から読み直す」で後からもう一度読めます";
 
+/** Google 側の一時的な失敗（混雑・5xx・1分あたりの上限）。今日の分を使い切ったときは違う */
 function isTemporary(e: unknown): boolean {
   return e instanceof GeminiTemporary || e instanceof GeminiRateLimited;
 }
