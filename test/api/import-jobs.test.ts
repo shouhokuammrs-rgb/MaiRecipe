@@ -100,7 +100,7 @@ describe("POST /api/import/jobs（裏で読み取る）", () => {
     const me = await signUp();
     const id = await start(me);
     await E.DB.prepare("UPDATE import_jobs SET updated_at = ? WHERE id = ?")
-      .bind(Date.now() - 16 * 60_000, id)
+      .bind(Date.now() - 36 * 60_000, id)
       .run();
     const [job] = await jobsOf(me);
     expect(job!.status).toBe("failed");
@@ -132,7 +132,7 @@ describe("止まった読み取り・始められなかった読み取り", () =
     for (let i = 0; i < 5; i++) {
       const id = await start(me, `https://example.com/s/${i}`);
       await E.DB.prepare("UPDATE import_jobs SET updated_at = ? WHERE id = ?")
-        .bind(Date.now() - 16 * 60_000, id)
+        .bind(Date.now() - 36 * 60_000, id)
         .run();
     }
     await start(me, "https://example.com/s/new");
@@ -203,7 +203,8 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
             : input.url,
       );
       if (u.hostname === "generativelanguage.googleapis.com") {
-        calls.push("gemini");
+        // どのモデルに頼んだか（混んでいたら予備のモデルに替える）
+        calls.push(u.pathname.split("/").pop()!.split(":")[0]!);
         return replies[Math.min(n++, replies.length - 1)]!();
       }
       return new Response("not found", { status: 404 });
@@ -220,7 +221,8 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
 
   it("少し待ってやり直し、読めたら動画の結果を入れる", async () => {
     G.GEMINI_API_KEY = "k";
-    // 1回目・2回目は混雑 → 待って3回目で読める（裏の読み取りでは、すぐのやり直しはしない）
+    // 1回目・2回目は混雑 → 待って3回目で読める（裏の読み取りでは、すぐのやり直しはしない）。
+    // 混んでいたら2回目からは予備のモデルに替える
     const calls = mockGemini([busy, busy, ok]);
     const sleeps: number[] = [];
     const me = await signUp();
@@ -236,7 +238,11 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
       },
     );
     expect(sleeps).toEqual([30_000, 90_000]);
-    expect(calls).toHaveLength(3);
+    expect(calls).toEqual([
+      "gemini-3.8-flash",
+      "gemini-3.6-flash",
+      "gemini-3.6-flash",
+    ]);
     const [job] = await jobsOf(me);
     expect(job!.status).toBe("done");
     expect(job!.result!.draft.steps).toEqual(["割る", "焼く"]);
@@ -244,7 +250,7 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
 
   it("何回やっても駄目なら、最後はいつもどおり規則の結果にして終える（止まったままにしない）", async () => {
     G.GEMINI_API_KEY = "k";
-    mockGemini([busy]);
+    const calls = mockGemini([busy]);
     const sleeps: number[] = [];
     const me = await signUp();
     await start(me, WATCH);
@@ -258,9 +264,17 @@ describe("動画の取り込みで Google 側が混んでいるとき", () => {
         sleeps.push(ms);
       },
     );
-    expect(sleeps).toEqual([30_000, 90_000]);
+    // 混雑はしばらく続くことがあるので、合わせて約5分待つ
+    expect(sleeps).toEqual([30_000, 90_000, 180_000]);
+    // 4回読み、最後の回だけはすぐに1回やり直す（もう待てないので）
+    expect(calls).toHaveLength(5);
     const [job] = await jobsOf(me);
     expect(job!.status).toBe("done");
+    // 混んでいたことと、後から読み直せることを伝える（503 のような数字は出さない）
+    const text = JSON.stringify(job!.result);
+    expect(text).toContain("混み合って");
+    expect(text).toContain("出典から読み直す");
+    expect(text).not.toContain("503");
   }, 60_000);
 
   it("今日の無料枠を使い切った 429 は、待ってもむだなのでやり直さない", async () => {
