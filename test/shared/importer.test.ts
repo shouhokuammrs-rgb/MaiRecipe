@@ -204,6 +204,34 @@ describe("cleanPageTitle", () => {
 });
 
 describe("parseDescriptionRecipe", () => {
+  it("罫線（＊＊＊＊ など）の行と、URL のある行で材料を終える", () => {
+    const desc = [
+      "ダミーのきのこパスタを作ります。",
+      "＊＊＊＊＊",
+      "●材料(約1人前)",
+      "玉ねぎ　　1/4個",
+      "しめじ　　1/2pc",
+      "醤油・酒・みりん　大さじ1",
+      "＊＊＊＊＊",
+      "●ダミーのケーキのご購入はこちら。",
+      "https://shop.example.test/",
+    ].join("\n");
+    expect(parseDescriptionRecipe(desc)?.ingredients).toEqual([
+      { name: "玉ねぎ", amount: "1/4個" },
+      { name: "しめじ", amount: "1/2pc" },
+      { name: "醤油・酒・みりん", amount: "大さじ1" },
+    ]);
+    const noRuler = [
+      "●材料",
+      "玉ねぎ　1/4個",
+      "寄付のお知らせ https://shop.example.test/",
+      "●ダミーのご購入はこちら。",
+    ].join("\n");
+    expect(parseDescriptionRecipe(noRuler)?.ingredients).toEqual([
+      { name: "玉ねぎ", amount: "1/4個" },
+    ]);
+  });
+
   it("【材料】【作り方】の区切りから材料と手順を取り出す", () => {
     expect(parseDescriptionRecipe(DESCRIPTION_WITH_RECIPE)).toEqual({
       ingredients: [

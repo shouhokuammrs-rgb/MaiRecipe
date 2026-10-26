@@ -509,6 +509,17 @@ export function parseDescriptionRecipe(
       mode = null;
       continue;
     }
+    // 「＊＊＊＊」などの罫線は、まとまりの区切り（この後は宣伝のことが多い）
+    if (RULER.test(line)) {
+      mode = null;
+      group = null;
+      continue;
+    }
+    // 材料の途中に URL のある行が来たら、材料は終わり（お知らせ・宣伝の行）
+    if (mode === "ingredients" && /https?:\/\//.test(line)) {
+      mode = null;
+      continue;
+    }
     const bulleted = DESC_BULLET.test(line);
     if (mode === "ingredients") {
       const body = line.replace(DESC_BULLET, "");
