@@ -59,6 +59,8 @@ function scoreRecipeCanon(
   pantry: CanonPantryItem[],
   plans: RecoPlan[],
   today: string,
+  /** 作った記録（date は作った日。献立に入れずに作った分も「最近作った」に数える。DEC-030） */
+  cooked: RecoPlan[] = [],
 ): { score: number; have: string[]; soon: string[] } {
   // 調味料を除き、名寄せした名前で重複を消した「主な材料」（表記はレシピ側の最初のもの）
   const seen = new Set<string>();
@@ -85,7 +87,13 @@ function scoreRecipeCanon(
   let score = main.length ? (have.length / main.length) * 100 : 0;
   score += soonPantry.size * SOON_BONUS;
   const mine = plans.filter((p) => p.recipeId === r.id);
-  if (mine.some((p) => p.date >= addDays(today, -7) && p.date < today))
+  const weekAgo = addDays(today, -7);
+  if (
+    mine.some((p) => p.date >= weekAgo && p.date < today) ||
+    cooked.some(
+      (c) => c.recipeId === r.id && c.date >= weekAgo && c.date <= today,
+    )
+  )
     score -= RECENT_PENALTY;
   if (mine.some((p) => p.date >= today && p.date <= addDays(today, 6)))
     score -= PLANNED_PENALTY;
@@ -97,8 +105,9 @@ export function scoreRecipe(
   pantry: RecoPantry[],
   plans: RecoPlan[],
   today: string,
+  cooked: RecoPlan[] = [],
 ): { score: number; have: string[]; soon: string[] } {
-  return scoreRecipeCanon(r, canonPantry(pantry), plans, today);
+  return scoreRecipeCanon(r, canonPantry(pantry), plans, today, cooked);
 }
 
 export function rankRecommendations(
@@ -106,13 +115,14 @@ export function rankRecommendations(
   pantry: RecoPantry[],
   plans: RecoPlan[],
   today: string,
+  cooked: RecoPlan[] = [],
 ): RecoLists {
   const pantryC = canonPantry(pantry);
   const scored = recipes
     .map((r) => ({
       r,
       slot: slotOf(r.category),
-      ...scoreRecipeCanon(r, pantryC, plans, today),
+      ...scoreRecipeCanon(r, pantryC, plans, today, cooked),
     }))
     .sort(
       (a, b) =>

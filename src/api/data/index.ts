@@ -613,6 +613,30 @@ export function forGroup(db: Db, groupId: string) {
       return id;
     },
 
+    /** 期間に作った記録（おすすめ・AI 献立の「最近作った」用。レシピの名前つき） */
+    async cookedBetween(
+      from: string,
+      to: string,
+    ): Promise<{ recipeId: string; date: string; title: string }[]> {
+      const rows = await db
+        .select({
+          recipeId: s.cookLogs.recipeId,
+          date: s.cookLogs.cookedOn,
+          title: s.recipes.title,
+        })
+        .from(s.cookLogs)
+        .innerJoin(s.recipes, eq(s.recipes.id, s.cookLogs.recipeId))
+        .where(
+          and(
+            eq(s.cookLogs.groupId, groupId),
+            gte(s.cookLogs.cookedOn, from),
+            lte(s.cookLogs.cookedOn, to),
+          ),
+        )
+        .orderBy(desc(s.cookLogs.cookedOn));
+      return rows;
+    },
+
     /** 作った記録に自分の評価を付ける（null で消す）。他のグループの記録は 404 */
     async rateCooked(
       cookLogId: string,

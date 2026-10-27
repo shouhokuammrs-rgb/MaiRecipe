@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { todayJst } from "../../src/shared/dates";
 import { api, sampleRecipe, signUp, signUpAs, verifyEmail } from "./helpers";
 
@@ -8,6 +8,12 @@ type Info = {
   members: { id: string; name: string; isMe: boolean; role: string }[];
   invites: { id: string; email: string }[];
 };
+const E = env as unknown as { GEMINI_API_KEY?: string; AI?: unknown };
+afterEach(() => {
+  delete E.GEMINI_API_KEY;
+  delete E.AI;
+  vi.restoreAllMocks();
+});
 const info = async (c: string) =>
   (await (await api(c, "/group")).json()) as Info;
 
@@ -262,6 +268,40 @@ describe("POST /api/recipes/:id/cooked", () => {
       .bind(logId)
       .first<{ n: number }>();
     expect(n?.n).toBe(0);
+  });
+});
+
+describe("作った記録が「最近作った」に効く", () => {
+  it("献立に入れずに作ったレシピは、今日のおすすめで下がり、AI 献立の「最近作った」に入る", async () => {
+    const me = await signUp();
+    const a = await recipe(me, "ダミーの鮭のホイル焼き");
+    const b = await recipe(me, "ダミーの鮭のムニエル");
+    await api(me, "/pantry", { method: "POST", body: { names: ["鮭"] } });
+    // 両方とも材料は同じ（豚こま肉・玉ねぎ）なので、作った方だけ下がる
+    await api(me, `/recipes/${a}/cooked`, {
+      method: "POST",
+      body: { servings: 2, eaters: [] },
+    });
+    const reco = (await (await api(me, "/recommend")).json()) as {
+      main: { id: string }[];
+    };
+    expect(reco.main.map((r) => r.id)).toEqual([b, a]);
+
+    E.GEMINI_API_KEY = "k";
+    const bodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_u, init) => {
+      bodies.push(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: '{"plan":[]}' }] } }],
+        }),
+      );
+    });
+    await api(me, "/plans/suggest", {
+      method: "POST",
+      body: { days: 1, meals: ["dinner"] },
+    });
+    expect(bodies[0]).toContain("最近作った：ダミーの鮭のホイル焼き");
   });
 });
 

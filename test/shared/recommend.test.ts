@@ -128,6 +128,30 @@ describe("点数", () => {
   });
 });
 
+describe("作った記録", () => {
+  it("献立に入れずに作ったものも、過去7日（今日を含む）なら −25。8日前なら減らない", () => {
+    const rec = r("a", "主菜", ["鮭"]);
+    const pantry = [{ name: "鮭", expiresOn: null }];
+    expect(
+      scoreRecipe(rec, pantry, [], T, [{ recipeId: "a", date: T }]).score,
+    ).toBe(75);
+    expect(
+      scoreRecipe(rec, pantry, [], T, [{ recipeId: "a", date: "2026-09-23" }])
+        .score,
+    ).toBe(75);
+    expect(
+      scoreRecipe(rec, pantry, [], T, [{ recipeId: "a", date: "2026-09-22" }])
+        .score,
+    ).toBe(100);
+    // 献立にも入っていて作ってもいる：減点は1回だけ
+    expect(
+      scoreRecipe(rec, pantry, [{ recipeId: "a", date: "2026-09-29" }], T, [
+        { recipeId: "a", date: T },
+      ]).score,
+    ).toBe(75);
+  });
+});
+
 describe("分類ごとの並び", () => {
   it("点数 → 更新が新しい順 → 名前。デザートは出さず、各10件まで", () => {
     const recipes = [

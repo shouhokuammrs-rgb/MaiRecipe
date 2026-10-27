@@ -106,12 +106,14 @@ plans.post("/suggest", async (c) => {
   const { days, meals, wish } = parsed.data;
   const today = todayJst();
   const dates = Array.from({ length: days }, (_, k) => addDays(today, k));
-  const [recipes, pantry, recentPlans, planned] = await Promise.all([
-    c.var.repo.recommendRecipes(),
-    c.var.repo.listPantry(),
-    c.var.repo.listPlans(addDays(today, -7), addDays(today, -1)),
-    c.var.repo.listPlans(today, dates[dates.length - 1]!),
-  ]);
+  const [recipes, pantry, recentPlans, planned, recentCooked] =
+    await Promise.all([
+      c.var.repo.recommendRecipes(),
+      c.var.repo.listPantry(),
+      c.var.repo.listPlans(addDays(today, -7), addDays(today, -1)),
+      c.var.repo.listPlans(today, dates[dates.length - 1]!),
+      c.var.repo.cookedBetween(addDays(today, -7), today),
+    ]);
   if (!recipes.length)
     return c.json(
       {
@@ -151,7 +153,12 @@ plans.post("/suggest", async (c) => {
         name: p.name,
         soon: isExpiringSoon(p.expiresOn, today),
       })),
-    recent: [...new Set(recentPlans.map((p) => p.title))],
+    recent: [
+      ...new Set([
+        ...recentPlans.map((p) => p.title),
+        ...recentCooked.map((x) => x.title),
+      ]),
+    ],
     planned: planned.map((p) => ({
       date: p.date,
       meal: p.meal,
