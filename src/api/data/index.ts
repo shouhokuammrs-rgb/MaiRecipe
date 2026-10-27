@@ -252,8 +252,8 @@ export function forGroup(db: Db, groupId: string) {
       )
       .orderBy(desc(s.cookLogs.cookedOn), desc(s.cookLogs.createdAt));
     if (!logs.length) return [];
-    const ids = logs.map((l) => l.id);
-    // 評価と食べた記録は本人のものだけ読む（他の人の分はグループに出さない）
+    // 評価と食べた記録は本人のものだけ読む（他の人の分はグループに出さない）。
+    // id の配列を渡すと D1 の引数の上限（100）に当たるので、レシピで結合して絞る
     const [ratings, meals] = userId
       ? await Promise.all([
           db
@@ -262,18 +262,22 @@ export function forGroup(db: Db, groupId: string) {
               rating: s.cookRatings.rating,
             })
             .from(s.cookRatings)
+            .innerJoin(s.cookLogs, eq(s.cookLogs.id, s.cookRatings.cookLogId))
             .where(
               and(
-                inArray(s.cookRatings.cookLogId, ids),
+                eq(s.cookLogs.recipeId, recipeId),
+                eq(s.cookLogs.groupId, groupId),
                 eq(s.cookRatings.userId, userId),
               ),
             ),
           db
             .select({ cookLogId: s.mealLogs.cookLogId })
             .from(s.mealLogs)
+            .innerJoin(s.cookLogs, eq(s.cookLogs.id, s.mealLogs.cookLogId))
             .where(
               and(
-                inArray(s.mealLogs.cookLogId, ids),
+                eq(s.cookLogs.recipeId, recipeId),
+                eq(s.cookLogs.groupId, groupId),
                 eq(s.mealLogs.userId, userId),
               ),
             ),
@@ -306,19 +310,18 @@ export function forGroup(db: Db, groupId: string) {
       .orderBy(desc(s.cookLogs.cookedOn), desc(s.cookLogs.createdAt));
     const mine = new Map<string, "again" | "ok" | "meh">();
     if (userId && logs.length) {
+      // id の配列ではなくグループで結合して絞る（D1 の引数の上限 100 を避ける）
       const rows = await db
         .select({
           cookLogId: s.cookRatings.cookLogId,
           rating: s.cookRatings.rating,
         })
         .from(s.cookRatings)
+        .innerJoin(s.cookLogs, eq(s.cookLogs.id, s.cookRatings.cookLogId))
         .where(
           and(
+            eq(s.cookLogs.groupId, groupId),
             eq(s.cookRatings.userId, userId),
-            inArray(
-              s.cookRatings.cookLogId,
-              logs.map((l) => l.id),
-            ),
           ),
         );
       for (const r of rows) mine.set(r.cookLogId, r.rating);
@@ -454,15 +457,18 @@ export function forGroup(db: Db, groupId: string) {
           .sort(
             (a, b) =>
               b.cooked.count - a.cooked.count ||
-              (b.cooked.lastCookedOn! > a.cooked.lastCookedOn! ? 1 : -1),
+              b.cooked.lastCookedOn!.localeCompare(a.cooked.lastCookedOn!) ||
+              a.row.title.localeCompare(b.row.title, "ja"),
           );
       else if (opts.cooked === "stale") {
         // 作ったことはあるが、30日より前が最後（古い順）
         const limit = addDays(todayJst(), -30);
         out = out
           .filter((x) => x.cooked.lastCookedOn && x.cooked.lastCookedOn < limit)
-          .sort((a, b) =>
-            a.cooked.lastCookedOn! < b.cooked.lastCookedOn! ? -1 : 1,
+          .sort(
+            (a, b) =>
+              a.cooked.lastCookedOn!.localeCompare(b.cooked.lastCookedOn!) ||
+              a.row.title.localeCompare(b.row.title, "ja"),
           );
       }
       return out.map(({ row: r, cooked }) => ({
