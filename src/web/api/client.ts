@@ -88,11 +88,34 @@ export type Memo = {
   createdAt: number;
 };
 
+export type Rating = "again" | "ok" | "meh";
+/** 作った記録（DEC-030）。評価と食べた人は名前で来る */
+export type CookedEntry = {
+  id: string;
+  versionSeq: number | null;
+  servings: number;
+  cookedOn: string;
+  cookedBy: string;
+  note: string;
+  /** 自分の評価と、自分が食べたか（他の人の分は本人のものなので来ない） */
+  myRating: Rating | null;
+  iAte: boolean;
+  createdAt: number;
+};
+export type CookedStats = {
+  count: number;
+  lastCookedOn: string | null;
+  again: number;
+  myLatestRating: Rating | null;
+};
+
 export type RecipeDetail = Omit<RecipeHeader, "versionCount"> & {
   origin: "import" | "own" | "ai";
   createdAt: number;
   versions: Version[];
   memos: Memo[];
+  cooked: CookedEntry[];
+  cookedStats: CookedStats;
 };
 
 export type RecipeFields = {
@@ -162,7 +185,12 @@ export type GroupInfo = {
   name: string;
   /** ふだん作る人数（買い物リストの換算に使う） */
   servings: number;
-  members: { name: string; isMe: boolean; role: "owner" | "member" }[];
+  members: {
+    id: string;
+    name: string;
+    isMe: boolean;
+    role: "owner" | "member";
+  }[];
   invites: { id: string; email: string }[];
 };
 export type MyInvite = { id: string; groupName: string; invitedBy: string };
@@ -236,6 +264,26 @@ export const apiClient = {
       `/recipes/${encodeURIComponent(id)}/memos/${encodeURIComponent(memoId)}/suggest`,
       { method: "POST" },
     ),
+  /** 作った！（DEC-030）。作った記録は共有、食べた人の記録と評価は本人のもの */
+  addCooked: (
+    recipeId: string,
+    input: {
+      versionId: string | null;
+      servings: number;
+      eaters: { userId: string; portion: number }[];
+      rating: Rating | null;
+      note: string;
+      usedPantryIds: string[];
+    },
+  ) =>
+    call<{ id: string }>(`/recipes/${recipeId}/cooked`, {
+      method: "POST",
+      json: input,
+    }),
+  rateCooked: (id: string, rating: Rating | null) =>
+    call<void>(`/cooked/${id}/rating`, { method: "PUT", json: { rating } }),
+  deleteCooked: (id: string) =>
+    call<void>(`/cooked/${id}`, { method: "DELETE" }),
   deleteRecipe: (id: string) =>
     call<void>(`/recipes/${id}`, { method: "DELETE" }),
   addVersion: (id: string, input: RecipeFields & { memoId?: string }) =>

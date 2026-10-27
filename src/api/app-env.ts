@@ -1,3 +1,4 @@
+import type { UserRepo } from "./data/me";
 import type { GroupRepo } from "./data";
 import type { membershipFor } from "./data/membership";
 import type { WorkersAiBinding } from "./platform/workers-ai";
@@ -39,6 +40,8 @@ export type AppEnv = {
     /** セッションから決めたグループ（裏の読み取りに渡すときだけ使う。DB は repo で触る） */
     groupId: string;
     repo: GroupRepo;
+    /** 本人だけのデータ（食べた記録など。DEC-030） */
+    me: UserRepo;
     membership: ReturnType<typeof membershipFor>;
   };
 };

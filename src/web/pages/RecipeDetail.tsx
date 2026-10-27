@@ -3,6 +3,7 @@ import { useRecipe } from "@/lib/offlineRecipes";
 import { OfflineNotice } from "@/components/OfflineNotice";
 import {
   Camera,
+  CheckCircle2,
   ChevronLeft,
   GitBranch,
   ChefHat,
@@ -27,6 +28,10 @@ import { MicButton } from "@/components/MicButton";
 import { IngredientName } from "@/components/IngredientName";
 import { VideoEmbed } from "@/components/VideoEmbed";
 import { Cover } from "@/components/Cover";
+import { CookedSheet } from "@/components/CookedSheet";
+import { Toast, useToast } from "@/components/Toast";
+import { RATING_LABELS } from "../../shared/cooked";
+import { labelDate } from "../../shared/dates";
 import { ServingsControl } from "@/components/Servings";
 import { useFindServings, useHousehold } from "@/lib/servings";
 import { scaleIngredients } from "../../shared/servings";
@@ -65,6 +70,8 @@ function DetailView({ r }: { r: Detail }) {
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [imgError, setImgError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [cookedOpen, setCookedOpen] = useState(false);
+  const { toast, show } = useToast();
 
   const latest = r.versions[r.versions.length - 1]!;
   const view = r.versions.find((v) => v.id === viewId) ?? latest;
@@ -127,6 +134,22 @@ function DetailView({ r }: { r: Detail }) {
       setConfirmDel(null);
       refresh();
     },
+  });
+  const rate = useMutation({
+    mutationFn: (p: { id: string; rating: "again" | "ok" | "meh" | null }) =>
+      apiClient.rateCooked(p.id, p.rating),
+    onSuccess: refresh,
+    onError: (e) =>
+      show(e instanceof Error ? e.message : "保存できませんでした"),
+  });
+  const delCooked = useMutation({
+    mutationFn: (id: string) => apiClient.deleteCooked(id),
+    onSuccess: () => {
+      setConfirmDel(null);
+      refresh();
+      void qc.invalidateQueries({ queryKey: ["pantry"] });
+    },
+    onError: (e) => show(e instanceof Error ? e.message : "消せませんでした"),
   });
   const delRecipe = useMutation({
     mutationFn: () => apiClient.deleteRecipe(r.id),
@@ -311,6 +334,13 @@ function DetailView({ r }: { r: Detail }) {
           <SecondaryButton onClick={() => nav(`/recipes/${r.id}/edit`)}>
             材料・作り方を編集
           </SecondaryButton>
+          <SecondaryButton
+            className="col-span-2 border-accent/30 font-bold text-accent-deep"
+            onClick={() => setCookedOpen(true)}
+          >
+            <CheckCircle2 className="size-5" />
+            作った！
+          </SecondaryButton>
           {view.steps.length > 0 && (
             <SecondaryButton
               className="col-span-2 border-herb/30 bg-herb-soft font-bold text-herb"
@@ -454,6 +484,81 @@ function DetailView({ r }: { r: Detail }) {
             </div>
           )}
         </section>
+
+        {/* 作った記録（DEC-030） */}
+        {r.cooked.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h2 className="text-[13px] font-bold text-sub">
+              作った記録（{r.cookedStats.count}回）
+            </h2>
+            <ul className="overflow-hidden rounded-2xl border border-line-soft bg-card">
+              {r.cooked.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex flex-col gap-1 border-b border-[#f3eee7] px-3.5 py-2.5 last:border-b-0"
+                >
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-bold">
+                      {labelDate(c.cookedOn).md}（{labelDate(c.cookedOn).dow}）
+                    </span>
+                    <span className="text-sub">
+                      {c.cookedBy && `${c.cookedBy} が`}
+                      {c.versionSeq ? ` v${c.versionSeq} を` : ""}
+                      {c.servings}人分
+                    </span>
+                  </div>
+                  {c.iAte && <p className="text-xs text-herb">自分も食べた</p>}
+                  {c.note && <p className="text-[13px] leading-6">{c.note}</p>}
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    role="group"
+                    aria-label="自分の評価"
+                  >
+                    {(["again", "ok", "meh"] as const).map((x) => (
+                      <button
+                        key={x}
+                        type="button"
+                        aria-pressed={c.myRating === x}
+                        onClick={() =>
+                          rate.mutate({
+                            id: c.id,
+                            rating: c.myRating === x ? null : x,
+                          })
+                        }
+                        className={cn(
+                          "min-h-11 rounded-full border px-3.5 text-xs",
+                          c.myRating === x
+                            ? "border-herb-mid bg-herb-soft font-bold text-herb"
+                            : "border-field text-sub",
+                        )}
+                      >
+                        {RATING_LABELS[x]}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        confirmDel === `cooked:${c.id}`
+                          ? delCooked.mutate(c.id)
+                          : setConfirmDel(`cooked:${c.id}`)
+                      }
+                      className={cn(
+                        "ml-auto min-h-11 px-2 text-xs underline",
+                        confirmDel === `cooked:${c.id}`
+                          ? "font-bold text-danger"
+                          : "text-sub",
+                      )}
+                    >
+                      {confirmDel === `cooked:${c.id}`
+                        ? "本当に消す？"
+                        : "消す"}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* 改良のあゆみ（普段は閉じておく） */}
         <section className="flex flex-col gap-2.5">
@@ -663,6 +768,21 @@ function DetailView({ r }: { r: Detail }) {
             : "このレシピを削除"}
         </button>
       </div>
+      {cookedOpen && (
+        <CookedSheet
+          recipeId={r.id}
+          versionId={view.id}
+          title={view.title}
+          servings={people ?? household ?? null}
+          ingredients={view.ingredients}
+          onClose={() => setCookedOpen(false)}
+          onDone={(msg) => {
+            setCookedOpen(false);
+            show(msg);
+          }}
+        />
+      )}
+      <Toast message={toast} />
     </div>
   );
 }

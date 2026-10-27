@@ -298,6 +298,15 @@ describe("グループをまたいだ漏れがないこと", () => {
         })
       ).status,
     ).toBe(404);
+    // 作った！も他人のレシピには残せない（DEC-030。細かい漏れは cooked.test.ts）
+    expect(
+      (
+        await api(bob.cookie, `/recipes/${id}/cooked`, {
+          method: "POST",
+          body: { servings: 2, eaters: [] },
+        })
+      ).status,
+    ).toBe(404);
     expect((await api(bob.cookie, `/recipes/${id}/image`)).status).toBe(404);
     expect(
       (await api(bob.cookie, `/recipes/${id}`, { method: "DELETE" })).status,

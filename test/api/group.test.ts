@@ -22,7 +22,7 @@ describe("/api/group（グループ内の操作）", () => {
   it("最初は自分だけ。招待すると正規化したアドレスで招待中に出る。二度目は1件のまま", async () => {
     const a = await signUpAs("A");
     expect((await info(a.cookie)).members).toEqual([
-      { name: "A", isMe: true, role: "owner" },
+      { id: expect.any(String), name: "A", isMe: true, role: "owner" },
     ]);
     expect((await invite(a.cookie, "  Partner@Example.test ")).status).toBe(
       201,

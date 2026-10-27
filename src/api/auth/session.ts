@@ -5,6 +5,7 @@ import type { AppEnv } from "../app-env";
 import { getSessionUser } from "./index";
 import { forGroup, openDb, resolveGroupId } from "../data";
 import { membershipFor } from "../data/membership";
+import { forUser } from "../data/me";
 
 export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const user = await getSessionUser(c.env, c.req.raw.headers);
@@ -21,6 +22,7 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   c.set("user", sessionUser);
   c.set("groupId", groupId);
   c.set("repo", forGroup(db, groupId));
+  c.set("me", forUser(db, user.id));
   c.set("membership", membershipFor(db, sessionUser));
   await next();
 });

@@ -81,6 +81,11 @@ test("料理モードで作る", async ({ page }) => {
 
   await page.getByRole("button", { name: "次へ" }).click();
   await page.getByRole("button", { name: "できあがり" }).click();
+  // 作った！の記録はここでは残さず、レシピに戻る
+  await page
+    .getByRole("dialog", { name: "作った！" })
+    .getByRole("button", { name: "記録せずに戻る" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "ダミーの煮物" }),
   ).toBeVisible();
