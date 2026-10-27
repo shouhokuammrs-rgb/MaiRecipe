@@ -109,6 +109,17 @@ export type CookedEntry = {
   iAte: boolean;
   createdAt: number;
 };
+export type MealEntry = {
+  id: string;
+  date: string;
+  meal: Meal | null;
+  kind: "cooked" | "outside";
+  cookLogId: string | null;
+  title: string;
+  portion: number;
+  kcal: number | null;
+  createdAt: number;
+};
 export type CookedStats = {
   count: number;
   lastCookedOn: string | null;
@@ -361,6 +372,29 @@ export const apiClient = {
         | { type: "step"; number: number }
         | null;
     }>("/assist", { method: "POST", json: input }),
+  /** 食べた記録（本人だけ。DEC-030） */
+  meals: (from: string, to: string) =>
+    call<{ meals: MealEntry[] }>(`/meals?from=${from}&to=${to}`).then(
+      (r) => r.meals,
+    ),
+  addMeal: (input: {
+    date: string;
+    meal: Meal | null;
+    title: string;
+    portion: number;
+    kcal: number | null;
+  }) => call<{ id: string }>("/meals", { method: "POST", json: input }),
+  deleteMeal: (id: string) => call<void>(`/meals/${id}`, { method: "DELETE" }),
+  /** 食事の写真（縮めた JPEG の base64）から料理名と概算カロリー。保存はしない */
+  mealPhoto: (jpegBase64: string) =>
+    call<{ title: string; kcal: number | null; items: string[] }>(
+      "/meals/photo",
+      {
+        method: "POST",
+        body: jpegBase64,
+        headers: { "content-type": "text/plain" },
+      },
+    ),
   /** 料理本の写真（縮めた JPEG の base64）から読む。保存はしない */
   importPhoto: (jpegBase64: string) =>
     call<ImportResult>("/import/photo", {

@@ -11,6 +11,7 @@ import { Import } from "./pages/Import";
 import { JoinGroup } from "./pages/JoinGroup";
 import { Login } from "./pages/Login";
 import { Plan } from "./pages/Plan";
+import { Meals } from "./pages/Meals";
 import { RecipeDetail } from "./pages/RecipeDetail";
 import { RecipeEdit } from "./pages/RecipeEdit";
 import { RecipeNew } from "./pages/RecipeNew";
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
       { path: "recipes/:id/edit", element: <RecipeEdit /> },
       { path: "recipes/:id/cook", element: <CookMode /> },
       { path: "plan", element: <Plan /> },
+      { path: "meals", element: <Meals /> },
       { path: "fridge", element: <Fridge /> },
       { path: "shopping", element: <Shopping /> },
       { path: "settings", element: <Settings /> },
