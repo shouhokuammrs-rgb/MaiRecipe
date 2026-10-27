@@ -264,3 +264,83 @@ describe("POST /api/recipes/:id/cooked", () => {
     expect(n?.n).toBe(0);
   });
 });
+
+describe("GET /api/recipes の作った記録での絞り込み（自分の評価で）", () => {
+  it("一覧に回数・最後に作った日・自分の最新の評価が付き、また作る／よく作る順／しばらく作ってない で絞れる", async () => {
+    const { a, b } = await pair();
+    const karaage = await recipe(a, "ダミーの唐揚げ");
+    const nimono = await recipe(a, "ダミーの煮物");
+    const salad = await recipe(a, "ダミーのサラダ");
+    const cook = (c: string, id: string, rating: string | null) =>
+      api(c, `/recipes/${id}/cooked`, {
+        method: "POST",
+        body: { servings: 2, eaters: [], rating },
+      });
+    await cook(a, karaage, "again");
+    await cook(a, karaage, "again");
+    await cook(a, karaage, "again");
+    await cook(a, nimono, "meh");
+    await cook(b, nimono, "again");
+    // サラダはだいぶ前に作った（API では今日しか入らないので直接古くする）
+    await cook(a, salad, "ok");
+    await env.DB.prepare(
+      "update cook_logs set cooked_on = '2026-01-10' where recipe_id = ?",
+    )
+      .bind(salad)
+      .run();
+
+    type Row = {
+      id: string;
+      title: string;
+      cooked: {
+        count: number;
+        lastCookedOn: string | null;
+        myLatestRating: string | null;
+      };
+    };
+    const list = async (c: string, qs = "") =>
+      ((await (await api(c, `/recipes${qs}`)).json()) as { recipes: Row[] })
+        .recipes;
+
+    const all = await list(a);
+    expect(all.find((r) => r.id === karaage)!.cooked).toEqual({
+      count: 3,
+      lastCookedOn: todayJst(),
+      myLatestRating: "again",
+    });
+    // 煮物：A から見ると自分の「いまいち」、B から見ると自分の「また作る」
+    expect(all.find((r) => r.id === nimono)!.cooked.myLatestRating).toBe("meh");
+    expect(
+      (await list(b)).find((r) => r.id === nimono)!.cooked.myLatestRating,
+    ).toBe("again");
+
+    expect((await list(a, "?cooked=again")).map((r) => r.id)).toEqual([
+      karaage,
+    ]);
+    expect((await list(b, "?cooked=again")).map((r) => r.id)).toEqual([nimono]);
+    expect((await list(a, "?cooked=often")).map((r) => r.id)).toEqual([
+      karaage,
+      nimono,
+      salad,
+    ]);
+    expect((await list(a, "?cooked=stale")).map((r) => r.id)).toEqual([salad]);
+    // 知らない値は無視（全部）
+    expect((await list(a, "?cooked=xyz")).length).toBe(3);
+  });
+
+  it("他のグループの作った記録は数えない", async () => {
+    const a = await signUp();
+    const other = await signUp();
+    const id = await recipe(a, "ダミーの唐揚げ");
+    const meId = (await info(a)).members[0]!.id;
+    await api(a, `/recipes/${id}/cooked`, {
+      method: "POST",
+      body: { servings: 2, eaters: [{ userId: meId, portion: 1 }] },
+    });
+    await recipe(other, "他人の唐揚げ");
+    const list = (await (await api(other, "/recipes")).json()) as {
+      recipes: { cooked: { count: number } }[];
+    };
+    expect(list.recipes.map((r) => r.cooked.count)).toEqual([0]);
+  });
+});
