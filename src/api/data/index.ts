@@ -9,6 +9,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNull,
   lte,
   max,
@@ -138,6 +139,30 @@ export type RecipeFields = {
 };
 
 export class NotFound extends Error {}
+
+export type CookedRow = {
+  id: string;
+  versionSeq: number | null;
+  servings: number;
+  cookedOn: string;
+  cookedBy: string;
+  note: string;
+  myRating: "again" | "ok" | "meh" | null;
+  ratings: { name: string; rating: "again" | "ok" | "meh" }[];
+  eaters: string[];
+  createdAt: number;
+};
+
+/** レシピごとのまとめ（一覧の絞り込みに使う。cooked は新しい順） */
+export function cookedStats(cooked: CookedRow[]) {
+  return {
+    count: cooked.length,
+    lastCookedOn: cooked[0]?.cookedOn ?? null,
+    again: cooked.filter((c) => c.ratings.some((r) => r.rating === "again"))
+      .length,
+    myLatestRating: cooked.find((c) => c.myRating)?.myRating ?? null,
+  };
+}
 export class Forbidden extends Error {}
 export class BadInput extends Error {}
 export class Conflict extends Error {}
@@ -187,6 +212,76 @@ export function forGroup(db: Db, groupId: string) {
       .where(and(eq(s.recipeVersions.recipeId, recipeId), versionInGroup))
       .orderBy(asc(s.recipeVersions.seq));
     return rows.map(toVersion);
+  }
+
+  async function ownCookLog(cookLogId: string) {
+    const r = await db
+      .select({ id: s.cookLogs.id })
+      .from(s.cookLogs)
+      .where(and(eq(s.cookLogs.id, cookLogId), eq(s.cookLogs.groupId, groupId)))
+      .limit(1);
+    if (!r[0]) throw new NotFound("cookLog");
+  }
+
+  /** レシピの作った記録（新しい順）。評価と食べた人は名前で返す（id は出さない） */
+  async function cookedOf(
+    recipeId: string,
+    userId?: string,
+  ): Promise<CookedRow[]> {
+    const logs = await db
+      .select({
+        id: s.cookLogs.id,
+        versionSeq: s.cookLogs.versionSeq,
+        servings: s.cookLogs.servings,
+        cookedOn: s.cookLogs.cookedOn,
+        cookedBy: s.user.name,
+        note: s.cookLogs.note,
+        createdAt: s.cookLogs.createdAt,
+      })
+      .from(s.cookLogs)
+      .leftJoin(s.user, eq(s.user.id, s.cookLogs.cookedBy))
+      .where(
+        and(eq(s.cookLogs.recipeId, recipeId), eq(s.cookLogs.groupId, groupId)),
+      )
+      .orderBy(desc(s.cookLogs.cookedOn), desc(s.cookLogs.createdAt));
+    if (!logs.length) return [];
+    const ids = logs.map((l) => l.id);
+    const [ratings, eaters] = await Promise.all([
+      db
+        .select({
+          cookLogId: s.cookRatings.cookLogId,
+          userId: s.cookRatings.userId,
+          name: s.user.name,
+          rating: s.cookRatings.rating,
+        })
+        .from(s.cookRatings)
+        .innerJoin(s.user, eq(s.user.id, s.cookRatings.userId))
+        .where(inArray(s.cookRatings.cookLogId, ids)),
+      db
+        .select({
+          cookLogId: s.mealLogs.cookLogId,
+          name: s.user.name,
+        })
+        .from(s.mealLogs)
+        .innerJoin(s.user, eq(s.user.id, s.mealLogs.userId))
+        .where(inArray(s.mealLogs.cookLogId, ids)),
+    ]);
+    return logs.map((l) => ({
+      id: l.id,
+      versionSeq: l.versionSeq,
+      servings: l.servings,
+      cookedOn: l.cookedOn,
+      cookedBy: l.cookedBy ?? "",
+      note: l.note,
+      myRating:
+        ratings.find((x) => x.cookLogId === l.id && x.userId === userId)
+          ?.rating ?? null,
+      ratings: ratings
+        .filter((x) => x.cookLogId === l.id)
+        .map((x) => ({ name: x.name, rating: x.rating })),
+      eaters: eaters.filter((x) => x.cookLogId === l.id).map((x) => x.name),
+      createdAt: l.createdAt.getTime(),
+    }));
   }
 
   /** グループの全レシピの最新版（残っている版のうち seq が最大のもの） */
@@ -293,10 +388,11 @@ export function forGroup(db: Db, groupId: string) {
       }));
     },
 
-    async getRecipe(recipeId: string) {
+    async getRecipe(recipeId: string, userId?: string) {
       const r = await recipeRow(recipeId);
-      const [versions, memos] = await Promise.all([
+      const [versions, cooked, memos] = await Promise.all([
         versionsOf(recipeId),
+        cookedOf(recipeId, userId),
         db
           .select()
           .from(s.recipeMemos)
@@ -328,7 +424,131 @@ export function forGroup(db: Db, groupId: string) {
           appliedVersionId: m.appliedVersionId,
           createdAt: m.createdAt.getTime(),
         })),
+        cooked,
+        cookedStats: cookedStats(cooked),
       };
+    },
+
+    /**
+     * 作った！（DEC-030）。作った記録は共有。食べた人の分だけ本人の食べた記録を入れ、
+     * 作った人の評価は本人のものとして入れる。使い切った食材は自分のグループの行だけ消す。
+     * 食べた人はグループのメンバーに限る（それ以外は BadInput）
+     */
+    async addCooked(
+      recipeId: string,
+      userId: string,
+      input: {
+        versionId: string | null;
+        servings: number;
+        eaters: { userId: string; portion: number }[];
+        rating: "again" | "ok" | "meh" | null;
+        note: string;
+        usedPantryIds: string[];
+      },
+      today: string,
+    ): Promise<string> {
+      const r = await recipeRow(recipeId);
+      const versions = await versionsOf(recipeId);
+      const version = input.versionId
+        ? versions.find((v) => v.id === input.versionId)
+        : versions[versions.length - 1];
+      if (!version) throw new NotFound("version");
+      if (input.eaters.length) {
+        const members = await db
+          .select({ userId: s.groupMembers.userId })
+          .from(s.groupMembers)
+          .where(eq(s.groupMembers.groupId, groupId));
+        const ok = new Set(members.map((m) => m.userId));
+        if (input.eaters.some((e) => !ok.has(e.userId)))
+          throw new BadInput("食べた人はグループのメンバーだけ選べます");
+        const seen = new Set<string>();
+        for (const e of input.eaters) {
+          if (seen.has(e.userId)) throw new BadInput("同じ人が2回あります");
+          seen.add(e.userId);
+        }
+      }
+      const id = newId();
+      const batch: Parameters<typeof db.batch>[0][number][] = [
+        db.insert(s.cookLogs).values({
+          id,
+          groupId,
+          recipeId,
+          versionId: version.id,
+          versionSeq: version.seq,
+          servings: input.servings,
+          cookedOn: today,
+          cookedBy: userId,
+          note: input.note,
+        }),
+      ];
+      if (input.rating)
+        batch.push(
+          db
+            .insert(s.cookRatings)
+            .values({ cookLogId: id, userId, rating: input.rating }),
+        );
+      for (const e of input.eaters)
+        batch.push(
+          db.insert(s.mealLogs).values({
+            id: newId(),
+            userId: e.userId,
+            date: today,
+            kind: "cooked",
+            cookLogId: id,
+            title: r.title,
+            portion: e.portion,
+          }),
+        );
+      if (input.usedPantryIds.length)
+        batch.push(
+          db
+            .delete(s.pantryItems)
+            .where(
+              and(
+                eq(s.pantryItems.groupId, groupId),
+                inArray(s.pantryItems.id, input.usedPantryIds),
+              ),
+            ),
+        );
+      await db.batch(batch as [(typeof batch)[number], ...typeof batch]);
+      return id;
+    },
+
+    /** 作った記録に自分の評価を付ける（null で消す）。他のグループの記録は 404 */
+    async rateCooked(
+      cookLogId: string,
+      userId: string,
+      rating: "again" | "ok" | "meh" | null,
+    ) {
+      await ownCookLog(cookLogId);
+      if (!rating) {
+        await db
+          .delete(s.cookRatings)
+          .where(
+            and(
+              eq(s.cookRatings.cookLogId, cookLogId),
+              eq(s.cookRatings.userId, userId),
+            ),
+          );
+        return;
+      }
+      await db
+        .insert(s.cookRatings)
+        .values({ cookLogId, userId, rating })
+        .onConflictDoUpdate({
+          target: [s.cookRatings.cookLogId, s.cookRatings.userId],
+          set: { rating },
+        });
+    },
+
+    /** 作った記録を消す（食べた記録・評価も一緒に消える） */
+    async deleteCooked(cookLogId: string) {
+      await ownCookLog(cookLogId);
+      await db
+        .delete(s.cookLogs)
+        .where(
+          and(eq(s.cookLogs.id, cookLogId), eq(s.cookLogs.groupId, groupId)),
+        );
     },
 
     /**
@@ -1190,6 +1410,7 @@ export function forGroup(db: Db, groupId: string) {
         name: g[0]?.name ?? "",
         servings: g[0]?.servings ?? 2,
         members: members.map((m) => ({
+          id: m.id,
           name: m.name,
           isMe: m.id === userId,
           role: m.role,

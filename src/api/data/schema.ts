@@ -6,6 +6,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -267,6 +268,77 @@ export const mealPlans = sqliteTable(
     uniqueIndex("meal_plans_item_uq").on(t.groupId, t.date, t.meal, t.recipeId),
     index("meal_plans_slot_idx").on(t.groupId, t.date, t.meal),
   ],
+);
+
+// ---- 作った記録（DEC-030）。共有。どのレシピのどの版を、何人分、誰が作ったか
+export const cookLogs = sqliteTable(
+  "cook_logs",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    recipeId: text("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    /** 版を消しても記録は残す（seq の写しで分かる） */
+    versionId: text("version_id").references(() => recipeVersions.id, {
+      onDelete: "set null",
+    }),
+    versionSeq: integer("version_seq"),
+    /** 何人分作ったか */
+    servings: integer("servings").notNull(),
+    /** 作った日 YYYY-MM-DD（JST） */
+    cookedOn: text("cooked_on").notNull(),
+    cookedBy: text("cooked_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    note: text("note").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("cook_logs_recipe_idx").on(t.recipeId, t.cookedOn),
+    index("cook_logs_group_idx").on(t.groupId, t.cookedOn),
+  ],
+);
+
+/** 評価は人ごと（2人で割れることがある） */
+export const cookRatings = sqliteTable(
+  "cook_ratings",
+  {
+    cookLogId: text("cook_log_id")
+      .notNull()
+      .references(() => cookLogs.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    rating: text("rating", { enum: ["again", "ok", "meh"] }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.cookLogId, t.userId] })],
+);
+
+// ---- 食べた記録（DEC-030）。本人だけのもの。forGroup ではなく forUser で触る
+export const mealLogs = sqliteTable(
+  "meal_logs",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** 食べた日 YYYY-MM-DD（JST） */
+    date: text("date").notNull(),
+    kind: text("kind", { enum: ["cooked", "outside"] }).notNull(),
+    /** 自分たちで作ったものなら、その記録（消えたら食べた記録も消す） */
+    cookLogId: text("cook_log_id").references(() => cookLogs.id, {
+      onDelete: "cascade",
+    }),
+    title: text("title").notNull(),
+    /** 何人前（0.5 刻み） */
+    portion: real("portion").notNull().default(1),
+    createdAt: createdAt(),
+  },
+  (t) => [index("meal_logs_user_idx").on(t.userId, t.date)],
 );
 
 // ---- 買い物の印。今は調味料の「家にない」だけ（key＝名寄せ後の名前、kind="home"、value=false）。#38 で「買った」「家にある」は冷蔵庫へ移した

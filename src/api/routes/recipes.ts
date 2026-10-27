@@ -29,6 +29,8 @@ import {
   suggestRecipeIdeas,
 } from "../ai";
 import { ideaSchema } from "../../shared/ai-idea";
+import { cookedSchema } from "../../shared/cooked";
+import { todayJst } from "../../shared/dates";
 
 const isTransient = (e: FetchPageError) =>
   e.message === "ページを取得できませんでした" ||
@@ -142,7 +144,22 @@ recipes.post("/ideas", async (c) => {
 });
 
 recipes.get("/:id", async (c) => {
-  return c.json({ recipe: await c.var.repo.getRecipe(c.req.param("id")) });
+  return c.json({
+    recipe: await c.var.repo.getRecipe(c.req.param("id"), c.var.userId),
+  });
+});
+
+/** 作った！（DEC-030）。作った記録は共有、食べた人の記録と評価は本人のもの */
+recipes.post("/:id/cooked", async (c) => {
+  const parsed = cookedSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return badRequest(c, parsed.error);
+  const id = await c.var.repo.addCooked(
+    c.req.param("id"),
+    c.var.userId,
+    parsed.data,
+    todayJst(),
+  );
+  return c.json({ id }, 201);
 });
 
 recipes.delete("/:id", async (c) => {

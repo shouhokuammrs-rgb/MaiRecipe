@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRecipe } from "@/lib/offlineRecipes";
 import { OfflineNotice } from "@/components/OfflineNotice";
+import { CookedSheet } from "@/components/CookedSheet";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiClient, ApiError } from "@/api/client";
 import { ErrorState, Loading } from "@/components/common";
@@ -80,6 +81,7 @@ export function CookMode() {
         people ?? base ?? 0,
       )}
       people={people ?? undefined}
+      baseServings={base ?? null}
       tips={v.tips ?? []}
       videoUrl={r.videoUrl}
       stepTimes={
@@ -117,6 +119,7 @@ function CookView({
   steps,
   ingredients,
   people,
+  baseServings,
   servingsLabel,
   tips,
   videoUrl,
@@ -132,6 +135,8 @@ function CookView({
   ingredients: { name: string; amount: string }[];
   /** 人数を変えて作るとき（分量は換算済み） */
   people?: number;
+  /** レシピの人数（作った！の初期値） */
+  baseServings: number | null;
   servingsLabel: string;
   /** コツ・ポイント（DEC-024） */
   tips: Tip[];
@@ -155,6 +160,8 @@ function CookView({
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [asking, setAsking] = useState(false);
   const [showAssist, setShowAssist] = useState(false);
+  /** できあがり → 作った！の記録（DEC-030） */
+  const [cookedOpen, setCookedOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [dictating, setDictating] = useState(false);
 
@@ -704,7 +711,7 @@ function CookView({
           {last ? (
             <button
               type="button"
-              onClick={close}
+              onClick={() => setCookedOpen(true)}
               className="flex h-16 items-center justify-center rounded-2xl bg-herb text-lg font-bold text-white"
             >
               できあがり
@@ -722,6 +729,20 @@ function CookView({
         </div>
       </div>
 
+      {cookedOpen && (
+        <CookedSheet
+          recipeId={recipeId}
+          versionId={versionId}
+          title={title}
+          servings={people ?? baseServings ?? null}
+          ingredients={ingredients}
+          onClose={close}
+          closeLabel="記録せずに戻る"
+          onDone={(msg) =>
+            nav(`/recipes/${recipeId}`, { state: { notice: msg } })
+          }
+        />
+      )}
       {showAssist && (
         <div
           className="fixed inset-0 z-20 flex flex-col justify-end bg-ink/40"
