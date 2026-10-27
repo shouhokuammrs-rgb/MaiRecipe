@@ -9,6 +9,11 @@ import {
   type AssistReply,
 } from "../../shared/assist";
 import {
+  buildMealPhotoPrompt,
+  parseMealPhoto,
+  type MealPhoto,
+} from "../../shared/meals";
+import {
   buildIdeaPrompt,
   parseIdeas,
   type RecipeIdea,
@@ -99,6 +104,12 @@ const TASKS = {
     provider: "gemini",
     model: "gemini-3.6-flash",
     maxTokens: 8192,
+  },
+  /** 食事の写真から料理名と概算カロリー（DEC-030。答えは短い） */
+  meal_photo: {
+    provider: "gemini",
+    model: "gemini-3.6-flash",
+    maxTokens: 1024,
   },
   watch_video: {
     provider: "gemini",
@@ -420,5 +431,32 @@ export async function suggestRecipeIdeas(
     await runWorkersAi(env.AI, task.fallback, system, user, 8000),
   );
   if (!out?.length) throw new AiBadOutput("レシピの案を作れませんでした");
+  return out;
+}
+
+/** 食事の写真から料理名と概算カロリーを読む（DEC-030）。写真は保存しない。読めなければ AiBadOutput */
+export async function readMealPhotoWithAi(
+  env: AiEnv,
+  photo: { body: ReadableStream<Uint8Array>; length: number },
+): Promise<MealPhoto> {
+  if (!hasGemini(env))
+    throw new AiUnavailable("写真を読む AI の鍵がありません");
+  const task = TASKS.meal_photo;
+  await takeOrThrow(env, "gemini:meal_photo");
+  let raw: string;
+  try {
+    raw = await runGeminiImage(
+      env,
+      task.model,
+      buildMealPhotoPrompt(),
+      photo,
+      task.maxTokens,
+    );
+  } catch (e) {
+    if (e instanceof PhotoUnreadable) throw new AiBadOutput(e.message);
+    throw e;
+  }
+  const out = parseMealPhoto(raw);
+  if (!out) throw new AiBadOutput("写真から料理を読み取れませんでした");
   return out;
 }

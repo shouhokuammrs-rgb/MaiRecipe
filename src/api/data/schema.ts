@@ -336,6 +336,10 @@ export const mealLogs = sqliteTable(
     title: text("title").notNull(),
     /** 何人前（0.5 刻み） */
     portion: real("portion").notNull().default(1),
+    /** 朝・昼・夜（分からなければ null） */
+    meal: text("meal", { enum: ["breakfast", "lunch", "dinner"] }),
+    /** 1人前のカロリー（概算。分からなければ null） */
+    kcal: integer("kcal"),
     createdAt: createdAt(),
   },
   (t) => [index("meal_logs_user_idx").on(t.userId, t.date)],
