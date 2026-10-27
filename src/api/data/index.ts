@@ -21,6 +21,7 @@ import type { Tip } from "../../shared/tips";
 import { fitStepTimes } from "../../shared/scenes";
 import type { RecoRecipe } from "../../shared/recommend";
 import { LIMITS } from "../../shared/constants";
+import { addDays, todayJst } from "../../shared/dates";
 import { diffVersions } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
 import { canonicalName } from "../../shared/ingredients";
@@ -90,6 +91,12 @@ export type RecipeHeader = {
   genre: string;
   timeLabel: string;
   hasImage: boolean;
+  /** 作った記録のまとめ（評価は自分のもの。DEC-030） */
+  cooked: {
+    count: number;
+    lastCookedOn: string | null;
+    myLatestRating: "again" | "ok" | "meh" | null;
+  };
   /** 出典の画像の URL（null：まだ探していない・""：無かった）。DEC-023 */
   coverUrl: string | null;
   videoUrl: string | null;
@@ -285,6 +292,60 @@ export function forGroup(db: Db, groupId: string) {
     }));
   }
 
+  /** レシピごとの作った記録のまとめ（回数・最後の日・自分の最新の評価）。一覧の絞り込み用 */
+  async function cookedSummary(userId?: string) {
+    const logs = await db
+      .select({
+        id: s.cookLogs.id,
+        recipeId: s.cookLogs.recipeId,
+        cookedOn: s.cookLogs.cookedOn,
+        createdAt: s.cookLogs.createdAt,
+      })
+      .from(s.cookLogs)
+      .where(eq(s.cookLogs.groupId, groupId))
+      .orderBy(desc(s.cookLogs.cookedOn), desc(s.cookLogs.createdAt));
+    const mine = new Map<string, "again" | "ok" | "meh">();
+    if (userId && logs.length) {
+      const rows = await db
+        .select({
+          cookLogId: s.cookRatings.cookLogId,
+          rating: s.cookRatings.rating,
+        })
+        .from(s.cookRatings)
+        .where(
+          and(
+            eq(s.cookRatings.userId, userId),
+            inArray(
+              s.cookRatings.cookLogId,
+              logs.map((l) => l.id),
+            ),
+          ),
+        );
+      for (const r of rows) mine.set(r.cookLogId, r.rating);
+    }
+    const out = new Map<
+      string,
+      {
+        count: number;
+        lastCookedOn: string | null;
+        myLatestRating: "again" | "ok" | "meh" | null;
+      }
+    >();
+    // 新しい順に見るので、最初に見つかった評価が最新
+    for (const l of logs) {
+      const cur = out.get(l.recipeId) ?? {
+        count: 0,
+        lastCookedOn: null,
+        myLatestRating: null,
+      };
+      cur.count += 1;
+      cur.lastCookedOn ??= l.cookedOn;
+      cur.myLatestRating ??= mine.get(l.id) ?? null;
+      out.set(l.recipeId, cur);
+    }
+    return out;
+  }
+
   /** グループの全レシピの最新版（残っている版のうち seq が最大のもの） */
   async function latestVersionsInGroup(): Promise<Map<string, VersionRow>> {
     const rows = await db
@@ -346,16 +407,21 @@ export function forGroup(db: Db, groupId: string) {
   return {
     groupId,
 
-    async listRecipes(opts: {
-      q?: string;
-      category?: string;
-      genre?: string;
-    }): Promise<RecipeHeader[]> {
+    async listRecipes(
+      opts: {
+        q?: string;
+        category?: string;
+        genre?: string;
+        /** 作った記録での絞り込み（自分の評価で。DEC-030） */
+        cooked?: "again" | "often" | "stale";
+      },
+      userId?: string,
+    ): Promise<RecipeHeader[]> {
       const conds = [inGroup];
       if (opts.category) conds.push(eq(s.recipes.category, opts.category));
       if (opts.genre) conds.push(eq(s.recipes.genre, opts.genre));
       if (opts.q) conds.push(likeContains(s.recipes.title, opts.q));
-      const [rows, latest] = await Promise.all([
+      const [rows, latest, cookedByRecipe] = await Promise.all([
         db
           .select()
           .from(s.recipes)
@@ -370,11 +436,37 @@ export function forGroup(db: Db, groupId: string) {
           .from(s.recipeVersions)
           .where(versionInGroup)
           .groupBy(s.recipeVersions.recipeId),
+        cookedSummary(userId),
       ]);
       const latestNo = new Map(
         latest.map((c) => [c.recipeId, Number(c.n ?? 1)]),
       );
-      return rows.map((r) => ({
+      const none = { count: 0, lastCookedOn: null, myLatestRating: null };
+      let out = rows.map((r) => ({
+        cooked: cookedByRecipe.get(r.id) ?? none,
+        row: r,
+      }));
+      if (opts.cooked === "again")
+        out = out.filter((x) => x.cooked.myLatestRating === "again");
+      else if (opts.cooked === "often")
+        out = out
+          .filter((x) => x.cooked.count > 0)
+          .sort(
+            (a, b) =>
+              b.cooked.count - a.cooked.count ||
+              (b.cooked.lastCookedOn! > a.cooked.lastCookedOn! ? 1 : -1),
+          );
+      else if (opts.cooked === "stale") {
+        // 作ったことはあるが、30日より前が最後（古い順）
+        const limit = addDays(todayJst(), -30);
+        out = out
+          .filter((x) => x.cooked.lastCookedOn && x.cooked.lastCookedOn < limit)
+          .sort((a, b) =>
+            a.cooked.lastCookedOn! < b.cooked.lastCookedOn! ? -1 : 1,
+          );
+      }
+      return out.map(({ row: r, cooked }) => ({
+        cooked,
         id: r.id,
         title: r.title,
         category: r.category,

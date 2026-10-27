@@ -3,7 +3,7 @@ import { Link2, Plus, Search, ShoppingBasket, SquarePen } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { categoryTint } from "@/lib/tint";
-import { apiClient, type RecipeHeader } from "@/api/client";
+import { apiClient, type CookedFilter, type RecipeHeader } from "@/api/client";
 import {
   Chip,
   Empty,
@@ -15,15 +15,24 @@ import { Cover } from "@/components/Cover";
 import { InviteBanner } from "@/components/InviteBanner";
 import { CATEGORIES, GENRES } from "../../shared/constants";
 
+/** 作った記録での絞り込み（評価は自分のもの。DEC-030） */
+const COOKED_FILTERS: { value: CookedFilter; label: string }[] = [
+  { value: "again", label: "また作る" },
+  { value: "often", label: "よく作る順" },
+  { value: "stale", label: "しばらく作ってない" },
+];
+
 export function Recipes() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
   const [genre, setGenre] = useState("");
+  const [cooked, setCooked] = useState<CookedFilter | "">("");
   const [addOpen, setAddOpen] = useState(false);
   const nav = useNavigate();
   const list = useQuery({
-    queryKey: ["recipes", q, category, genre],
-    queryFn: () => apiClient.listRecipes({ q: q.trim(), category, genre }),
+    queryKey: ["recipes", q, category, genre, cooked],
+    queryFn: () =>
+      apiClient.listRecipes({ q: q.trim(), category, genre, cooked }),
     placeholderData: (prev) => prev,
   });
   useFindCovers(list.data);
@@ -89,6 +98,22 @@ export function Recipes() {
             </Chip>
           ))}
         </div>
+        <div
+          className="no-scrollbar -mt-1 flex gap-1.5 overflow-x-auto"
+          role="group"
+          aria-label="作った記録で絞る"
+        >
+          {COOKED_FILTERS.map((f) => (
+            <Chip
+              key={f.value}
+              variant="genre"
+              on={cooked === f.value}
+              onClick={() => setCooked(cooked === f.value ? "" : f.value)}
+            >
+              {f.label}
+            </Chip>
+          ))}
+        </div>
         <div className="no-scrollbar -mt-1 flex gap-1.5 overflow-x-auto">
           <Chip variant="genre" on={!genre} onClick={() => setGenre("")}>
             すべて
@@ -113,7 +138,7 @@ export function Recipes() {
         )}
         {list.data && list.data.length === 0 && (
           <Empty>
-            {q || category || genre ? (
+            {q || category || genre || cooked ? (
               "当てはまるレシピはありません。"
             ) : (
               <>
@@ -233,6 +258,13 @@ function RecipeCard({ r }: { r: RecipeHeader }) {
         {r.versionCount > 1 && (
           <span className="absolute right-2 bottom-2 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-bold text-herb">
             v{r.versionCount}
+          </span>
+        )}
+        {r.cooked.count > 0 && (
+          <span className="absolute top-2 right-2 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-bold text-ink">
+            {r.cooked.count}回作った
+            {r.cooked.myLatestRating === "again" && "・また作る"}
+            {r.cooked.myLatestRating === "meh" && "・いまいち"}
           </span>
         )}
       </div>

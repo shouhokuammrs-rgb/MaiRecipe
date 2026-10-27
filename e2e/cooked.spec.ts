@@ -62,6 +62,14 @@ test("できあがり → 作った！ で記録が残り、冷蔵庫から使�
     }),
   ).toHaveAttribute("aria-pressed", "true");
 
+  // 一覧では回数と評価の印が付き、「また作る」で絞れる
+  await page.goto("/");
+  await expect(page.getByText("1回作った・また作る")).toBeVisible();
+  await page.getByRole("button", { name: "しばらく作ってない" }).click();
+  await expect(page.getByText("当てはまるレシピはありません。")).toBeVisible();
+  await page.getByRole("button", { name: "また作る" }).click();
+  await expect(page.getByText("ダミーの肉じゃが")).toBeVisible();
+
   const pantry = (await (await page.request.get("/api/pantry")).json()) as {
     items: { name: string }[];
   };

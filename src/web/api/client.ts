@@ -62,6 +62,12 @@ export type RecipeHeader = {
   sourceUrl: string | null;
   versionCount: number;
   updatedAt: number;
+  /** 作った記録のまとめ（評価は自分のもの。DEC-030） */
+  cooked: {
+    count: number;
+    lastCookedOn: string | null;
+    myLatestRating: Rating | null;
+  };
 };
 
 export type Version = {
@@ -89,6 +95,7 @@ export type Memo = {
 };
 
 export type Rating = "again" | "ok" | "meh";
+export type CookedFilter = "again" | "often" | "stale";
 /** 作った記録（DEC-030）。評価と食べた人は名前で来る */
 export type CookedEntry = {
   id: string;
@@ -218,11 +225,18 @@ export const apiClient = {
   config: () => call<AppConfig>("/config"),
   me: () => call<{ userId: string }>("/me"),
 
-  listRecipes: (p: { q?: string; category?: string; genre?: string }) => {
+  listRecipes: (p: {
+    q?: string;
+    category?: string;
+    genre?: string;
+    /** また作る／よく作る順／しばらく作ってない（自分の評価で） */
+    cooked?: CookedFilter | "";
+  }) => {
     const qs = new URLSearchParams();
     if (p.q) qs.set("q", p.q);
     if (p.category) qs.set("category", p.category);
     if (p.genre) qs.set("genre", p.genre);
+    if (p.cooked) qs.set("cooked", p.cooked);
     return call<{ recipes: RecipeHeader[] }>(`/recipes?${qs.toString()}`).then(
       (r) => r.recipes,
     );

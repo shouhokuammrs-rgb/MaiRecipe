@@ -54,15 +54,23 @@ recipes.get("/", async (c) => {
   const rawCategory = c.req.query("category");
   const category = rawCategory === "丼" ? "主食" : rawCategory;
   const genre = c.req.query("genre");
-  const list = await c.var.repo.listRecipes({
-    q: q || undefined,
-    category: (CATEGORIES as readonly string[]).includes(category ?? "")
-      ? category
-      : undefined,
-    genre: (GENRES as readonly string[]).includes(genre ?? "")
-      ? genre
-      : undefined,
-  });
+  const cookedQ = c.req.query("cooked");
+  const list = await c.var.repo.listRecipes(
+    {
+      q: q || undefined,
+      category: (CATEGORIES as readonly string[]).includes(category ?? "")
+        ? category
+        : undefined,
+      genre: (GENRES as readonly string[]).includes(genre ?? "")
+        ? genre
+        : undefined,
+      cooked:
+        cookedQ === "again" || cookedQ === "often" || cookedQ === "stale"
+          ? cookedQ
+          : undefined,
+    },
+    c.var.userId,
+  );
   return c.json({ recipes: list });
 });
 
