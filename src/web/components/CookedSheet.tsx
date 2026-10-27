@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { apiClient, type Rating } from "@/api/client";
-import { Chip, PrimaryButton } from "@/components/common";
+import { PrimaryButton } from "@/components/common";
 import { apiErrorMessage, cn } from "@/lib/utils";
 import { pantryUsedBy, RATING_LABELS, RATINGS } from "../../shared/cooked";
 
@@ -18,6 +18,7 @@ export function CookedSheet({
   onClose,
   onDone,
   closeLabel = "やめる",
+  onCancel,
 }: {
   recipeId: string;
   versionId: string | null;
@@ -29,6 +30,8 @@ export function CookedSheet({
   onDone: (msg: string) => void;
   /** 閉じるボタンの文言（料理モードでは「記録せずに戻る」） */
   closeLabel?: string;
+  /** 閉じるボタンを押したとき（省くと onClose。背景タップと Esc はいつも onClose） */
+  onCancel?: () => void;
 }) {
   const qc = useQueryClient();
   const group = useQuery({ queryKey: ["group"], queryFn: apiClient.group });
@@ -206,7 +209,7 @@ export function CookedSheet({
             })}
           </ul>
           <p className="text-[11.5px] text-sub">
-            食べた記録は、それぞれ本人だけに見えます
+            誰が食べたかと評価は、それぞれ本人だけに見えます
           </p>
         </div>
 
@@ -214,13 +217,20 @@ export function CookedSheet({
           <span className="text-sm font-bold">どうだった？（任意）</span>
           <div className="flex flex-wrap gap-2" role="group" aria-label="評価">
             {RATINGS.map((r) => (
-              <Chip
+              <button
                 key={r}
-                on={rating === r}
+                type="button"
+                aria-pressed={rating === r}
                 onClick={() => setRating(rating === r ? null : r)}
+                className={cn(
+                  "min-h-11 rounded-full border px-4 text-sm",
+                  rating === r
+                    ? "border-herb-mid bg-herb-soft font-bold text-herb"
+                    : "border-field bg-card text-sub",
+                )}
               >
                 {RATING_LABELS[r]}
-              </Chip>
+              </button>
             ))}
           </div>
           <input
@@ -240,9 +250,19 @@ export function CookedSheet({
             <ul className="flex flex-wrap gap-2">
               {candidates.map((c) => (
                 <li key={c.id}>
-                  <Chip on={usedNow.has(c.id)} onClick={() => toggleUsed(c.id)}>
+                  <button
+                    type="button"
+                    aria-pressed={usedNow.has(c.id)}
+                    onClick={() => toggleUsed(c.id)}
+                    className={cn(
+                      "min-h-11 rounded-full border px-4 text-sm",
+                      usedNow.has(c.id)
+                        ? "border-herb-mid bg-herb-soft font-bold text-herb"
+                        : "border-field bg-card text-sub",
+                    )}
+                  >
                     {c.name}
-                  </Chip>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -267,7 +287,7 @@ export function CookedSheet({
         </PrimaryButton>
         <button
           type="button"
-          onClick={onClose}
+          onClick={onCancel ?? onClose}
           className="min-h-11 text-sm text-sub underline"
         >
           {closeLabel}

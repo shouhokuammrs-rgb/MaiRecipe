@@ -97,9 +97,9 @@ export type CookedEntry = {
   cookedOn: string;
   cookedBy: string;
   note: string;
+  /** 自分の評価と、自分が食べたか（他の人の分は本人のものなので来ない） */
   myRating: Rating | null;
-  ratings: { name: string; rating: Rating }[];
-  eaters: string[];
+  iAte: boolean;
   createdAt: number;
 };
 export type CookedStats = {

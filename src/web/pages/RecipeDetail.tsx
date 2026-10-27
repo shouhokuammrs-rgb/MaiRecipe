@@ -507,15 +507,7 @@ function DetailView({ r }: { r: Detail }) {
                       {c.servings}人分
                     </span>
                   </div>
-                  {(c.eaters.length > 0 || c.ratings.length > 0) && (
-                    <p className="text-xs text-sub">
-                      {c.eaters.length > 0 && `食べた：${c.eaters.join("・")}`}
-                      {c.ratings.length > 0 &&
-                        `${c.eaters.length ? "　" : ""}${c.ratings
-                          .map((x) => `${x.name}：${RATING_LABELS[x.rating]}`)
-                          .join("・")}`}
-                    </p>
-                  )}
+                  {c.iAte && <p className="text-xs text-herb">自分も食べた</p>}
                   {c.note && <p className="text-[13px] leading-6">{c.note}</p>}
                   <div
                     className="flex flex-wrap gap-1.5"
@@ -534,7 +526,7 @@ function DetailView({ r }: { r: Detail }) {
                           })
                         }
                         className={cn(
-                          "min-h-9 rounded-full border px-3 text-xs",
+                          "min-h-11 rounded-full border px-3.5 text-xs",
                           c.myRating === x
                             ? "border-herb-mid bg-herb-soft font-bold text-herb"
                             : "border-field text-sub",
@@ -551,7 +543,7 @@ function DetailView({ r }: { r: Detail }) {
                           : setConfirmDel(`cooked:${c.id}`)
                       }
                       className={cn(
-                        "ml-auto min-h-9 px-2 text-xs underline",
+                        "ml-auto min-h-11 px-2 text-xs underline",
                         confirmDel === `cooked:${c.id}`
                           ? "font-bold text-danger"
                           : "text-sub",

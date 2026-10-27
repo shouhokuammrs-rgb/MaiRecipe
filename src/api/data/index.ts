@@ -147,9 +147,10 @@ export type CookedRow = {
   cookedOn: string;
   cookedBy: string;
   note: string;
+  /** 自分の評価（他の人の評価と食べた記録は本人のものなので返さない。DEC-030） */
   myRating: "again" | "ok" | "meh" | null;
-  ratings: { name: string; rating: "again" | "ok" | "meh" }[];
-  eaters: string[];
+  /** 自分がこの回を食べたか */
+  iAte: boolean;
   createdAt: number;
 };
 
@@ -158,8 +159,7 @@ export function cookedStats(cooked: CookedRow[]) {
   return {
     count: cooked.length,
     lastCookedOn: cooked[0]?.cookedOn ?? null,
-    again: cooked.filter((c) => c.ratings.some((r) => r.rating === "again"))
-      .length,
+    again: cooked.filter((c) => c.myRating === "again").length,
     myLatestRating: cooked.find((c) => c.myRating)?.myRating ?? null,
   };
 }
@@ -246,26 +246,32 @@ export function forGroup(db: Db, groupId: string) {
       .orderBy(desc(s.cookLogs.cookedOn), desc(s.cookLogs.createdAt));
     if (!logs.length) return [];
     const ids = logs.map((l) => l.id);
-    const [ratings, eaters] = await Promise.all([
-      db
-        .select({
-          cookLogId: s.cookRatings.cookLogId,
-          userId: s.cookRatings.userId,
-          name: s.user.name,
-          rating: s.cookRatings.rating,
-        })
-        .from(s.cookRatings)
-        .innerJoin(s.user, eq(s.user.id, s.cookRatings.userId))
-        .where(inArray(s.cookRatings.cookLogId, ids)),
-      db
-        .select({
-          cookLogId: s.mealLogs.cookLogId,
-          name: s.user.name,
-        })
-        .from(s.mealLogs)
-        .innerJoin(s.user, eq(s.user.id, s.mealLogs.userId))
-        .where(inArray(s.mealLogs.cookLogId, ids)),
-    ]);
+    // 評価と食べた記録は本人のものだけ読む（他の人の分はグループに出さない）
+    const [ratings, meals] = userId
+      ? await Promise.all([
+          db
+            .select({
+              cookLogId: s.cookRatings.cookLogId,
+              rating: s.cookRatings.rating,
+            })
+            .from(s.cookRatings)
+            .where(
+              and(
+                inArray(s.cookRatings.cookLogId, ids),
+                eq(s.cookRatings.userId, userId),
+              ),
+            ),
+          db
+            .select({ cookLogId: s.mealLogs.cookLogId })
+            .from(s.mealLogs)
+            .where(
+              and(
+                inArray(s.mealLogs.cookLogId, ids),
+                eq(s.mealLogs.userId, userId),
+              ),
+            ),
+        ])
+      : [[], []];
     return logs.map((l) => ({
       id: l.id,
       versionSeq: l.versionSeq,
@@ -273,13 +279,8 @@ export function forGroup(db: Db, groupId: string) {
       cookedOn: l.cookedOn,
       cookedBy: l.cookedBy ?? "",
       note: l.note,
-      myRating:
-        ratings.find((x) => x.cookLogId === l.id && x.userId === userId)
-          ?.rating ?? null,
-      ratings: ratings
-        .filter((x) => x.cookLogId === l.id)
-        .map((x) => ({ name: x.name, rating: x.rating })),
-      eaters: eaters.filter((x) => x.cookLogId === l.id).map((x) => x.name),
+      myRating: ratings.find((x) => x.cookLogId === l.id)?.rating ?? null,
+      iAte: meals.some((x) => x.cookLogId === l.id),
       createdAt: l.createdAt.getTime(),
     }));
   }

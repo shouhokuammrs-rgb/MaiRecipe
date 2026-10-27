@@ -736,7 +736,8 @@ function CookView({
           title={title}
           servings={people ?? baseServings ?? null}
           ingredients={ingredients}
-          onClose={close}
+          onClose={() => setCookedOpen(false)}
+          onCancel={close}
           closeLabel="記録せずに戻る"
           onDone={(msg) =>
             nav(`/recipes/${recipeId}`, { state: { notice: msg } })

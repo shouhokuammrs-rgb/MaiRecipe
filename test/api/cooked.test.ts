@@ -58,8 +58,7 @@ type Detail = {
       cookedBy: string;
       note: string;
       myRating: string | null;
-      ratings: { name: string; rating: string }[];
-      eaters: string[];
+      iAte: boolean;
     }[];
     cookedStats: {
       count: number;
@@ -73,7 +72,7 @@ const detail = async (c: string, id: string) =>
   ((await (await api(c, `/recipes/${id}`)).json()) as Detail).recipe;
 
 describe("POST /api/recipes/:id/cooked", () => {
-  it("作った記録が版に紐づいて残り、食べた人ごとに食べた記録が入り、評価は自分のものになる", async () => {
+  it("作った記録が版に紐づいて残り、食べた人ごとに食べた記録が入る。評価と食べたかは本人の分だけ見える", async () => {
     const { a, b, aId, bId } = await pair();
     const id = await recipe(a);
     const v = (await detail(a, id)).versions[0]!;
@@ -99,16 +98,20 @@ describe("POST /api/recipes/:id/cooked", () => {
       cookedOn: todayJst(),
       cookedBy: "A",
       note: "大根を足した",
+      // B から見ると A の評価は見えず、自分が食べたことだけ分かる
       myRating: null,
-      ratings: [{ name: "A", rating: "again" }],
+      iAte: true,
     });
-    expect(r.cooked[0]!.eaters.sort()).toEqual(["A", "B"]);
+    expect(JSON.stringify(r.cooked[0])).not.toContain("again");
     expect(r.cookedStats).toEqual({
       count: 1,
       lastCookedOn: todayJst(),
-      again: 1,
+      again: 0,
       myLatestRating: null,
     });
+    const rA = await detail(a, id);
+    expect(rA.cooked[0]).toMatchObject({ myRating: "again", iAte: true });
+    expect(rA.cookedStats.again).toBe(1);
     // B が自分の評価を付ける
     const rate = await api(b, `/cooked/${r.cooked[0]!.id}/rating`, {
       method: "PUT",
@@ -117,11 +120,9 @@ describe("POST /api/recipes/:id/cooked", () => {
     expect(rate.status).toBe(204);
     const r2 = await detail(b, id);
     expect(r2.cooked[0]!.myRating).toBe("meh");
-    expect(r2.cooked[0]!.ratings.map((x) => x.rating).sort()).toEqual([
-      "again",
-      "meh",
-    ]);
     expect(r2.cookedStats.myLatestRating).toBe("meh");
+    // A の見え方は変わらない
+    expect((await detail(a, id)).cooked[0]!.myRating).toBe("again");
     // 食べた記録は本人の分だけ見える
     const mealsA = (await (
       await api(a, `/meals?from=${todayJst()}&to=${todayJst()}`)
@@ -133,6 +134,12 @@ describe("POST /api/recipes/:id/cooked", () => {
       await api(b, `/meals?from=${todayJst()}&to=${todayJst()}`)
     ).json()) as { meals: { portion: number }[] };
     expect(mealsB.meals.map((m) => m.portion)).toEqual([1.5]);
+    // グループの外の人には何も見えない
+    const stranger = await signUp();
+    const mealsS = (await (
+      await api(stranger, `/meals?from=${todayJst()}&to=${todayJst()}`)
+    ).json()) as { meals: unknown[] };
+    expect(mealsS.meals).toEqual([]);
   });
 
   it("使った食材を冷蔵庫から消す（選んだものだけ）", async () => {
