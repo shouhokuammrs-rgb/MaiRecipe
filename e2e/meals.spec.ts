@@ -41,7 +41,7 @@ test("外食を写真から入れて、食べた記録に並ぶ", async ({ page 
 
   await expect(page.getByText("ダミーの牛丼 並")).toBeVisible();
   await expect(page.getByText(/昼・1人前・約650kcal/)).toBeVisible();
-  await expect(page.getByText(/1品・約650kcal/)).toBeVisible();
+  await expect(page.getByText(/1品・約650kcal$/)).toBeVisible();
 
   await page.getByRole("button", { name: "消す" }).click();
   await page.getByRole("button", { name: "本当に消す？" }).click();

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, type MealEntry } from "@/api/client";
 import {
   Empty,
@@ -15,7 +15,7 @@ import { shrinkImage } from "@/lib/image";
 import { apiErrorMessage, cn } from "@/lib/utils";
 import { MEAL_LABELS, MEALS, type Meal } from "../../shared/constants";
 import { addDays, labelDate } from "../../shared/dates";
-import { summarizeMeals } from "../../shared/meals";
+import { MEAL_KCAL_MAX, summarizeMeals } from "../../shared/meals";
 
 /** 何日分を見るか */
 const DAYS = 7;
@@ -40,6 +40,7 @@ export function Meals() {
   const { toast, show } = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const closeAdd = useCallback(() => setAddOpen(false), []);
   const group = useQuery({ queryKey: ["group"], queryFn: apiClient.group });
   const pantry = useQuery({ queryKey: ["pantry"], queryFn: apiClient.pantry });
   const today = pantry.data?.today ?? "";
@@ -91,7 +92,10 @@ export function Meals() {
           直近{DAYS}
           日。ここは自分だけに見えます。作った！で「食べた」にした分も入ります。
         </p>
-        {(q.isPending || pantry.isPending) && <Loading />}
+        {!pantry.isError && (q.isPending || pantry.isPending) && <Loading />}
+        {pantry.isError && (
+          <ErrorState error={pantry.error} retry={() => pantry.refetch()} />
+        )}
         {q.isError && <ErrorState error={q.error} retry={() => q.refetch()} />}
         {q.data && meals.length === 0 && (
           <Empty>
@@ -109,7 +113,9 @@ export function Meals() {
               </h2>
               <span className="text-xs text-sub tabular-nums">
                 {d.count}品
-                {d.kcal > 0 && `・約${d.kcal}kcal${d.partial ? "＋" : ""}`}
+                {d.kcal > 0 &&
+                  `・約${d.kcal}kcal${d.partial ? "（一部は不明）" : ""}`}
+                {d.kcal === 0 && d.partial && "・カロリーは不明"}
               </span>
             </div>
             <ul className="overflow-hidden rounded-2xl border border-line-soft bg-card">
@@ -132,13 +138,13 @@ export function Meals() {
           </section>
         ))}
         <p className="text-[11.5px] leading-5 text-sub">
-          カロリーは概算です。「＋」は分からない品があるしるし。
+          カロリーは概算です。作った料理の分は、まだ数えられません（これから）。
         </p>
       </div>
       {addOpen && today && (
         <AddMealSheet
           today={today}
-          onClose={() => setAddOpen(false)}
+          onClose={closeAdd}
           onDone={(msg) => {
             setAddOpen(false);
             show(msg);
@@ -167,7 +173,8 @@ function MealRow({
         <p className="truncate text-[15px]">{m.title}</p>
         <p className="text-[11.5px] text-sub">
           {m.meal ? MEAL_LABELS[m.meal] : "—"}・{m.portion}人前
-          {m.kcal !== null && `・約${m.kcal}kcal`}
+          {m.kcal !== null &&
+            `・約${Math.round(m.kcal * m.portion)}kcal${m.portion !== 1 ? `（1人前 ${m.kcal}）` : ""}`}
           {m.kind === "cooked" ? "・作った" : "・外食・買ったもの"}
         </p>
       </div>
@@ -242,7 +249,9 @@ function AddMealSheet({
       onDone("食べた記録に入れました");
     },
   });
-  const kcalBad = kcal.trim() !== "" && !/^\d{1,4}$/.test(kcal.trim());
+  const kcalBad =
+    kcal.trim() !== "" &&
+    (!/^\d{1,4}$/.test(kcal.trim()) || Number(kcal) > MEAL_KCAL_MAX);
 
   return (
     <div
@@ -293,7 +302,7 @@ function AddMealSheet({
         {items.length > 0 && (
           <p className="flex items-start gap-1 text-xs text-sub">
             <Sparkles className="mt-0.5 size-3.5 shrink-0 text-accent" />
-            写っていたもの：{items.join("・")}（カロリーは概算。直せます）
+            写っていたもの：{items.join("・")}（1人分の概算。直せます）
           </p>
         )}
         <label className="flex flex-col gap-1 text-xs font-bold">
