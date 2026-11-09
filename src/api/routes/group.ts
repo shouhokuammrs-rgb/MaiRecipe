@@ -44,7 +44,12 @@ invites.post("/:id/accept", async (c) =>
 // 別々に使う人の招待（DEC-031）。グループには入れない。招待した本人の分だけ扱う
 export const passes = new Hono<AppEnv>();
 
-passes.get("/", async (c) => c.json({ passes: await c.var.passes.list() }));
+passes.get("/", async (c) =>
+  c.json({
+    passes: await c.var.passes.list(),
+    canInvite: await c.var.passes.canInvite(),
+  }),
+);
 
 passes.post("/", async (c) => {
   const parsed = inviteSchema.safeParse(await c.req.json().catch(() => null));

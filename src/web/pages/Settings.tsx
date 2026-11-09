@@ -377,6 +377,9 @@ function PassSection() {
     },
   });
 
+  // 招待で使い始めた人には、この欄を出さない（さらに招待はできない）
+  if (q.data && !q.data.canInvite) return null;
+
   return (
     <section className="flex flex-col gap-1.5">
       <h2 className="text-[13px] font-bold text-sub">
@@ -389,43 +392,50 @@ function PassSection() {
         <Loading />
       ) : q.isError ? (
         <ErrorState error={q.error} retry={() => void q.refetch()} />
+      ) : q.data.passes.length === 0 ? (
+        <p className="rounded-2xl border border-line-soft bg-card p-3.5 text-sm text-sub">
+          まだ誰も招待していません
+        </p>
       ) : (
-        q.data.passes.length > 0 && (
-          <ul className="rounded-2xl border border-line-soft bg-card text-sm">
-            {q.data.passes.map((p) => (
-              <li
-                key={p.email}
-                className="flex min-h-11 items-center justify-between gap-2 border-b border-[#f3eee7] p-3.5 last:border-b-0"
-              >
-                <span className="min-w-0 break-all text-[#4a433c]">
-                  {p.email}
-                  <span className="ml-1.5 text-xs text-sub">
-                    {p.joined ? "使い始めました" : "まだログインしていません"}
-                  </span>
+        <ul className="rounded-2xl border border-line-soft bg-card text-sm">
+          {q.data.passes.map((p) => (
+            <li
+              key={p.email}
+              className="flex min-h-11 items-center justify-between gap-2 border-b border-[#f3eee7] p-3.5 last:border-b-0"
+            >
+              <span className="min-w-0 break-all text-[#4a433c]">
+                {p.email}
+                <span className="ml-1.5 text-xs text-sub">
+                  {p.joined ? "使い始めました" : "まだログインしていません"}
                 </span>
-                {!p.joined && (
-                  <button
-                    type="button"
-                    disabled={remove.isPending}
-                    onClick={() =>
-                      confirm === p.email
-                        ? remove.mutate(p.email)
-                        : setConfirm(p.email)
-                    }
-                    className={cn(
-                      "flex h-11 shrink-0 items-center rounded-lg px-3 text-xs",
-                      confirm === p.email
-                        ? "bg-danger font-bold text-white"
-                        : "border border-[#e3c3b8] text-danger",
-                    )}
-                  >
-                    {confirm === p.email ? "本当に取り消す？" : "取り消す"}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )
+              </span>
+              {!p.joined && (
+                <button
+                  type="button"
+                  disabled={remove.isPending}
+                  onClick={() =>
+                    confirm === p.email
+                      ? remove.mutate(p.email)
+                      : setConfirm(p.email)
+                  }
+                  className={cn(
+                    "flex h-11 shrink-0 items-center rounded-lg px-3 text-xs",
+                    confirm === p.email
+                      ? "bg-danger font-bold text-white"
+                      : "border border-[#e3c3b8] text-danger",
+                  )}
+                >
+                  {confirm === p.email ? "本当に取り消す？" : "取り消す"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {remove.isError && (
+        <p role="alert" className="text-sm text-danger">
+          {remove.error.message}
+        </p>
       )}
       <form
         className="flex flex-col gap-2"
@@ -442,7 +452,10 @@ function PassSection() {
             required
             autoComplete="off"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (add.isError) add.reset();
+            }}
             placeholder="family@example.com"
             className="h-12 rounded-xl border border-field bg-card px-3.5 text-[15px] font-normal"
           />
@@ -450,15 +463,16 @@ function PassSection() {
         <SecondaryButton type="submit" disabled={add.isPending}>
           {add.isPending ? "招待中…" : "別々に使う人として招待"}
         </SecondaryButton>
-        {(add.isError || remove.isError) && (
+        {add.isError && (
           <p role="alert" className="text-sm text-danger">
-            {(add.error ?? remove.error)?.message}
+            {add.error.message}
           </p>
         )}
       </form>
       <p className="text-xs leading-6 text-sub">
         メールは送られません。相手にこのアプリの URL を伝えて、そのアドレスの
-        Google でログインしてもらってください。5人まで。
+        Google
+        でログインしてもらってください。まだログインしていない人は5人まで。
       </p>
     </section>
   );

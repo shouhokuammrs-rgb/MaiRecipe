@@ -69,4 +69,26 @@ describe("アカウントを作るときの見張り（Better Auth）", () => {
       .catch(() => null);
     expect(ok?.email).toBe("unverified@example.test");
   });
+
+  it("別々の招待（DEC-031）でも、確認されていないメールでは作られない", async () => {
+    const { createAuth } = await import("../../src/api/auth");
+    const E = env as unknown as Parameters<typeof createAuth>[0];
+    const owner = await signUp();
+    await api(owner, "/passes", {
+      method: "POST",
+      body: { email: "pass-unverified@example.test" },
+    });
+    const ctx = await createAuth({ ...E, DEV_LOGIN: undefined }).$context;
+    const u = await ctx.internalAdapter
+      .createUser(
+        {
+          email: "pass-unverified@example.test",
+          name: "x",
+          emailVerified: false,
+        },
+        SOURCE,
+      )
+      .catch(() => null);
+    expect(u).toBeNull();
+  });
 });

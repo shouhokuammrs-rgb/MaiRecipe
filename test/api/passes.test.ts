@@ -83,6 +83,72 @@ describe("別々に使う人の招待", () => {
     expect(await canSignUp(db(), "z@example.test")).toBe(false);
   });
 
+  it("招待で入った人は、さらに招待できない（鎖のように増えない）", async () => {
+    const owner = await signUp();
+    await api(owner, "/passes", {
+      method: "POST",
+      body: { email: "c1@example.test" },
+    });
+    const c1 = (await signUpAs("母", "c1@example.test")).cookie;
+    const list = await (
+      await api(c1, "/passes")
+    ).json<{ canInvite: boolean }>();
+    expect(list.canInvite).toBe(false);
+    const r = await api(c1, "/passes", {
+      method: "POST",
+      body: { email: "c2@example.test" },
+    });
+    expect(r.status).toBe(409);
+    expect(await canSignUp(db(), "c2@example.test")).toBe(false);
+    const mine = await (
+      await api(owner, "/passes")
+    ).json<{ canInvite: boolean }>();
+    expect(mine.canInvite).toBe(true);
+  });
+
+  it("使い始めた人は5人の枠に数えない", async () => {
+    const a = await signUp();
+    for (let i = 0; i < 5; i++)
+      await api(a, "/passes", {
+        method: "POST",
+        body: { email: `j${i}@example.test` },
+      });
+    await signUpAs("家族", "j0@example.test");
+    const r = await api(a, "/passes", {
+      method: "POST",
+      body: { email: "j5@example.test" },
+    });
+    expect(r.status).toBe(201);
+    const over = await api(a, "/passes", {
+      method: "POST",
+      body: { email: "j6@example.test" },
+    });
+    expect(over.status).toBe(409);
+  });
+
+  it("+ の入ったメールも入れて取り消せる。自分は招待できない", async () => {
+    const { cookie, email } = await signUpAs("本人");
+    const r = await api(cookie, "/passes", {
+      method: "POST",
+      body: { email: "a+b@example.test" },
+    });
+    expect(r.status).toBe(201);
+    expect(await canSignUp(db(), "a+b@example.test")).toBe(true);
+    const del = await api(
+      cookie,
+      `/passes/${encodeURIComponent("a+b@example.test")}`,
+      {
+        method: "DELETE",
+      },
+    );
+    expect(del.status).toBe(204);
+    const self = await api(cookie, "/passes", {
+      method: "POST",
+      body: { email },
+    });
+    expect(self.status).toBe(409);
+  });
+
   it("1人が招待できるのは5人まで。同じメールは2回入れても1件", async () => {
     const a = await signUp();
     for (let i = 0; i < 5; i++) {

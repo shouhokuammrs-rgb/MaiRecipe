@@ -271,33 +271,55 @@ export const PASS_MAX_PER_USER = 5;
  * 別々に使う人の招待（DEC-031）。グループには触れない。招待した本人の行だけ読み書きする。
  * 相手が使い始めたか（joined）は、本人が入れたメールについてだけ返す
  */
-export function passesFor(db: Db, userId: string) {
+export function passesFor(db: Db, userId: string, userEmail: string) {
+  const me = normalizeEmail(userEmail);
   return {
     async list() {
       const rows = await db
         .select({
           email: s.signupPasses.email,
           // 列名だけだとサブクエリの user.email に解決されてしまうので、表の名前を付けて書く
-          joined: sql<number>`exists (select 1 from user u where u.email = "signup_passes"."email")`,
+          joined: sql<number>`exists (select 1 from ${s.user} u where u.email = "signup_passes"."email")`,
         })
         .from(s.signupPasses)
         .where(eq(s.signupPasses.invitedBy, userId))
         .orderBy(s.signupPasses.createdAt);
       return rows.map((r) => ({ email: r.email, joined: Boolean(r.joined) }));
     },
+    /** 自分が別々の招待で入った人か（その人はさらに招待できない。鎖のように増えないように） */
+    async canInvite() {
+      const [r] = await db
+        .select({ n: count() })
+        .from(s.signupPasses)
+        .where(eq(s.signupPasses.email, me));
+      return (r?.n ?? 0) === 0;
+    },
     async add(rawEmail: string) {
       const email = normalizeEmail(rawEmail);
-      const mine = await db
-        .select({ email: s.signupPasses.email })
+      if (!(await this.canInvite()))
+        throw new Conflict("招待で使い始めた人は、ほかの人を招待できません");
+      if (email === me) throw new Conflict("自分は招待できません");
+      // 数えるのと入れるのを1つの SQL で（同時に押されても5人を超えない）。
+      // 使い始めた人は数に入れない（枠を使い切って動けなくならないように）
+      await db.run(sql`insert into signup_passes (email, invited_by, created_at)
+        select ${email}, ${userId}, ${Date.now()}
+        where (select count(*) from signup_passes p
+          where p.invited_by = ${userId}
+            and not exists (select 1 from ${s.user} u where u.email = p.email)) < ${PASS_MAX_PER_USER}
+        on conflict do nothing`);
+      const [r] = await db
+        .select({ n: count() })
         .from(s.signupPasses)
-        .where(eq(s.signupPasses.invitedBy, userId));
-      if (mine.some((r) => r.email === email)) return;
-      if (mine.length >= PASS_MAX_PER_USER)
-        throw new Conflict(`招待できるのは${PASS_MAX_PER_USER}人までです`);
-      await db
-        .insert(s.signupPasses)
-        .values({ email, invitedBy: userId })
-        .onConflictDoNothing();
+        .where(
+          and(
+            eq(s.signupPasses.invitedBy, userId),
+            eq(s.signupPasses.email, email),
+          ),
+        );
+      if ((r?.n ?? 0) === 0)
+        throw new Conflict(
+          `まだログインしていない人の招待は${PASS_MAX_PER_USER}人までです`,
+        );
     },
     async remove(rawEmail: string) {
       const email = normalizeEmail(rawEmail);
