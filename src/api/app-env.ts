@@ -1,6 +1,6 @@
 import type { UserRepo } from "./data/me";
 import type { GroupRepo } from "./data";
-import type { membershipFor } from "./data/membership";
+import type { membershipFor, passesFor } from "./data/membership";
 import type { WorkersAiBinding } from "./platform/workers-ai";
 
 export type AppBindings = {
@@ -43,5 +43,7 @@ export type AppEnv = {
     /** 本人だけのデータ（食べた記録など。DEC-030） */
     me: UserRepo;
     membership: ReturnType<typeof membershipFor>;
+    /** 別々に使う人の招待（DEC-031。招待した本人の分だけ） */
+    passes: ReturnType<typeof passesFor>;
   };
 };

@@ -4,7 +4,7 @@ import { createAuth, hasGoogle, isDevLogin } from "./auth";
 import { handleError } from "./errors";
 import { assist } from "./routes/assist";
 import { aiUsage } from "./routes/ai-usage";
-import { group, invites } from "./routes/group";
+import { group, invites, passes } from "./routes/group";
 import { cooked, meals } from "./routes/cooked";
 import { importer } from "./routes/importer";
 import { importJobs } from "./routes/import-jobs";
@@ -42,6 +42,7 @@ api.route("/cooked", cooked);
 api.route("/meals", meals);
 api.route("/group", group);
 api.route("/invites", invites);
+api.route("/passes", passes);
 api.route("/assist", assist);
 api.route("/ai/usage", aiUsage);
 

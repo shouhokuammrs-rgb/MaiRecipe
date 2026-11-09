@@ -492,6 +492,13 @@ export const apiClient = {
       method: "DELETE",
     }),
   myInvites: () => call<{ invites: MyInvite[] }>("/invites"),
+  /** 別々に使う人の招待（DEC-031） */
+  passes: () =>
+    call<{ passes: { email: string; joined: boolean }[] }>("/passes"),
+  addPass: (email: string) =>
+    call<{ ok: true }>("/passes", { method: "POST", json: { email } }),
+  removePass: (email: string) =>
+    call<void>(`/passes/${encodeURIComponent(email)}`, { method: "DELETE" }),
   acceptInvite: (id: string) =>
     call<AcceptResult>(`/invites/${encodeURIComponent(id)}/accept`, {
       method: "POST",

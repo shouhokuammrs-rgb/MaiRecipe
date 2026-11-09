@@ -255,6 +255,62 @@ export async function canSignUp(db: Db, rawEmail: string): Promise<boolean> {
     .from(s.groupInvites)
     .where(eq(s.groupInvites.email, email));
   if ((invited?.n ?? 0) > 0) return true;
+  const [passed] = await db
+    .select({ n: count() })
+    .from(s.signupPasses)
+    .where(eq(s.signupPasses.email, email));
+  if ((passed?.n ?? 0) > 0) return true;
   const [users] = await db.select({ n: count() }).from(s.user);
   return (users?.n ?? 0) === 0;
+}
+
+/** 1人が「別々に使う人」として招待できる数（DEC-031） */
+export const PASS_MAX_PER_USER = 5;
+
+/**
+ * 別々に使う人の招待（DEC-031）。グループには触れない。招待した本人の行だけ読み書きする。
+ * 相手が使い始めたか（joined）は、本人が入れたメールについてだけ返す
+ */
+export function passesFor(db: Db, userId: string) {
+  return {
+    async list() {
+      const rows = await db
+        .select({
+          email: s.signupPasses.email,
+          // 列名だけだとサブクエリの user.email に解決されてしまうので、表の名前を付けて書く
+          joined: sql<number>`exists (select 1 from user u where u.email = "signup_passes"."email")`,
+        })
+        .from(s.signupPasses)
+        .where(eq(s.signupPasses.invitedBy, userId))
+        .orderBy(s.signupPasses.createdAt);
+      return rows.map((r) => ({ email: r.email, joined: Boolean(r.joined) }));
+    },
+    async add(rawEmail: string) {
+      const email = normalizeEmail(rawEmail);
+      const mine = await db
+        .select({ email: s.signupPasses.email })
+        .from(s.signupPasses)
+        .where(eq(s.signupPasses.invitedBy, userId));
+      if (mine.some((r) => r.email === email)) return;
+      if (mine.length >= PASS_MAX_PER_USER)
+        throw new Conflict(`招待できるのは${PASS_MAX_PER_USER}人までです`);
+      await db
+        .insert(s.signupPasses)
+        .values({ email, invitedBy: userId })
+        .onConflictDoNothing();
+    },
+    async remove(rawEmail: string) {
+      const email = normalizeEmail(rawEmail);
+      const r = await db
+        .delete(s.signupPasses)
+        .where(
+          and(
+            eq(s.signupPasses.invitedBy, userId),
+            eq(s.signupPasses.email, email),
+          ),
+        )
+        .returning({ email: s.signupPasses.email });
+      if (!r.length) throw new NotFound("pass");
+    },
+  };
 }

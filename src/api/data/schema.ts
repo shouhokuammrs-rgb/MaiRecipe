@@ -401,6 +401,23 @@ export const groupInvites = sqliteTable(
   ],
 );
 
+// ---- 別々に使う人の招待（DEC-031）。グループには入れず、そのメールでアカウントを作れるようにするだけ
+export const signupPasses = sqliteTable(
+  "signup_passes",
+  {
+    /** 小文字・前後の空白なしにそろえたアドレス */
+    email: text("email").notNull(),
+    invitedBy: text("invited_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.invitedBy, t.email] }),
+    index("signup_passes_email_idx").on(t.email),
+  ],
+);
+
 // ---- 取り込みで読めなかった URL の報告（URL だけ。後で Issue にして読み取りを直す）
 export const importReports = sqliteTable(
   "import_reports",
