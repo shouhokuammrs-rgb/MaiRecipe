@@ -1,5 +1,9 @@
 // 「材料から探す」：入れた材料をいくつ使うかで並べる。AI は使わない。
-import { matchesIngredient, shopSection } from "./ingredients";
+import {
+  canonicalName,
+  isStapleCanonical,
+  matchesIngredient,
+} from "./ingredients";
 import type { Ingredient } from "./recipe";
 
 export type FindCandidate = {
@@ -34,7 +38,7 @@ export function findByIngredients(
       if (ts.length) {
         ts.forEach((t) => hit.add(t));
         have.push(ing.name);
-      } else if (shopSection(ing.name) !== "調味料") {
+      } else if (!isStapleCanonical(canonicalName(ing.name))) {
         missing.push(ing.name);
       }
     }

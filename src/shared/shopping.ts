@@ -2,7 +2,7 @@
 import { formatAmount, parseAmount } from "./amount";
 import type { ShopSection } from "./constants";
 import { SHOP_SECTIONS } from "./constants";
-import { canonicalName, shopSection } from "./ingredients";
+import { canonicalName, isStapleCanonical, shopSection } from "./ingredients";
 import { scaleAmount } from "./servings";
 import type { Ingredient } from "./recipe";
 
@@ -21,6 +21,8 @@ export type ShoppingItem = {
   name: string;
   amount: string;
   section: ShopSection;
+  /** いつも家にある扱いの調味料（「家にない」印が付いたときだけ買う） */
+  staple: boolean;
   recipes: string[];
   /** 名寄せでまとめた元の表記（例：たまねぎ） */
   merged: string[];
@@ -30,6 +32,8 @@ export type ShoppingItem = {
 export function aggregateShopping(
   sources: ShoppingSource[],
   people?: number,
+  /** 売り場の並び（家ごと。DEC-032）。省くとおすすめの並び */
+  sectionOrder: readonly ShopSection[] = SHOP_SECTIONS,
 ): ShoppingItem[] {
   const map = new Map<
     string,
@@ -80,10 +84,11 @@ export function aggregateShopping(
     amount:
       e.qty === null ? e.unit : formatAmount({ qty: e.qty, unit: e.unit }),
     section: shopSection(e.name),
+    staple: isStapleCanonical(e.name),
     recipes: e.recipes,
     merged: e.merged,
   }));
-  const order = (s: ShopSection) => SHOP_SECTIONS.indexOf(s);
+  const order = (s: ShopSection) => sectionOrder.indexOf(s);
   return items.sort(
     (a, b) =>
       order(a.section) - order(b.section) || a.name.localeCompare(b.name, "ja"),

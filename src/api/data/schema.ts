@@ -92,6 +92,8 @@ export const groups = sqliteTable("groups", {
   name: text("name").notNull(),
   /** ふだん作る人数。買い物リストはこの人数に合わせて分量を換算する */
   servings: integer("servings").notNull().default(2),
+  /** 買い物リストの売り場の並び（JSON の配列）。null ならおすすめの並び（DEC-032） */
+  shopOrder: text("shop_order", { mode: "json" }).$type<string[]>(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

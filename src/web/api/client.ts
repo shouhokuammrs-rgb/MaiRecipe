@@ -219,6 +219,8 @@ export type ShopItem = {
   name: string;
   amount: string;
   section: ShopSection;
+  /** いつも家にある扱いの調味料（DEC-032。古いサーバーの答えには無い） */
+  staple?: boolean;
   recipes: string[];
   merged: string[];
   have: boolean;
@@ -443,8 +445,16 @@ export const apiClient = {
       people: number;
       /** 人数が分からず、元の分量のまま入れたレシピ */
       unscaled?: string[];
+      /** 売り場の並び（家ごと。DEC-032） */
+      sections: ShopSection[];
       items: ShopItem[];
     }>(`/shopping?days=${days}`),
+  /** null でおすすめの並びに戻す */
+  setShopOrder: (order: ShopSection[] | null) =>
+    call<{ sections: ShopSection[] }>("/group/shop-order", {
+      method: "PUT",
+      json: { order },
+    }),
   setHave: (name: string, value: boolean) =>
     call<void>("/shopping/have", { method: "PUT", json: { name, value } }),
 

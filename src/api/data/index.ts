@@ -2,6 +2,8 @@
 // group_id は使わない）、すべての読み書きを forGroup(db, groupId) 経由にする。
 // D1 には RLS が無いので、ここで必ず group_id を条件に入れる（docs/spec.md §6）。
 // D1 は1つのクエリに渡せる値が100個までなので、id の IN リストは使わず group_id で絞る。
+import type { ShopSection } from "../../shared/constants";
+import { resolveShopOrder } from "../../shared/shop-order";
 import {
   and,
   asc,
@@ -1550,6 +1552,24 @@ export function forGroup(db: Db, groupId: string) {
         .where(eq(s.groups.id, groupId))
         .limit(1);
       return g[0]?.servings ?? 2;
+    },
+
+    /** 買い物リストの売り場の並び（DEC-032） */
+    async shopOrder(): Promise<ShopSection[]> {
+      const g = await db
+        .select({ order: s.groups.shopOrder })
+        .from(s.groups)
+        .where(eq(s.groups.id, groupId))
+        .limit(1);
+      return resolveShopOrder(g[0]?.order);
+    },
+
+    /** null でおすすめの並びに戻す */
+    async setShopOrder(order: ShopSection[] | null) {
+      await db
+        .update(s.groups)
+        .set({ shopOrder: order, updatedAt: new Date() })
+        .where(eq(s.groups.id, groupId));
     },
 
     async setHouseholdServings(servings: number) {

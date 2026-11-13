@@ -1,0 +1,1 @@
+ALTER TABLE `groups` ADD `shop_order` text;

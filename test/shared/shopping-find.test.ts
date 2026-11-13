@@ -40,8 +40,8 @@ describe("aggregateShopping", () => {
       merged: ["たまねぎ"],
     });
     expect(items.map((i) => i.section)).toEqual([
-      "野菜・きのこ",
-      "肉・魚・卵",
+      "野菜・果物",
+      "卵・豆腐・乳製品",
       "調味料",
       "調味料",
     ]);

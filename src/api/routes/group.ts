@@ -1,6 +1,7 @@
 // いっしょに使う人（グループのメンバーと招待）。グループはセッションからだけ決める。
 import { Hono } from "hono";
 import { householdSchema, inviteSchema } from "../../shared/group";
+import { shopOrderSchema } from "../../shared/shop-order";
 import type { AppEnv } from "../app-env";
 import { badRequest } from "../errors";
 
@@ -16,6 +17,16 @@ group.put("/servings", async (c) => {
   if (!parsed.success) return badRequest(c, parsed.error);
   await c.var.repo.setHouseholdServings(parsed.data.servings);
   return c.json({ servings: parsed.data.servings });
+});
+
+/** 買い物リストの売り場の並び（DEC-032）。null でおすすめの並びに戻す */
+group.put("/shop-order", async (c) => {
+  const parsed = shopOrderSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) return badRequest(c, parsed.error);
+  await c.var.repo.setShopOrder(parsed.data.order);
+  return c.json({ sections: await c.var.repo.shopOrder() });
 });
 
 group.post("/invites", async (c) => {

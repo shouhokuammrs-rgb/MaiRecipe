@@ -29,12 +29,21 @@ export const MEAL_LABELS: Record<Meal, string> = {
   dinner: "夜",
 };
 
-/** 買い物リストの売り場の分け方（並び順もこの順） */
+/**
+ * 買い物リストの売り場の分け方。並びは日本のスーパーのよくある回り方（入口の青果 → 奥の鮮魚・精肉 →
+ * 日配 → 加工食品 → 冷凍・飲料）。家ごとに並び替えられる（DEC-032）
+ */
 export const SHOP_SECTIONS = [
-  "野菜・きのこ",
-  "肉・魚・卵",
-  "その他",
+  "野菜・果物",
+  "魚",
+  "肉",
+  "卵・豆腐・乳製品",
   "調味料",
+  "乾物・缶詰",
+  "米・パン・麺",
+  "冷凍食品",
+  "飲み物",
+  "その他",
 ] as const;
 export type ShopSection = (typeof SHOP_SECTIONS)[number];
 
