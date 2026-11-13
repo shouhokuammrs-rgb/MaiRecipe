@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, type ShopItem } from "@/api/client";
 import {
   Chip,
@@ -16,6 +16,9 @@ import { SHOP_SECTIONS, type ShopSection } from "../../shared/constants";
 import { moveSection } from "../../shared/shop-order";
 import { labelDate } from "../../shared/dates";
 
+/** いつも家にある扱いの調味料か（古いサーバーの答えには staple が無いので売り場で見る） */
+const isStaple = (i: ShopItem) => i.staple ?? i.section === "調味料";
+
 const RANGES = [
   { days: 1, label: "今日" },
   { days: 2, label: "明日まで" },
@@ -27,6 +30,12 @@ export function Shopping() {
   const [days, setDays] = useState(3);
   const [showHave, setShowHave] = useState(false);
   const [ordering, setOrdering] = useState(false);
+  const orderButton = useRef<HTMLButtonElement>(null);
+  const closeOrdering = useCallback(() => {
+    setOrdering(false);
+    // 閉じたら、開いたボタンに戻す
+    requestAnimationFrame(() => orderButton.current?.focus());
+  }, []);
   const qc = useQueryClient();
   const { toast, show: setToast } = useToast();
   const q = useQuery({
@@ -35,7 +44,7 @@ export function Shopping() {
   });
 
   const check = useMutation({
-    mutationFn: (p: { name: string; value: boolean; section: string }) =>
+    mutationFn: (p: { name: string; value: boolean; staple: boolean }) =>
       apiClient.setHave(p.name, p.value),
     onMutate: async (p) => {
       await qc.cancelQueries({ queryKey: ["shopping", days] });
@@ -53,7 +62,7 @@ export function Shopping() {
       return { prev };
     },
     onSuccess: (_d, p) => {
-      if (p.section === "調味料") {
+      if (p.staple) {
         setToast(
           p.value
             ? `「${p.name}」は家にある扱いに戻しました`
@@ -79,9 +88,7 @@ export function Shopping() {
 
   const items = q.data?.items ?? [];
   // 冷蔵庫にある食材だけ数える（調味料はいつも家にある扱いなので数えない）
-  const hiddenCount = items.filter(
-    (i) => i.have && i.section !== "調味料",
-  ).length;
+  const hiddenCount = items.filter((i) => i.have && !isStaple(i)).length;
   const toBuy = items.filter((i) => !i.have);
   const shown = showHave ? items : toBuy;
 
@@ -152,6 +159,7 @@ export function Shopping() {
           </button>
           {q.data && (
             <button
+              ref={orderButton}
               type="button"
               onClick={() => setOrdering(true)}
               className="flex h-11 items-center rounded-full border border-field bg-card px-3 text-xs"
@@ -187,7 +195,7 @@ export function Shopping() {
                     key={i.key}
                     i={i}
                     onToggle={(value) =>
-                      check.mutate({ name: i.name, value, section: i.section })
+                      check.mutate({ name: i.name, value, staple: isStaple(i) })
                     }
                   />
                 ))}
@@ -199,9 +207,9 @@ export function Shopping() {
       {ordering && q.data && (
         <ShopOrderSheet
           current={q.data.sections}
-          onClose={() => setOrdering(false)}
+          onClose={closeOrdering}
           onSaved={(msg) => {
-            setOrdering(false);
+            closeOrdering();
             setToast(msg);
           }}
         />
@@ -234,6 +242,8 @@ function ShopOrderSheet({
     },
   });
   const isDefault = order.every((s, i) => s === SHOP_SECTIONS[i]);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => dialog.current?.focus(), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -249,10 +259,12 @@ function ShopOrderSheet({
       onClick={onClose}
     >
       <div
+        ref={dialog}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label="売り場の順番"
-        className="mx-auto flex max-h-[90dvh] w-full max-w-xl flex-col gap-3 overflow-y-auto rounded-t-3xl bg-card px-5 pt-5 pb-[max(env(safe-area-inset-bottom),20px)]"
+        className="mx-auto flex max-h-[90dvh] w-full max-w-xl flex-col gap-3 overflow-y-auto rounded-t-3xl bg-card px-5 outline-none pt-5 pb-[max(env(safe-area-inset-bottom),20px)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div>

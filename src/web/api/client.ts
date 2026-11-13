@@ -219,6 +219,8 @@ export type ShopItem = {
   name: string;
   amount: string;
   section: ShopSection;
+  /** いつも家にある扱いの調味料（DEC-032。古いサーバーの答えには無い） */
+  staple?: boolean;
   recipes: string[];
   merged: string[];
   have: boolean;

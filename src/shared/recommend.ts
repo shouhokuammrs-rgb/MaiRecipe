@@ -3,7 +3,7 @@ import { addDays } from "./dates";
 import {
   canonicalName,
   matchesCanonical,
-  sectionOfCanonical,
+  isStapleCanonical,
 } from "./ingredients";
 import { isExpiringSoon } from "./pantry";
 import type { Ingredient } from "./recipe";
@@ -67,7 +67,7 @@ function scoreRecipeCanon(
   const main: { name: string; c: string }[] = [];
   for (const ing of r.ingredients) {
     const c = canonicalName(ing.name);
-    if (!c || sectionOfCanonical(c) === "調味料" || seen.has(c)) continue;
+    if (!c || isStapleCanonical(c) || seen.has(c)) continue;
     seen.add(c);
     main.push({ name: ing.name.trim(), c });
   }

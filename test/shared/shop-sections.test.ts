@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { SHOP_SECTIONS } from "../../src/shared/constants";
-import { shopSection } from "../../src/shared/ingredients";
+import {
+  canonicalName,
+  isStapleCanonical,
+  shopSection,
+} from "../../src/shared/ingredients";
 import {
   moveSection,
   resolveShopOrder,
@@ -131,7 +135,13 @@ const cases: Record<string, string[]> = {
     "そうめん",
     "もち",
   ],
-  冷凍食品: ["冷凍うどん", "冷凍えび", "冷凍ブロッコリー"],
+  冷凍食品: [
+    "冷凍うどん",
+    "冷凍えび",
+    "冷凍ブロッコリー",
+    "ミックスベジタブル",
+    "アイスクリーム",
+  ],
   飲み物: ["ジュース", "炭酸水", "紅茶", "麦茶"],
   その他: ["ラップ", "クッキングシート"],
 };
@@ -188,5 +198,69 @@ describe("売り場の並び", () => {
     const dup = [...SHOP_SECTIONS];
     dup[1] = dup[0]!;
     expect(shopOrderSchema.safeParse({ order: dup }).success).toBe(false);
+  });
+});
+
+// レビューで見つかった外れ（DEC-032）
+describe("紛らわしい名前", () => {
+  const more: [string, string][] = [
+    ["スイカ", "野菜・果物"],
+    ["タラの芽", "野菜・果物"],
+    ["鶏の皮", "肉"],
+    ["餃子の皮", "卵・豆腐・乳製品"],
+    ["パンチェッタ", "肉"],
+    ["ゆでだこ", "魚"],
+    ["ごまだれ", "調味料"],
+    ["グラニュー糖", "調味料"],
+    ["三温糖", "調味料"],
+    ["塩麹", "調味料"],
+    ["マーガリン", "卵・豆腐・乳製品"],
+    ["梅干し", "卵・豆腐・乳製品"],
+    ["しらす干し", "魚"],
+    ["紅しょうが", "卵・豆腐・乳製品"],
+    ["ごぼう天", "卵・豆腐・乳製品"],
+    ["だし巻き卵", "卵・豆腐・乳製品"],
+    ["からし菜", "野菜・果物"],
+    ["バニラエッセンス", "その他"],
+    ["唐辛子", "調味料"],
+  ];
+  it.each(more)("%s → %s", (name, section) => {
+    expect(shopSection(name)).toBe(section);
+  });
+});
+
+describe("いつも家にある扱いの調味料は、売り場とは別に今までどおり", () => {
+  it("決まった調味料だけ。売り場が調味料でも、買う物はいつも家にある扱いにしない", () => {
+    for (const n of [
+      "醤油",
+      "砂糖",
+      "塩",
+      "みりん",
+      "酒",
+      "片栗粉",
+      "ごま油",
+      "水",
+    ])
+      expect(isStapleCanonical(canonicalName(n))).toBe(true);
+    for (const n of [
+      "パン粉",
+      "白だし",
+      "ウスターソース",
+      "焼肉のたれ",
+      "カレールウ",
+      "はちみつ",
+      "黒こしょう",
+      "ラー油",
+      "赤ワイン",
+      "顆粒だし",
+    ]) {
+      expect(shopSection(n)).toBe("調味料");
+      expect(isStapleCanonical(canonicalName(n))).toBe(false);
+    }
+  });
+
+  it("名寄せは増やしていない（冷蔵庫に入っている名前とずれない）", () => {
+    for (const n of ["ネギ", "椎茸", "シメジ", "エノキ", "舞茸"])
+      expect(canonicalName(n)).toBe(n);
   });
 });

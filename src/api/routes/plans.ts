@@ -225,7 +225,7 @@ shopping.get("/", async (c) => {
   const items = aggregateShopping(sources, people, sections).map((i) => ({
     ...i,
     // 調味料はいつも家にある扱い（「家にない」印が付いたときだけ買う）。ほかは冷蔵庫にあるか
-    have: i.section === "調味料" ? !out.has(i.name) : pantry.has(i.name),
+    have: i.staple ? !out.has(i.name) : pantry.has(i.name),
   }));
   // 人数の分からないレシピは換算できないので、元の分量のままと知らせる
   const unscaled = [

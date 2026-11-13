@@ -2,7 +2,7 @@
 import { z } from "zod";
 import { LIMITS } from "./constants";
 import { addDays, isDate } from "./dates";
-import { canonicalName, shopSection } from "./ingredients";
+import { canonicalName, isStapleCanonical } from "./ingredients";
 
 /** 期限が「近い」とみなす日数（今日から数えてこの日数以内。過ぎたものも近い） */
 export const PANTRY_SOON_DAYS = 3;
@@ -18,7 +18,7 @@ export function splitPantryInput(text: string): string[] {
 
 /** 調味料はいつも家にある扱いで、冷蔵庫には入れない */
 export function isSeasoning(name: string): boolean {
-  return shopSection(canonicalName(name)) === "調味料";
+  return isStapleCanonical(canonicalName(name));
 }
 
 function daysBetween(from: string, to: string): number {
