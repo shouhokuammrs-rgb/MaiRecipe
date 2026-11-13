@@ -96,10 +96,10 @@ describe("名寄せと売り場", () => {
     expect(canonicalName("人参（中）")).toBe("にんじん");
   });
   it("売り場を判定する", () => {
-    expect(shopSection("鶏もも肉")).toBe("肉・魚・卵");
-    expect(shopSection("しめじ")).toBe("野菜・きのこ");
+    expect(shopSection("鶏もも肉")).toBe("肉");
+    expect(shopSection("しめじ")).toBe("野菜・果物");
     expect(shopSection("しょうゆ")).toBe("調味料");
-    expect(shopSection("木綿豆腐")).toBe("その他");
+    expect(shopSection("木綿豆腐")).toBe("卵・豆腐・乳製品");
   });
   it("「鶏肉」は鶏むね肉・鶏もも肉に当たる。豚肉には当たらない", () => {
     expect(matchesIngredient("鶏肉", "鶏むね肉")).toBe(true);

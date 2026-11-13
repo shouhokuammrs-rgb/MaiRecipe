@@ -120,6 +120,13 @@
       "when": 1794200153893,
       "tag": "0016_signup_passes",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1794557108516,
+      "tag": "0017_shop_order",
+      "breakpoints": true
     }
   ]
 }

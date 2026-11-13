@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check } from "lucide-react";
-import { useState } from "react";
+import { ArrowDown, ArrowUp, Check } from "lucide-react";
+import { useEffect, useState } from "react";
 import { apiClient, type ShopItem } from "@/api/client";
 import {
   Chip,
@@ -8,10 +8,12 @@ import {
   ErrorState,
   Loading,
   PageTitle,
+  PrimaryButton,
 } from "@/components/common";
 import { Toast, useToast } from "@/components/Toast";
 import { apiErrorMessage, cn } from "@/lib/utils";
-import { SHOP_SECTIONS } from "../../shared/constants";
+import { SHOP_SECTIONS, type ShopSection } from "../../shared/constants";
+import { moveSection } from "../../shared/shop-order";
 import { labelDate } from "../../shared/dates";
 
 const RANGES = [
@@ -24,6 +26,7 @@ const RANGES = [
 export function Shopping() {
   const [days, setDays] = useState(3);
   const [showHave, setShowHave] = useState(false);
+  const [ordering, setOrdering] = useState(false);
   const qc = useQueryClient();
   const { toast, show: setToast } = useToast();
   const q = useQuery({
@@ -147,6 +150,15 @@ export function Shopping() {
             </span>
             冷蔵庫にあるものも表示（{hiddenCount}件）
           </button>
+          {q.data && (
+            <button
+              type="button"
+              onClick={() => setOrdering(true)}
+              className="flex h-11 items-center rounded-full border border-field bg-card px-3 text-xs"
+            >
+              売り場の順番を変える
+            </button>
+          )}
         </div>
       </div>
 
@@ -163,7 +175,7 @@ export function Shopping() {
         {q.data && items.length > 0 && toBuy.length === 0 && !showHave && (
           <Empty>全部そろっています。冷蔵庫に入っています。</Empty>
         )}
-        {SHOP_SECTIONS.map((section) => {
+        {(q.data?.sections ?? SHOP_SECTIONS).map((section) => {
           const list = shown.filter((i) => i.section === section);
           if (!list.length) return null;
           return (
@@ -184,8 +196,130 @@ export function Shopping() {
           );
         })}
       </div>
+      {ordering && q.data && (
+        <ShopOrderSheet
+          current={q.data.sections}
+          onClose={() => setOrdering(false)}
+          onSaved={(msg) => {
+            setOrdering(false);
+            setToast(msg);
+          }}
+        />
+      )}
       <Toast message={toast} />
     </>
+  );
+}
+
+/**
+ * 売り場の並び替え（DEC-032）。自分がスーパーを回る順にする。家の2人で同じ並び。
+ * ドラッグではなく ↑↓ のボタン（片手で確実に押せる・読み上げでも使える）
+ */
+function ShopOrderSheet({
+  current,
+  onClose,
+  onSaved,
+}: {
+  current: ShopSection[];
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [order, setOrder] = useState<ShopSection[]>(current);
+  const save = useMutation({
+    mutationFn: (o: ShopSection[] | null) => apiClient.setShopOrder(o),
+    onSuccess: (_d, o) => {
+      void qc.invalidateQueries({ queryKey: ["shopping"] });
+      onSaved(o ? "売り場の順番を保存しました" : "おすすめの順番に戻しました");
+    },
+  });
+  const isDefault = order.every((s, i) => s === SHOP_SECTIONS[i]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-20 flex flex-col justify-end bg-ink/45"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="売り場の順番"
+        className="mx-auto flex max-h-[90dvh] w-full max-w-xl flex-col gap-3 overflow-y-auto rounded-t-3xl bg-card px-5 pt-5 pb-[max(env(safe-area-inset-bottom),20px)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div>
+          <h2 className="text-[17px] font-bold">売り場の順番</h2>
+          <p className="text-xs leading-6 text-sub">
+            いつものスーパーを回る順に並べると、買い物リストがその順になります。いっしょに使う人とも同じ順番です。
+          </p>
+        </div>
+        <ol className="overflow-hidden rounded-2xl border border-line-soft">
+          {order.map((s, i) => (
+            <li
+              key={s}
+              className="flex items-center gap-2 border-b border-[#f3eee7] bg-card pl-3.5 last:border-b-0"
+            >
+              <span className="w-5 text-xs text-sub tabular-nums">{i + 1}</span>
+              <span className="flex-1 text-[15px]">{s}</span>
+              <button
+                type="button"
+                aria-label={`${s}を上へ`}
+                disabled={i === 0}
+                onClick={() => setOrder(moveSection(order, s, -1))}
+                className="flex size-11 items-center justify-center text-sub disabled:opacity-25"
+              >
+                <ArrowUp className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={`${s}を下へ`}
+                disabled={i === order.length - 1}
+                onClick={() => setOrder(moveSection(order, s, 1))}
+                className="flex size-11 items-center justify-center text-sub disabled:opacity-25"
+              >
+                <ArrowDown className="size-4" />
+              </button>
+            </li>
+          ))}
+        </ol>
+        {save.isError && (
+          <p role="alert" className="text-sm text-danger">
+            {apiErrorMessage(save.error)}
+          </p>
+        )}
+        <PrimaryButton
+          type="button"
+          disabled={save.isPending}
+          onClick={() => save.mutate(isDefault ? null : order)}
+          className="h-12"
+        >
+          {save.isPending ? "保存しています…" : "この順番にする"}
+        </PrimaryButton>
+        <button
+          type="button"
+          disabled={save.isPending || isDefault}
+          onClick={() => setOrder([...SHOP_SECTIONS])}
+          className="min-h-11 text-sm text-sub underline disabled:opacity-40"
+        >
+          おすすめの順番に戻す（野菜 → 魚 → 肉 → …）
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="min-h-11 text-sm text-sub"
+        >
+          やめる
+        </button>
+      </div>
+    </div>
   );
 }
 

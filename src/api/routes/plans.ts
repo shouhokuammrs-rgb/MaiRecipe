@@ -214,14 +214,15 @@ shopping.get("/", async (c) => {
   const days = Math.min(Math.max(Number(c.req.query("days") ?? 7) || 7, 1), 14);
   const from = today;
   const to = addDays(today, days - 1);
-  const [sources, pantry, out, people] = await Promise.all([
+  const [sources, pantry, out, people, sections] = await Promise.all([
     c.var.repo.shoppingSources(from, to),
     c.var.repo.pantryNames(),
     c.var.repo.seasoningsOut(),
     c.var.repo.householdServings(),
+    c.var.repo.shopOrder(),
   ]);
-  // 人数の分かるレシピは、ふだん作る人数に合わせて換算する
-  const items = aggregateShopping(sources, people).map((i) => ({
+  // 人数の分かるレシピは、ふだん作る人数に合わせて換算する。売り場は家ごとの並び（DEC-032）
+  const items = aggregateShopping(sources, people, sections).map((i) => ({
     ...i,
     // 調味料はいつも家にある扱い（「家にない」印が付いたときだけ買う）。ほかは冷蔵庫にあるか
     have: i.section === "調味料" ? !out.has(i.name) : pantry.has(i.name),
@@ -236,6 +237,7 @@ shopping.get("/", async (c) => {
     recipeCount: sources.length,
     people,
     unscaled,
+    sections,
     items,
   });
 });
