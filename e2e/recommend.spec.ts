@@ -72,12 +72,10 @@ test("今日のおすすめを献立に入れる・冷蔵庫で食材を選ん�
     page.getByRole("button", { name: "豆腐の味噌汁", exact: true }),
   ).toBeVisible();
 
-  // 冷蔵庫タブ → 「鮭を選ぶ」→ 「1個を使いたい → レシピを探す」
+  // 冷蔵庫タブ → 「鮭を選ぶ」→ 下の帯の「レシピを探す」
   await page.getByRole("link", { name: "冷蔵庫" }).click();
   await page.getByRole("button", { name: "鮭を選ぶ", exact: true }).click();
-  await page
-    .getByRole("button", { name: "1個を使いたい → レシピを探す", exact: true })
-    .click();
+  await page.getByRole("button", { name: "レシピを探す", exact: true }).click();
 
   // 「「鮭」を使うレシピ」の下に「鮭のホイル焼き」と「1個使う：鮭」
   await expect(

@@ -34,7 +34,7 @@ test("冷蔵庫の食材から AI のレシピ案を保存する", async ({ page
 
   await page.goto("/fridge");
   await page.getByRole("button", { name: "大根を選ぶ" }).click();
-  await page.getByRole("button", { name: /1個を使いたい/ }).click();
+  await page.getByRole("button", { name: "レシピを探す", exact: true }).click();
   await page.getByRole("button", { name: "考えてもらう" }).click();
   await expect(page.getByText("ダミーの大根ステーキ")).toBeVisible();
   expect(asked).toEqual({ use: ["大根"], wish: "" });
