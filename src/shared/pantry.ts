@@ -28,7 +28,13 @@ const CHILLED_STAPLE =
 /** 名前から、ふつう入れる室を決める（売り場の判定を下敷きにする。AI は使わない） */
 export function fridgeZone(name: string): FridgeZone {
   const n = canonicalName(name);
-  if (/冷凍|アイス/.test(n)) return "冷凍室";
+  // 売り場の判定より先に見るもの（名前の一部が別の売り場に当たってしまうもの）
+  if (/冷凍|^氷$|かき氷|アイス(クリーム)?$|ソフトクリーム/.test(n))
+    return "冷凍室";
+  if (/ジュース|コーラ|サイダー|ビール|炭酸|茶$|コーヒー/.test(n))
+    return "ドアポケット";
+  if (/ご飯|ごはん|残り|作りおき|作り置き/.test(n)) return "冷蔵室";
+  if (/パン$|ベーグル|ミックス$/.test(n) && !/冷凍/.test(n)) return "常温";
   const section = shopSection(n);
   switch (section) {
     case "冷凍食品":

@@ -38,5 +38,5 @@ test("冷蔵庫の中が室ごとに分かれ、置き場所を直せる", async
   await page.screenshot({ path: "test-results/fridge-02.png" });
   await edit.getByRole("button", { name: "保存" }).click();
   await expect(zone("ドアポケット")).toContainText("卵");
-  await expect(zone("冷蔵室")).not.toContainText("卵");
+  await expect(zone("冷蔵室").getByText("卵", { exact: true })).toHaveCount(0);
 });

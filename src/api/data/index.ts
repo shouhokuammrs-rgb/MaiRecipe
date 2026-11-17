@@ -1278,32 +1278,43 @@ export function forGroup(db: Db, groupId: string) {
     ) {
       const item = await ownPantryItem(id);
       const { zone, ...fields } = patch;
+      const stmts = [];
       if (fields.amount !== undefined || fields.expiresOn !== undefined)
-        await db
-          .update(s.pantryItems)
-          .set(fields)
-          .where(
-            and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
-          );
-      if (zone === undefined) return;
+        stmts.push(
+          db
+            .update(s.pantryItems)
+            .set(fields)
+            .where(
+              and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
+            ),
+        );
       // 置き場所は食材の名前ごとに覚える（DEC-033）。null は「おまかせ」に戻す
       if (zone === null)
-        await db
-          .delete(s.pantryZonePrefs)
-          .where(
-            and(
-              eq(s.pantryZonePrefs.groupId, groupId),
-              eq(s.pantryZonePrefs.name, item.name),
+        stmts.push(
+          db
+            .delete(s.pantryZonePrefs)
+            .where(
+              and(
+                eq(s.pantryZonePrefs.groupId, groupId),
+                eq(s.pantryZonePrefs.name, item.name),
+              ),
             ),
-          );
-      else
-        await db
-          .insert(s.pantryZonePrefs)
-          .values({ groupId, name: item.name, zone })
-          .onConflictDoUpdate({
-            target: [s.pantryZonePrefs.groupId, s.pantryZonePrefs.name],
-            set: { zone, updatedAt: new Date() },
-          });
+        );
+      else if (zone !== undefined)
+        stmts.push(
+          db
+            .insert(s.pantryZonePrefs)
+            .values({ groupId, name: item.name, zone })
+            .onConflictDoUpdate({
+              target: [s.pantryZonePrefs.groupId, s.pantryZonePrefs.name],
+              set: { zone, updatedAt: new Date() },
+            }),
+        );
+      // 量・期限と置き場所を一緒に直すときは、片方だけ残らないようにまとめて流す
+      if (stmts.length)
+        await db.batch(
+          stmts as [(typeof stmts)[number], ...(typeof stmts)[number][]],
+        );
     },
 
     async deletePantry(id: string) {

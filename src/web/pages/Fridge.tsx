@@ -78,8 +78,12 @@ export function Fridge() {
     zone: i.zone ?? fridgeZone(i.name),
   }));
   const today = q.data?.today ?? "";
-  // 冷蔵庫の一覧の並び順にそろえる
-  const selected = items.map((i) => i.name).filter((n) => selectedNames.has(n));
+  const groups = groupByZone(items);
+  // 画面の並び（室ごと）にそろえる
+  const selected = groups
+    .flatMap((g) => g.items)
+    .map((i) => i.name)
+    .filter((n) => selectedNames.has(n));
 
   const toggleSelect = (name: string) => {
     if (selectedNames.has(name)) {
@@ -137,7 +141,7 @@ export function Fridge() {
               </span>
             </div>
             <FridgeView
-              groups={groupByZone(items)}
+              groups={groups}
               renderItem={(item) => (
                 <FridgeRow
                   key={item.id}
