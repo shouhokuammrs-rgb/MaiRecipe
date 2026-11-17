@@ -6,6 +6,7 @@ import type {
   ShopSection,
 } from "../../shared/constants";
 import type { FindResult } from "../../shared/find";
+import type { FridgeZone } from "../../shared/pantry";
 import type { Ingredient } from "../../shared/recipe";
 import type { RecoLists } from "../../shared/recommend";
 import type { Tip } from "../../shared/tips";
@@ -232,6 +233,10 @@ export type PantryItem = {
   amount: string | null;
   expiresOn: string | null;
   addedOn: string;
+  /** 置き場所（DEC-033）。古いサーバーの答えには無い */
+  zone?: FridgeZone;
+  /** 手で置き場所を決めたか */
+  zoneSet?: boolean;
 };
 
 export const apiClient = {
@@ -468,7 +473,11 @@ export const apiClient = {
     }),
   updatePantry: (
     id: string,
-    patch: { amount?: string | null; expiresOn?: string | null },
+    patch: {
+      amount?: string | null;
+      expiresOn?: string | null;
+      zone?: FridgeZone | null;
+    },
   ) =>
     call<void>(`/pantry/${encodeURIComponent(id)}`, {
       method: "PATCH",

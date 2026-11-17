@@ -28,7 +28,13 @@ import { diffVersions } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
 import { canonicalName } from "../../shared/ingredients";
 import { sourceKey } from "../../shared/source-key";
-import { isSeasoning, sortPantry } from "../../shared/pantry";
+import {
+  FRIDGE_ZONES,
+  type FridgeZone,
+  fridgeZone,
+  isSeasoning,
+  sortPantry,
+} from "../../shared/pantry";
 import type { SessionUser } from "../app-env";
 import * as s from "./schema";
 
@@ -84,6 +90,10 @@ export type PantryItem = {
   amount: string | null;
   expiresOn: string | null;
   addedOn: string;
+  /** 置き場所（DEC-033）。手で直していなければ名前から決めたもの */
+  zone: FridgeZone;
+  /** 手で置き場所を決めたか（false は「おまかせ」） */
+  zoneSet: boolean;
 };
 
 export type RecipeHeader = {
@@ -402,11 +412,12 @@ export function forGroup(db: Db, groupId: string) {
   /** 自分のグループの冷蔵庫の1行。無い・他のグループなら NotFound */
   async function ownPantryItem(id: string) {
     const r = await db
-      .select({ id: s.pantryItems.id })
+      .select({ id: s.pantryItems.id, name: s.pantryItems.name })
       .from(s.pantryItems)
       .where(and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)))
       .limit(1);
     if (!r[0]) throw new NotFound("pantry");
+    return r[0];
   }
 
   return {
@@ -1197,10 +1208,30 @@ export function forGroup(db: Db, groupId: string) {
           amount: s.pantryItems.amount,
           expiresOn: s.pantryItems.expiresOn,
           addedOn: s.pantryItems.addedOn,
+          pref: s.pantryZonePrefs.zone,
         })
         .from(s.pantryItems)
+        .leftJoin(
+          s.pantryZonePrefs,
+          and(
+            eq(s.pantryZonePrefs.groupId, s.pantryItems.groupId),
+            eq(s.pantryZonePrefs.name, s.pantryItems.name),
+          ),
+        )
         .where(eq(s.pantryItems.groupId, groupId));
-      return sortPantry(rows.filter((r) => !isSeasoning(r.name)));
+      const known = new Set<string>(FRIDGE_ZONES);
+      return sortPantry(
+        rows
+          .filter((r) => !isSeasoning(r.name))
+          .map(({ pref, ...r }) => {
+            const set = pref !== null && known.has(pref);
+            return {
+              ...r,
+              zone: set ? (pref as FridgeZone) : fridgeZone(r.name),
+              zoneSet: set,
+            };
+          }),
+      );
     },
 
     /** 名寄せして入れる。空・調味料・すでにあるものは skipped。1行ずつの INSERT を batch で流す（D1 の値の上限のため） */
@@ -1239,15 +1270,40 @@ export function forGroup(db: Db, groupId: string) {
 
     async updatePantry(
       id: string,
-      patch: { amount?: string | null; expiresOn?: string | null },
+      patch: {
+        amount?: string | null;
+        expiresOn?: string | null;
+        zone?: FridgeZone | null;
+      },
     ) {
-      await ownPantryItem(id);
-      await db
-        .update(s.pantryItems)
-        .set(patch)
-        .where(
-          and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
-        );
+      const item = await ownPantryItem(id);
+      const { zone, ...fields } = patch;
+      if (fields.amount !== undefined || fields.expiresOn !== undefined)
+        await db
+          .update(s.pantryItems)
+          .set(fields)
+          .where(
+            and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
+          );
+      if (zone === undefined) return;
+      // 置き場所は食材の名前ごとに覚える（DEC-033）。null は「おまかせ」に戻す
+      if (zone === null)
+        await db
+          .delete(s.pantryZonePrefs)
+          .where(
+            and(
+              eq(s.pantryZonePrefs.groupId, groupId),
+              eq(s.pantryZonePrefs.name, item.name),
+            ),
+          );
+      else
+        await db
+          .insert(s.pantryZonePrefs)
+          .values({ groupId, name: item.name, zone })
+          .onConflictDoUpdate({
+            target: [s.pantryZonePrefs.groupId, s.pantryZonePrefs.name],
+            set: { zone, updatedAt: new Date() },
+          });
     },
 
     async deletePantry(id: string) {
