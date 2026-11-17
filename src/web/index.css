@@ -26,6 +26,11 @@
   --color-chip: #f1ece4;
   --color-danger: #a1361a;
   --color-video: #1f1b18;
+  /* 冷蔵庫の室（DEC-033）。冷たい所だけ少し青みを足す */
+  --color-frost: #f1f6f8;
+  --color-frost-deep: #e3edf1;
+  --color-frost-line: #d3e0e6;
+  --color-frost-ink: #3b5763;
 }
 
 :root {

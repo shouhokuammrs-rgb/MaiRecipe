@@ -19,6 +19,10 @@ import { apiErrorMessage, cn } from "@/lib/utils";
 import { addDays, labelDate } from "../../shared/dates";
 import {
   addedLabel,
+  FRIDGE_ZONES,
+  type FridgeZone,
+  fridgeZone,
+  groupByZone,
   isExpiringSoon,
   splitPantryInput,
 } from "../../shared/pantry";
@@ -68,10 +72,18 @@ export function Fridge() {
     },
   });
 
-  const items = q.data?.items ?? [];
+  // 古いサーバーの答えには zone が無いので、そのときは画面で名前から決める
+  const items = (q.data?.items ?? []).map((i) => ({
+    ...i,
+    zone: i.zone ?? fridgeZone(i.name),
+  }));
   const today = q.data?.today ?? "";
-  // 冷蔵庫の一覧の並び順にそろえる
-  const selected = items.map((i) => i.name).filter((n) => selectedNames.has(n));
+  const groups = groupByZone(items);
+  // 画面の並び（室ごと）にそろえる
+  const selected = groups
+    .flatMap((g) => g.items)
+    .map((i) => i.name)
+    .filter((n) => selectedNames.has(n));
 
   const toggleSelect = (name: string) => {
     if (selectedNames.has(name)) {
@@ -128,8 +140,9 @@ export function Fridge() {
                 食材を選ぶと「これを使いたい」
               </span>
             </div>
-            <ul className="overflow-hidden rounded-2xl border border-line-soft bg-card">
-              {items.map((item) => (
+            <FridgeView
+              groups={groups}
+              renderItem={(item) => (
                 <FridgeRow
                   key={item.id}
                   item={item}
@@ -145,8 +158,8 @@ export function Fridge() {
                       : setConfirming(item.id)
                   }
                 />
-              ))}
-            </ul>
+              )}
+            />
             {selected.length > 0 && (
               <PrimaryButton onClick={() => setTerms(selected)}>
                 {`${selected.length}個を使いたい → レシピを探す`}
@@ -179,6 +192,127 @@ export function Fridge() {
   );
 }
 
+type ZonedItem = PantryItem & { zone: FridgeZone };
+
+/** 室ごとの見た目（DEC-033）。冷蔵室は棚、野菜室・冷凍室は引き出し、常温は冷蔵庫の外の棚 */
+const ZONE_LOOK: Record<
+  FridgeZone,
+  { hint: string; drawer?: boolean; box: string; head: string }
+> = {
+  冷蔵室: {
+    hint: "卵・豆腐・作りおき",
+    box: "border-frost-line bg-card",
+    head: "text-frost-ink",
+  },
+  チルド: {
+    hint: "肉・魚",
+    box: "border-frost-line bg-frost",
+    head: "text-frost-ink",
+  },
+  ドアポケット: {
+    hint: "牛乳・飲み物・たれ",
+    box: "border-frost-line bg-card border-t-4",
+    head: "text-frost-ink",
+  },
+  野菜室: {
+    hint: "野菜・果物",
+    drawer: true,
+    box: "border-herb-soft bg-herb-soft/60",
+    head: "text-herb",
+  },
+  冷凍室: {
+    hint: "冷凍したもの",
+    drawer: true,
+    box: "border-frost-line bg-frost-deep",
+    head: "text-frost-ink",
+  },
+  常温: {
+    hint: "じゃがいも・玉ねぎ・米・缶詰",
+    box: "border-line-soft bg-memo",
+    head: "text-memo-ink",
+  },
+};
+
+function FridgeView({
+  groups,
+  renderItem,
+}: {
+  groups: { zone: FridgeZone; items: ZonedItem[] }[];
+  renderItem: (item: ZonedItem) => React.ReactNode;
+}) {
+  const inside = groups.filter((g) => g.zone !== "常温");
+  const shelf = groups.find((g) => g.zone === "常温");
+  return (
+    <div className="flex flex-col gap-3">
+      {/* 冷蔵庫の本体。扉の下に引き出しが並ぶ */}
+      <div
+        role="group"
+        aria-label="冷蔵庫"
+        className="flex flex-col gap-2 rounded-[26px] border-2 border-frost-line bg-frost-deep/50 p-2"
+      >
+        {inside.map((g) => (
+          <Compartment key={g.zone} zone={g.zone} items={g.items}>
+            {g.items.map(renderItem)}
+          </Compartment>
+        ))}
+      </div>
+      {shelf && shelf.items.length > 0 && (
+        <Compartment zone="常温" items={shelf.items}>
+          {shelf.items.map(renderItem)}
+        </Compartment>
+      )}
+    </div>
+  );
+}
+
+function Compartment({
+  zone,
+  items,
+  children,
+}: {
+  zone: FridgeZone;
+  items: ZonedItem[];
+  children: React.ReactNode;
+}) {
+  const look = ZONE_LOOK[zone];
+  const title = zone === "常温" ? "常温（冷蔵庫の外）" : zone;
+  return (
+    <section
+      aria-label={title}
+      className={cn(
+        "relative overflow-hidden border",
+        zone === "常温" ? "rounded-2xl" : "rounded-[18px]",
+        look.drawer && "rounded-t-md",
+        look.box,
+      )}
+    >
+      {look.drawer && (
+        // 引き出しの取っ手
+        <span
+          aria-hidden
+          className="mx-auto mt-1.5 block h-1.5 w-16 rounded-full bg-[#c9d6dc]"
+        />
+      )}
+      <h3
+        className={cn(
+          "flex items-baseline gap-2 px-3.5 pt-2.5 pb-1 text-[13px] font-bold",
+          look.head,
+        )}
+      >
+        {title}
+        <span className="text-[11px] font-normal text-sub">
+          {items.length > 0 ? `${items.length}個` : look.hint}
+        </span>
+      </h3>
+      {items.length > 0 ? (
+        <ul className="bg-card/70">{children}</ul>
+      ) : (
+        <p className="px-3.5 pb-2.5 text-[11.5px] text-faint">空いています</p>
+      )}
+    </section>
+  );
+}
+
 function FridgeRow({
   item,
   today,
@@ -200,7 +334,7 @@ function FridgeRow({
 }) {
   const soon = isExpiringSoon(item.expiresOn, today);
   return (
-    <li className="flex items-center gap-1 border-b border-[#f3eee7] px-2.5 py-2.5 last:border-b-0">
+    <li className="flex items-center gap-1 border-t border-black/5 px-2.5 py-2">
       <button
         type="button"
         aria-pressed={selected}
@@ -456,6 +590,11 @@ function EditSheet({
   const qc = useQueryClient();
   const [amount, setAmount] = useState(item.amount ?? "");
   const [expires, setExpires] = useState(item.expiresOn ?? "");
+  const auto = fridgeZone(item.name);
+  // null は「おまかせ」（名前から決める）
+  const [zone, setZone] = useState<FridgeZone | null>(
+    item.zoneSet ? (item.zone ?? null) : null,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   useSheetEsc(onClose);
   useEffect(() => {
@@ -467,6 +606,10 @@ function EditSheet({
       apiClient.updatePantry(item.id, {
         amount: amount.trim() || null,
         expiresOn: expires || null,
+        // 変えたときだけ送る（同じ名前の食材の置き場所として家で覚える）
+        ...(zone !== (item.zoneSet ? (item.zone ?? null) : null)
+          ? { zone }
+          : {}),
       }),
     onSuccess: () => onClose(),
     onError: (e) => onDone(apiErrorMessage(e)),
@@ -485,8 +628,8 @@ function EditSheet({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`${item.name}の量と期限`}
-        className="mx-auto flex w-full max-w-xl flex-col gap-3 rounded-t-3xl bg-card px-5 pt-5 pb-8"
+        aria-label={`${item.name}の量・期限・置き場所`}
+        className="mx-auto flex max-h-[90dvh] w-full max-w-xl flex-col gap-3 overflow-y-auto rounded-t-3xl bg-card px-5 pt-5 pb-[max(env(safe-area-inset-bottom),32px)]"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-[17px] font-bold">{item.name}</h2>
@@ -519,6 +662,35 @@ function EditSheet({
             </SecondaryButton>
           </div>
         </label>
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1 text-xs font-bold text-sub">置き場所</legend>
+          <div className="flex flex-wrap gap-1.5">
+            {FRIDGE_ZONES.map((z) => {
+              const on = (zone ?? auto) === z;
+              return (
+                <button
+                  key={z}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setZone(z === auto ? null : z)}
+                  className={cn(
+                    "min-h-11 rounded-full border px-3.5 text-sm",
+                    on
+                      ? "border-herb-mid bg-herb-soft font-bold text-herb"
+                      : "border-field bg-card text-sub",
+                  )}
+                >
+                  {z}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11.5px] text-sub">
+            {zone === null
+              ? `おまかせ：「${item.name}」は${auto}に入れています`
+              : `次に「${item.name}」を入れたときも${zone}に入ります`}
+          </p>
+        </fieldset>
         <div className="flex gap-2">
           <SecondaryButton className="flex-1" onClick={onClose}>
             やめる

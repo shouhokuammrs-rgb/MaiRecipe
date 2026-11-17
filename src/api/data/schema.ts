@@ -382,6 +382,22 @@ export const pantryItems = sqliteTable(
   (t) => [uniqueIndex("pantry_items_name_uq").on(t.groupId, t.name)],
 );
 
+// ---- 冷蔵庫の置き場所を手で直した記録（DEC-033）。食材の名前ごと。使い切って消えても覚えておき、
+// 次に同じ名前が入ったときもその室に出す。無ければ名前から決める（fridgeZone）
+export const pantryZonePrefs = sqliteTable(
+  "pantry_zone_prefs",
+  {
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    /** 名寄せ済みの名前（pantry_items.name と同じ） */
+    name: text("name").notNull(),
+    zone: text("zone").notNull(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.name] })],
+);
+
 // ---- 招待（相手の Google のメールアドレス宛て。参加・取り消しで行を消す）
 export const groupInvites = sqliteTable(
   "group_invites",

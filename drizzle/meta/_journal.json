@@ -127,6 +127,13 @@
       "when": 1794557108516,
       "tag": "0017_shop_order",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794901327452,
+      "tag": "0018_pantry_zone_prefs",
+      "breakpoints": true
     }
   ]
 }
