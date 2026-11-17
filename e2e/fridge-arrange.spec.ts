@@ -24,7 +24,8 @@ test("まとめて冷凍室へ移し、元に戻し、並べ替える", async ({
   await page.getByRole("button", { name: "豚こまを選ぶ" }).click();
   await page.getByRole("button", { name: "鶏もも肉を選ぶ" }).click();
   await page.screenshot({ path: "test-results/arrange-01.png" });
-  await page.getByRole("button", { name: "2個をまとめて移動" }).click();
+  await page.getByRole("button", { name: "選ぶのをやめる" }).isVisible();
+  await page.getByRole("button", { name: "2個を移動" }).click();
   await page.screenshot({ path: "test-results/arrange-02.png" });
   await page
     .getByRole("dialog", { name: "まとめて移動" })
@@ -40,6 +41,10 @@ test("まとめて冷凍室へ移し、元に戻し、並べ替える", async ({
   await expect(zone("冷凍室").getByText("豚こま", { exact: true })).toHaveCount(
     0,
   );
+  // 選んだまま、お知らせとボタンの帯が重ならないこと（見た目の確認用）
+  await page.getByRole("button", { name: "卵を選ぶ" }).click();
+  await page.screenshot({ path: "test-results/arrange-05.png" });
+  await page.getByRole("button", { name: "選ぶのをやめる" }).click();
 
   // 名前順にする → 元に戻すで期限が近い順へ
   await page.getByRole("button", { name: /並べ替え：期限が近い順/ }).click();

@@ -163,6 +163,22 @@ describe("並べ替え", () => {
     ]);
   });
 
+  it("並べている間に消えた品は飛ばして保存できる。保存すると手で並べた順になる", async () => {
+    const me = await signUp();
+    await add(me, ["にんじん", "キャベツ", "大根"]);
+    const p = await get(me);
+    const [carrot, cabbage, radish] = ids(p, ["にんじん", "キャベツ", "大根"]);
+    await api(me, `/pantry/${cabbage}`, { method: "DELETE" });
+    const r = await api(me, "/pantry/order", {
+      method: "PUT",
+      body: { ids: [radish, cabbage, carrot] },
+    });
+    expect(r.status).toBe(204);
+    const after = await get(me);
+    expect(after.sort).toBe("manual");
+    expect(after.items.map((i) => i.name)).toEqual(["大根", "にんじん"]);
+  });
+
   it("室の順番を変える・おすすめに戻す", async () => {
     const me = await signUp();
     const mine = ["冷蔵室", "冷凍室", "野菜室", "チルド", "ドアポケット"];
@@ -183,12 +199,13 @@ describe("並べ替え", () => {
     const b = await signUp();
     await add(a, ["卵"]);
     const aEgg = ids(await get(a), ["卵"]);
-    expect(
-      (await api(b, "/pantry/order", { method: "PUT", body: { ids: aEgg } }))
-        .status,
-    ).toBe(404);
     await api(a, "/pantry/settings", { method: "PUT", body: { sort: "name" } });
     expect((await get(b)).sort).toBe("expires");
+    // ほかの家の品の id は飛ばされ、その家の並びは何も変わらない
+    await api(b, "/pantry/order", { method: "PUT", body: { ids: aEgg } });
+    const after = await get(a);
+    expect(after.items[0]!.position).toBeNull();
+    expect(after.sort).toBe("name");
   });
 
   it("おかしな入力は弾く", async () => {

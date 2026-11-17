@@ -14,10 +14,8 @@ import { badRequest } from "../errors";
 export const pantry = new Hono<AppEnv>();
 
 pantry.get("/", async (c) => {
-  const [items, settings] = await Promise.all([
-    c.var.repo.listPantry(),
-    c.var.repo.fridgeSettings(),
-  ]);
+  const settings = await c.var.repo.fridgeSettings();
+  const items = await c.var.repo.listPantry(settings.sort);
   return c.json({ items, today: todayJst(), ...settings });
 });
 

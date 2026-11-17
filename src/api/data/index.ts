@@ -489,11 +489,11 @@ export function forGroup(db: Db, groupId: string) {
           });
   }
 
-  /** まとめて移動（DEC-034）。全部まとめて書き、移す前の状態を返す */
-  async function moveZones(
+  /** まとめて移動（DEC-034）で書く文と、移す前の状態 */
+  async function planMove(
     ids: string[],
     zone: FridgeZone | null,
-  ): Promise<{ moved: number; undo: ZoneUndo }> {
+  ): Promise<{ moved: number; undo: ZoneUndo; stmts: Stmt[] }> {
     // id を IN で渡すと D1 の値の上限（100）に当たるので、家の品を全部読んで絞る
     const rows = await pantryRows();
     const byId = new Map(rows.map((r) => [r.id, r]));
@@ -519,8 +519,29 @@ export function forGroup(db: Db, groupId: string) {
       }
     }
     for (const [name, z] of prefWrites) stmts.push(writePref(name, z));
+    return { moved: targets.length, undo, stmts };
+  }
+
+  /** まとめて移動。全部まとめて書き、移す前の状態を返す */
+  async function moveZones(ids: string[], zone: FridgeZone | null) {
+    const { moved, undo, stmts } = await planMove(ids, zone);
     await db.batch(stmts as [Stmt, ...Stmt[]]);
-    return { moved: targets.length, undo };
+    return { moved, undo };
+  }
+
+  async function fridgeSettings(): Promise<{
+    sort: FridgeSort;
+    zones: FridgeZone[];
+  }> {
+    const [g] = await db
+      .select({ sort: s.groups.fridgeSort, zones: s.groups.fridgeZones })
+      .from(s.groups)
+      .where(eq(s.groups.id, groupId))
+      .limit(1);
+    const sort = (FRIDGE_SORTS as readonly string[]).includes(g?.sort ?? "")
+      ? (g!.sort as FridgeSort)
+      : "expires";
+    return { sort, zones: resolveFridgeOrder(g?.zones) };
   }
 
   return {
@@ -1303,10 +1324,11 @@ export function forGroup(db: Db, groupId: string) {
     },
 
     // ---- 冷蔵庫（調味料は入れない・出さない。名前は名寄せ後）
-    async listPantry(): Promise<PantryItem[]> {
-      const [rows, settings] = await Promise.all([
+    /** sort を省くと家の並べ方で並べる */
+    async listPantry(sort?: FridgeSort): Promise<PantryItem[]> {
+      const [rows, mode] = await Promise.all([
         pantryRows(),
-        this.fridgeSettings(),
+        sort ?? fridgeSettings().then((x) => x.sort),
       ]);
       return sortPantryBy(
         rows.map(({ itemZone, pref, ...r }) => ({
@@ -1315,22 +1337,12 @@ export function forGroup(db: Db, groupId: string) {
           zoneSet: itemZone !== null || pref !== null,
           onlyThis: itemZone !== null,
         })),
-        settings.sort,
+        mode,
       ).map(({ auto: _a, ...r }) => r);
     },
 
     /** 冷蔵庫の並べ方と室の順番（DEC-034） */
-    async fridgeSettings(): Promise<{ sort: FridgeSort; zones: FridgeZone[] }> {
-      const [g] = await db
-        .select({ sort: s.groups.fridgeSort, zones: s.groups.fridgeZones })
-        .from(s.groups)
-        .where(eq(s.groups.id, groupId))
-        .limit(1);
-      const sort = (FRIDGE_SORTS as readonly string[]).includes(g?.sort ?? "")
-        ? (g!.sort as FridgeSort)
-        : "expires";
-      return { sort, zones: resolveFridgeOrder(g?.zones) };
-    },
+    fridgeSettings,
 
     async setFridgeSettings(p: {
       sort?: FridgeSort;
@@ -1344,7 +1356,7 @@ export function forGroup(db: Db, groupId: string) {
           updatedAt: new Date(),
         })
         .where(eq(s.groups.id, groupId));
-      return this.fridgeSettings();
+      return fridgeSettings();
     },
 
     /** まとめて移動。移す前の状態を返す（元に戻すときにそのまま restoreZones へ） */
@@ -1367,30 +1379,46 @@ export function forGroup(db: Db, groupId: string) {
                 ),
               ),
           ),
-        ...undo.prefs.map((p) => writePref(p.name, p.zone)),
+        ...undo.prefs
+          .map((p) => ({ ...p, name: canonicalName(p.name) }))
+          .filter((p) => p.name && !isSeasoning(p.name))
+          .map((p) => writePref(p.name, p.zone)),
       ];
       if (stmts.length) await db.batch(stmts as [Stmt, ...Stmt[]]);
     },
 
-    /** 手で並べた順。ids は上から。入っていない品は「まだ並べていない」に戻す */
+    /**
+     * 手で並べた順。ids は上から。並べ方も「手で並べた順」にする（まとめて1回で書く）。
+     * もう無い品は飛ばし、入っていない品は「まだ並べていない」に戻す。変わった行だけ書く（CPU 10ms のため）
+     */
     async setPantryOrder(ids: string[]) {
-      const mine = new Set((await pantryRows()).map((r) => r.id));
-      const unknown = ids.find((id) => !mine.has(id));
-      if (unknown) throw new NotFound("pantry");
+      const rows = await pantryRows();
+      const now = new Map(rows.map((r) => [r.id, r.position]));
+      const want = new Map<string, number | null>(
+        rows.map((r) => [r.id, null]),
+      );
+      let i = 0;
+      for (const id of ids)
+        if (now.has(id) && want.get(id) === null) want.set(id, i++);
       const stmts: Stmt[] = [
         db
-          .update(s.pantryItems)
-          .set({ position: null })
-          .where(eq(s.pantryItems.groupId, groupId)),
-        ...ids.map((id, i) =>
-          db
-            .update(s.pantryItems)
-            .set({ position: i })
-            .where(
-              and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
-            ),
-        ),
+          .update(s.groups)
+          .set({ fridgeSort: "manual", updatedAt: new Date() })
+          .where(eq(s.groups.id, groupId)),
       ];
+      for (const [id, pos] of want)
+        if (now.get(id) !== pos)
+          stmts.push(
+            db
+              .update(s.pantryItems)
+              .set({ position: pos })
+              .where(
+                and(
+                  eq(s.pantryItems.id, id),
+                  eq(s.pantryItems.groupId, groupId),
+                ),
+              ),
+          );
       await db.batch(stmts as [Stmt, ...Stmt[]]);
     },
 
@@ -1438,14 +1466,19 @@ export function forGroup(db: Db, groupId: string) {
     ) {
       await ownPantryItem(id);
       const { zone, ...fields } = patch;
+      const stmts: Stmt[] = [];
       if (fields.amount !== undefined || fields.expiresOn !== undefined)
-        await db
-          .update(s.pantryItems)
-          .set(fields)
-          .where(
-            and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
-          );
-      if (zone !== undefined) await moveZones([id], zone);
+        stmts.push(
+          db
+            .update(s.pantryItems)
+            .set(fields)
+            .where(
+              and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
+            ),
+        );
+      // 量・期限と置き場所は、片方だけ残らないようにまとめて書く
+      if (zone !== undefined) stmts.push(...(await planMove([id], zone)).stmts);
+      if (stmts.length) await db.batch(stmts as [Stmt, ...Stmt[]]);
     },
 
     async deletePantry(id: string) {

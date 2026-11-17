@@ -55,7 +55,7 @@ export function Fridge() {
   const [sortOpen, setSortOpen] = useState(false);
   /** 手で並べている途中の並び（null は並べていない） */
   const [arranging, setArranging] = useState<string[] | null>(null);
-  const undo = useUndoToast();
+  const undo = useUndoToast((e) => show(apiErrorMessage(e)));
 
   useEffect(() => {
     if (!confirming) return;
@@ -94,10 +94,14 @@ export function Fridge() {
   const zoneOrder = q.data?.zones ?? resolveFridgeOrder(null);
   const sort: FridgeSort = q.data?.sort ?? "expires";
   // 手で並べている間は、その並びで見せる
+  // 並べている間に相手が消した品は落とし、増えた品は後ろに足す
   const shown = arranging
-    ? arranging
-        .map((id) => items.find((i) => i.id === id))
-        .filter((i): i is (typeof items)[number] => Boolean(i))
+    ? [
+        ...arranging
+          .map((id) => items.find((i) => i.id === id))
+          .filter((i): i is (typeof items)[number] => Boolean(i)),
+        ...items.filter((i) => !arranging.includes(i.id)),
+      ]
     : items;
   const groups = groupByZone(shown, zoneOrder);
 
@@ -139,7 +143,9 @@ export function Fridge() {
     next: { sort?: FridgeSort; zones?: FridgeZone[] | null },
     msg: string,
   ) => {
-    const before = { sort, zones: zoneOrder.filter((z) => z !== "常温") };
+    const inside = zoneOrder.filter((z) => z !== "常温");
+    const wasDefault = inside.every((z, i) => z === INSIDE_ZONES[i]);
+    const before = { sort, zones: wasDefault ? null : inside };
     await settingsMut.mutateAsync(next);
     undo.show(msg, async () => {
       await apiClient.setFridgeSettings(before);
@@ -148,10 +154,8 @@ export function Fridge() {
   };
 
   const finishArranging = useMutation({
-    mutationFn: async (order: string[]) => {
-      await apiClient.setPantryOrder(order);
-      await apiClient.setFridgeSettings({ sort: "manual" });
-    },
+    // 並べ方も「手で並べた順」になる（サーバーが1回で書く）
+    mutationFn: (order: string[]) => apiClient.setPantryOrder(order),
     onSuccess: () => {
       // 並べる前の手並べ（あれば）と並べ方に戻せるようにする
       const prevOrder = [...items]
@@ -170,18 +174,28 @@ export function Fridge() {
     onSettled: refresh,
   });
 
+  // Esc で手並べをやめる（シートが開いていないとき）
+  useEffect(() => {
+    if (!arranging || sortOpen || moveOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setArranging(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [arranging, sortOpen, moveOpen]);
+
   /** 手で並べる：同じ室の中で1つ上・下へ */
   const nudge = (id: string, dir: -1 | 1) => {
     if (!arranging) return;
+    const arr = shown.map((i) => i.id);
     const zoneOfId = (x: string) => items.find((i) => i.id === x)?.zone;
     const z = zoneOfId(id);
-    const i = arranging.indexOf(id);
+    const i = arr.indexOf(id);
     // 同じ室の隣を探す
     let j = i + dir;
-    while (j >= 0 && j < arranging.length && zoneOfId(arranging[j]!) !== z)
-      j += dir;
-    if (j < 0 || j >= arranging.length) return;
-    const next = [...arranging];
+    while (j >= 0 && j < arr.length && zoneOfId(arr[j]!) !== z) j += dir;
+    if (j < 0 || j >= arr.length) return;
+    const next = [...arr];
     [next[i], next[j]] = [next[j]!, next[i]!];
     setArranging(next);
   };
@@ -190,6 +204,7 @@ export function Fridge() {
     .flatMap((g) => g.items)
     .map((i) => i.name)
     .filter((n) => selectedNames.has(n));
+  const barShown = Boolean(arranging) || selected.length > 0;
 
   const toggleSelect = (name: string) => {
     if (selectedNames.has(name)) {
@@ -310,41 +325,40 @@ export function Fridge() {
                 <PrimaryButton
                   className="flex-1"
                   disabled={finishArranging.isPending}
-                  onClick={() => finishArranging.mutate(arranging)}
+                  onClick={() => finishArranging.mutate(shown.map((i) => i.id))}
                 >
                   この並びにする
                 </PrimaryButton>
               </div>
             )}
             {!arranging && selected.length > 0 && (
-              <div className="sticky bottom-[84px] z-10 flex flex-col gap-2 rounded-2xl bg-paper/95 p-1 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
-                <div className="flex gap-2">
-                  <SecondaryButton
-                    className="flex-1"
-                    onClick={() => setMoveOpen(true)}
-                  >
-                    {selected.length}個をまとめて移動
-                  </SecondaryButton>
-                  <PrimaryButton
-                    className="flex-1"
-                    disabled={selected.length > FIND_LIMIT}
-                    onClick={() => setTerms(selected)}
-                  >
-                    {selected.length > FIND_LIMIT
-                      ? `探すのは${FIND_LIMIT}個まで`
-                      : "レシピを探す"}
-                  </PrimaryButton>
-                </div>
+              <div className="sticky bottom-[84px] z-10 flex gap-1.5 rounded-2xl bg-paper/95 p-1 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
                 <button
                   type="button"
+                  aria-label="選ぶのをやめる"
                   onClick={() => {
                     setSelectedNames(new Set());
                     setTerms([]);
                   }}
-                  className="min-h-11 text-xs text-sub underline"
+                  className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-field bg-card text-lg text-sub"
                 >
-                  選ぶのをやめる
+                  ×
                 </button>
+                <SecondaryButton
+                  className="flex-1 px-2"
+                  onClick={() => setMoveOpen(true)}
+                >
+                  {selected.length}個を移動
+                </SecondaryButton>
+                <PrimaryButton
+                  className="flex-1 px-2"
+                  disabled={selected.length > FIND_LIMIT}
+                  onClick={() => setTerms(selected)}
+                >
+                  {selected.length > FIND_LIMIT
+                    ? `探すのは${FIND_LIMIT}個まで`
+                    : "レシピを探す"}
+                </PrimaryButton>
               </div>
             )}
             {terms.length > 0 && (
@@ -400,20 +414,24 @@ export function Fridge() {
               ),
             );
           }}
-          onSave={async (next, msg) => {
+          onSave={(next, msg) => {
             setSortOpen(false);
-            await applySettings(next, msg);
+            // 失敗は settingsMut の onError で知らせる
+            applySettings(next, msg).catch(() => {});
           }}
         />
       )}
-      <Toast message={toast} />
-      <UndoToast state={undo.state} onUndo={undo.run} />
+      {/* 下にボタンの帯が出ているときは、お知らせをその上に出す */}
+      <div className={cn(barShown && "[&>[role=status]]:bottom-[156px]")}>
+        {!undo.state && <Toast message={toast} />}
+        <UndoToast state={undo.state} onUndo={undo.run} />
+      </div>
     </>
   );
 }
 
-/** 「元に戻す」つきのお知らせ（DEC-034）。6秒で消える */
-function useUndoToast() {
+/** 「元に戻す」つきのお知らせ（DEC-034）。6秒で消える。戻せなかったら onError */
+function useUndoToast(onError: (e: unknown) => void) {
   const [state, setState] = useState<{
     msg: string;
     undo: () => Promise<void>;
@@ -431,7 +449,11 @@ function useUndoToast() {
     run: async () => {
       const s = state;
       setState(null);
-      await s?.undo();
+      try {
+        await s?.undo();
+      } catch (e) {
+        onError(e);
+      }
     },
   };
 }
