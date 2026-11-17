@@ -18,6 +18,10 @@ import {
   sql,
 } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
+import type { BatchItem } from "drizzle-orm/batch";
+
+/** db.batch に渡す1文 */
+type Stmt = BatchItem<"sqlite">;
 import type { Ingredient } from "../../shared/recipe";
 import type { Tip } from "../../shared/tips";
 import { fitStepTimes } from "../../shared/scenes";
@@ -29,11 +33,16 @@ import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
 import { canonicalName } from "../../shared/ingredients";
 import { sourceKey } from "../../shared/source-key";
 import {
+  FRIDGE_SORTS,
   FRIDGE_ZONES,
+  type FridgeSort,
   type FridgeZone,
   fridgeZone,
   isSeasoning,
-  sortPantry,
+  planZoneMove,
+  resolveFridgeOrder,
+  sortPantryBy,
+  type ZoneUndo,
 } from "../../shared/pantry";
 import type { SessionUser } from "../app-env";
 import * as s from "./schema";
@@ -94,6 +103,10 @@ export type PantryItem = {
   zone: FridgeZone;
   /** 手で置き場所を決めたか（false は「おまかせ」） */
   zoneSet: boolean;
+  /** この品だけ別の室にある（冷凍した品など。DEC-034） */
+  onlyThis: boolean;
+  /** 手で並べた順（null はまだ並べていない） */
+  position: number | null;
 };
 
 export type RecipeHeader = {
@@ -418,6 +431,117 @@ export function forGroup(db: Db, groupId: string) {
       .limit(1);
     if (!r[0]) throw new NotFound("pantry");
     return r[0];
+  }
+
+  /** 冷蔵庫の品を、置き場所の材料（その品だけの室・名前ごとの室・名前から決めた室）つきで読む。調味料は出さない */
+  async function pantryRows() {
+    const rows = await db
+      .select({
+        id: s.pantryItems.id,
+        name: s.pantryItems.name,
+        amount: s.pantryItems.amount,
+        expiresOn: s.pantryItems.expiresOn,
+        addedOn: s.pantryItems.addedOn,
+        position: s.pantryItems.position,
+        itemZone: s.pantryItems.zone,
+        pref: s.pantryZonePrefs.zone,
+      })
+      .from(s.pantryItems)
+      .leftJoin(
+        s.pantryZonePrefs,
+        and(
+          eq(s.pantryZonePrefs.groupId, s.pantryItems.groupId),
+          eq(s.pantryZonePrefs.name, s.pantryItems.name),
+        ),
+      )
+      .where(eq(s.pantryItems.groupId, groupId));
+    const zoneOrNull = (z: string | null) =>
+      z !== null && (FRIDGE_ZONES as readonly string[]).includes(z)
+        ? (z as FridgeZone)
+        : null;
+    return rows
+      .filter((r) => !isSeasoning(r.name))
+      .map((r) => ({
+        ...r,
+        itemZone: zoneOrNull(r.itemZone),
+        pref: zoneOrNull(r.pref),
+        auto: fridgeZone(r.name),
+      }));
+  }
+
+  /** 名前ごとの置き場所を書く。null は消す */
+  function writePref(name: string, zone: FridgeZone | null) {
+    return zone === null
+      ? db
+          .delete(s.pantryZonePrefs)
+          .where(
+            and(
+              eq(s.pantryZonePrefs.groupId, groupId),
+              eq(s.pantryZonePrefs.name, name),
+            ),
+          )
+      : db
+          .insert(s.pantryZonePrefs)
+          .values({ groupId, name, zone })
+          .onConflictDoUpdate({
+            target: [s.pantryZonePrefs.groupId, s.pantryZonePrefs.name],
+            set: { zone, updatedAt: new Date() },
+          });
+  }
+
+  /** まとめて移動（DEC-034）で書く文と、移す前の状態 */
+  async function planMove(
+    ids: string[],
+    zone: FridgeZone | null,
+  ): Promise<{ moved: number; undo: ZoneUndo; stmts: Stmt[] }> {
+    // id を IN で渡すと D1 の値の上限（100）に当たるので、家の品を全部読んで絞る
+    const rows = await pantryRows();
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const targets = [...new Set(ids)].map((id) => byId.get(id));
+    if (targets.some((t) => !t)) throw new NotFound("pantry");
+    const undo: ZoneUndo = { items: [], prefs: [] };
+    const prefWrites = new Map<string, FridgeZone | null>();
+    const stmts: Stmt[] = [];
+    for (const t of targets as NonNullable<(typeof targets)[number]>[]) {
+      undo.items.push({ id: t.id, zone: t.itemZone });
+      const plan = planZoneMove({ auto: t.auto, pref: t.pref }, zone);
+      stmts.push(
+        db
+          .update(s.pantryItems)
+          .set({ zone: plan.itemZone })
+          .where(
+            and(eq(s.pantryItems.id, t.id), eq(s.pantryItems.groupId, groupId)),
+          ),
+      );
+      if (plan.pref !== "keep" && !prefWrites.has(t.name)) {
+        undo.prefs.push({ name: t.name, zone: t.pref });
+        prefWrites.set(t.name, plan.pref);
+      }
+    }
+    for (const [name, z] of prefWrites) stmts.push(writePref(name, z));
+    return { moved: targets.length, undo, stmts };
+  }
+
+  /** まとめて移動。全部まとめて書き、移す前の状態を返す */
+  async function moveZones(ids: string[], zone: FridgeZone | null) {
+    const { moved, undo, stmts } = await planMove(ids, zone);
+    await db.batch(stmts as [Stmt, ...Stmt[]]);
+    return { moved, undo };
+  }
+
+  async function fridgeSettings(): Promise<{
+    sort: FridgeSort;
+    zones: FridgeZone[];
+  }> {
+    const [g] = await db
+      .select({ sort: s.groups.fridgeSort, zones: s.groups.fridgeZones })
+      .from(s.groups)
+      .where(eq(s.groups.id, groupId))
+      .limit(1);
+    const sort = (FRIDGE_SORTS as readonly string[]).includes(g?.sort ?? "")
+      ? (g!.sort as FridgeSort)
+      : "expires";
+    return { sort, zones: resolveFridgeOrder(g?.zones) };
   }
 
   return {
@@ -1200,38 +1324,102 @@ export function forGroup(db: Db, groupId: string) {
     },
 
     // ---- 冷蔵庫（調味料は入れない・出さない。名前は名寄せ後）
-    async listPantry(): Promise<PantryItem[]> {
-      const rows = await db
-        .select({
-          id: s.pantryItems.id,
-          name: s.pantryItems.name,
-          amount: s.pantryItems.amount,
-          expiresOn: s.pantryItems.expiresOn,
-          addedOn: s.pantryItems.addedOn,
-          pref: s.pantryZonePrefs.zone,
+    /** sort を省くと家の並べ方で並べる */
+    async listPantry(sort?: FridgeSort): Promise<PantryItem[]> {
+      const [rows, mode] = await Promise.all([
+        pantryRows(),
+        sort ?? fridgeSettings().then((x) => x.sort),
+      ]);
+      return sortPantryBy(
+        rows.map(({ itemZone, pref, ...r }) => ({
+          ...r,
+          zone: itemZone ?? pref ?? r.auto,
+          zoneSet: itemZone !== null || pref !== null,
+          onlyThis: itemZone !== null,
+        })),
+        mode,
+      ).map(({ auto: _a, ...r }) => r);
+    },
+
+    /** 冷蔵庫の並べ方と室の順番（DEC-034） */
+    fridgeSettings,
+
+    async setFridgeSettings(p: {
+      sort?: FridgeSort;
+      zones?: FridgeZone[] | null;
+    }) {
+      await db
+        .update(s.groups)
+        .set({
+          ...(p.sort !== undefined ? { fridgeSort: p.sort } : {}),
+          ...(p.zones !== undefined ? { fridgeZones: p.zones } : {}),
+          updatedAt: new Date(),
         })
-        .from(s.pantryItems)
-        .leftJoin(
-          s.pantryZonePrefs,
-          and(
-            eq(s.pantryZonePrefs.groupId, s.pantryItems.groupId),
-            eq(s.pantryZonePrefs.name, s.pantryItems.name),
+        .where(eq(s.groups.id, groupId));
+      return fridgeSettings();
+    },
+
+    /** まとめて移動。移す前の状態を返す（元に戻すときにそのまま restoreZones へ） */
+    moveZones,
+
+    /** 元に戻す。自分の家の品だけ。もう無い品は飛ばす */
+    async restoreZones(undo: ZoneUndo) {
+      const mine = new Set((await pantryRows()).map((r) => r.id));
+      const stmts: Stmt[] = [
+        ...undo.items
+          .filter((i) => mine.has(i.id))
+          .map((i) =>
+            db
+              .update(s.pantryItems)
+              .set({ zone: i.zone })
+              .where(
+                and(
+                  eq(s.pantryItems.id, i.id),
+                  eq(s.pantryItems.groupId, groupId),
+                ),
+              ),
           ),
-        )
-        .where(eq(s.pantryItems.groupId, groupId));
-      const known = new Set<string>(FRIDGE_ZONES);
-      return sortPantry(
-        rows
-          .filter((r) => !isSeasoning(r.name))
-          .map(({ pref, ...r }) => {
-            const set = pref !== null && known.has(pref);
-            return {
-              ...r,
-              zone: set ? (pref as FridgeZone) : fridgeZone(r.name),
-              zoneSet: set,
-            };
-          }),
+        ...undo.prefs
+          .map((p) => ({ ...p, name: canonicalName(p.name) }))
+          .filter((p) => p.name && !isSeasoning(p.name))
+          .map((p) => writePref(p.name, p.zone)),
+      ];
+      if (stmts.length) await db.batch(stmts as [Stmt, ...Stmt[]]);
+    },
+
+    /**
+     * 手で並べた順。ids は上から。並べ方も「手で並べた順」にする（まとめて1回で書く）。
+     * もう無い品は飛ばし、入っていない品は「まだ並べていない」に戻す。変わった行だけ書く（CPU 10ms のため）
+     */
+    async setPantryOrder(ids: string[]) {
+      const rows = await pantryRows();
+      const now = new Map(rows.map((r) => [r.id, r.position]));
+      const want = new Map<string, number | null>(
+        rows.map((r) => [r.id, null]),
       );
+      let i = 0;
+      for (const id of ids)
+        if (now.has(id) && want.get(id) === null) want.set(id, i++);
+      const stmts: Stmt[] = [
+        db
+          .update(s.groups)
+          .set({ fridgeSort: "manual", updatedAt: new Date() })
+          .where(eq(s.groups.id, groupId)),
+      ];
+      for (const [id, pos] of want)
+        if (now.get(id) !== pos)
+          stmts.push(
+            db
+              .update(s.pantryItems)
+              .set({ position: pos })
+              .where(
+                and(
+                  eq(s.pantryItems.id, id),
+                  eq(s.pantryItems.groupId, groupId),
+                ),
+              ),
+          );
+      await db.batch(stmts as [Stmt, ...Stmt[]]);
     },
 
     /** 名寄せして入れる。空・調味料・すでにあるものは skipped。1行ずつの INSERT を batch で流す（D1 の値の上限のため） */
@@ -1276,9 +1464,9 @@ export function forGroup(db: Db, groupId: string) {
         zone?: FridgeZone | null;
       },
     ) {
-      const item = await ownPantryItem(id);
+      await ownPantryItem(id);
       const { zone, ...fields } = patch;
-      const stmts = [];
+      const stmts: Stmt[] = [];
       if (fields.amount !== undefined || fields.expiresOn !== undefined)
         stmts.push(
           db
@@ -1288,33 +1476,9 @@ export function forGroup(db: Db, groupId: string) {
               and(eq(s.pantryItems.id, id), eq(s.pantryItems.groupId, groupId)),
             ),
         );
-      // 置き場所は食材の名前ごとに覚える（DEC-033）。null は「おまかせ」に戻す
-      if (zone === null)
-        stmts.push(
-          db
-            .delete(s.pantryZonePrefs)
-            .where(
-              and(
-                eq(s.pantryZonePrefs.groupId, groupId),
-                eq(s.pantryZonePrefs.name, item.name),
-              ),
-            ),
-        );
-      else if (zone !== undefined)
-        stmts.push(
-          db
-            .insert(s.pantryZonePrefs)
-            .values({ groupId, name: item.name, zone })
-            .onConflictDoUpdate({
-              target: [s.pantryZonePrefs.groupId, s.pantryZonePrefs.name],
-              set: { zone, updatedAt: new Date() },
-            }),
-        );
-      // 量・期限と置き場所を一緒に直すときは、片方だけ残らないようにまとめて流す
-      if (stmts.length)
-        await db.batch(
-          stmts as [(typeof stmts)[number], ...(typeof stmts)[number][]],
-        );
+      // 量・期限と置き場所は、片方だけ残らないようにまとめて書く
+      if (zone !== undefined) stmts.push(...(await planMove([id], zone)).stmts);
+      if (stmts.length) await db.batch(stmts as [Stmt, ...Stmt[]]);
     },
 
     async deletePantry(id: string) {

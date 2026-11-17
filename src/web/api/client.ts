@@ -6,7 +6,7 @@ import type {
   ShopSection,
 } from "../../shared/constants";
 import type { FindResult } from "../../shared/find";
-import type { FridgeZone } from "../../shared/pantry";
+import type { FridgeSort, FridgeZone, ZoneUndo } from "../../shared/pantry";
 import type { Ingredient } from "../../shared/recipe";
 import type { RecoLists } from "../../shared/recommend";
 import type { Tip } from "../../shared/tips";
@@ -237,6 +237,10 @@ export type PantryItem = {
   zone?: FridgeZone;
   /** 手で置き場所を決めたか */
   zoneSet?: boolean;
+  /** この品だけ別の室にある（冷凍した品など） */
+  onlyThis?: boolean;
+  /** 手で並べた順 */
+  position?: number | null;
 };
 
 export const apiClient = {
@@ -465,7 +469,14 @@ export const apiClient = {
 
   recommend: () => call<RecoLists & { today: string }>("/recommend"),
 
-  pantry: () => call<{ items: PantryItem[]; today: string }>("/pantry"),
+  pantry: () =>
+    call<{
+      items: PantryItem[];
+      today: string;
+      /** 並べ方・室の順番（DEC-034。古いサーバーの答えには無い） */
+      sort?: FridgeSort;
+      zones?: FridgeZone[];
+    }>("/pantry"),
   addPantry: (names: string[]) =>
     call<{ added: string[]; skipped: string[] }>("/pantry", {
       method: "POST",
@@ -482,6 +493,21 @@ export const apiClient = {
     call<void>(`/pantry/${encodeURIComponent(id)}`, {
       method: "PATCH",
       json: patch,
+    }),
+  /** まとめて移動（DEC-034）。undo は restorePantryZones にそのまま渡す */
+  movePantry: (ids: string[], zone: FridgeZone | null) =>
+    call<{ moved: number; undo: ZoneUndo }>("/pantry/move", {
+      method: "POST",
+      json: { ids, zone },
+    }),
+  restorePantryZones: (undo: ZoneUndo) =>
+    call<void>("/pantry/restore", { method: "POST", json: undo }),
+  setPantryOrder: (ids: string[]) =>
+    call<void>("/pantry/order", { method: "PUT", json: { ids } }),
+  setFridgeSettings: (p: { sort?: FridgeSort; zones?: FridgeZone[] | null }) =>
+    call<{ sort: FridgeSort; zones: FridgeZone[] }>("/pantry/settings", {
+      method: "PUT",
+      json: p,
     }),
   deletePantry: (id: string) =>
     call<void>(`/pantry/${encodeURIComponent(id)}`, { method: "DELETE" }),

@@ -35,11 +35,11 @@ export function resolveShopOrder(
 }
 
 /** 並びの中で1つ上・下に動かす（端では動かない） */
-export function moveSection(
-  order: readonly ShopSection[],
-  section: ShopSection,
+export function moveSection<T>(
+  order: readonly T[],
+  section: T,
   dir: -1 | 1,
-): ShopSection[] {
+): T[] {
   const i = order.indexOf(section);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= order.length) return [...order];

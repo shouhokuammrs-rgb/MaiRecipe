@@ -94,6 +94,10 @@ export const groups = sqliteTable("groups", {
   servings: integer("servings").notNull().default(2),
   /** 買い物リストの売り場の並び（JSON の配列）。null ならおすすめの並び（DEC-032） */
   shopOrder: text("shop_order", { mode: "json" }).$type<string[]>(),
+  /** 冷蔵庫の室の順番（常温を除く5つ）。null ならおすすめの順（DEC-034） */
+  fridgeZones: text("fridge_zones", { mode: "json" }).$type<string[]>(),
+  /** 冷蔵庫の室の中の並べ方（FRIDGE_SORTS）。null は期限が近い順 */
+  fridgeSort: text("fridge_sort"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -376,6 +380,10 @@ export const pantryItems = sqliteTable(
     expiresOn: text("expires_on"),
     /** 入れた日 YYYY-MM-DD（JST） */
     addedOn: text("added_on").notNull(),
+    /** この品だけの置き場所（冷凍した品など。DEC-034）。null なら名前ごとの置き場所か、名前から決める */
+    zone: text("zone"),
+    /** 手で並べた順（DEC-034）。null はまだ並べていない */
+    position: integer("position"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
