@@ -59,14 +59,94 @@ export function fridgeZone(name: string): FridgeZone {
   }
 }
 
-/** 室ごとに分ける。室は FRIDGE_ZONES の順、室の中は渡された順のまま。空の室も返す */
+/** 室ごとに分ける。室は order の順（省くと FRIDGE_ZONES）、室の中は渡された順のまま。空の室も返す */
 export function groupByZone<T extends { zone: FridgeZone }>(
   items: T[],
+  order: readonly FridgeZone[] = FRIDGE_ZONES,
 ): { zone: FridgeZone; items: T[] }[] {
-  return FRIDGE_ZONES.map((zone) => ({
+  return order.map((zone) => ({
     zone,
     items: items.filter((i) => i.zone === zone),
   }));
+}
+
+/** 冷蔵庫の中の室（常温を除く）。並べ替えられるのはこの5つ。常温は冷蔵庫の外なのでいつも最後（DEC-034） */
+export const INSIDE_ZONES = FRIDGE_ZONES.filter(
+  (z): z is Exclude<FridgeZone, "常温"> => z !== "常温",
+);
+
+/** 保存した室の順番を今の室に合わせる。知らない室・常温は落とし、足りない室は元の順で後ろに足す */
+export function resolveFridgeOrder(
+  saved: readonly string[] | null | undefined,
+): FridgeZone[] {
+  const out: FridgeZone[] = [];
+  for (const z of saved ?? [])
+    if (
+      (INSIDE_ZONES as readonly string[]).includes(z) &&
+      !out.includes(z as FridgeZone)
+    )
+      out.push(z as FridgeZone);
+  for (const z of INSIDE_ZONES) if (!out.includes(z)) out.push(z);
+  return [...out, "常温"];
+}
+
+/** 室の中の並べ方（DEC-034）。家で1つ */
+export const FRIDGE_SORTS = ["expires", "added", "name", "manual"] as const;
+export type FridgeSort = (typeof FRIDGE_SORTS)[number];
+export const FRIDGE_SORT_LABELS: Record<FridgeSort, string> = {
+  expires: "期限が近い順",
+  added: "入れた順",
+  name: "名前順",
+  manual: "手で並べた順",
+};
+
+export function sortPantryBy<
+  T extends {
+    name: string;
+    expiresOn: string | null;
+    addedOn: string;
+    position?: number | null;
+  },
+>(items: T[], mode: FridgeSort): T[] {
+  const byName = (a: T, b: T) => a.name.localeCompare(b.name, "ja");
+  switch (mode) {
+    case "added":
+      return [...items].sort((a, b) =>
+        a.addedOn !== b.addedOn
+          ? a.addedOn > b.addedOn
+            ? -1
+            : 1
+          : byName(a, b),
+      );
+    case "name":
+      return [...items].sort(byName);
+    case "manual": {
+      // まだ並べていない品（後から入った品）は、後ろに期限が近い順で
+      const placed = items
+        .filter((i) => i.position != null)
+        .sort((a, b) => a.position! - b.position!);
+      const rest = sortPantry(items.filter((i) => i.position == null));
+      return [...placed, ...rest];
+    }
+    default:
+      return sortPantry(items);
+  }
+}
+
+/**
+ * 置き場所を変えたとき、何を書き換えるか（DEC-034）。
+ * 冷凍は「今回だけ冷凍した」ことが多いので、冷凍室へはその品だけ（itemZone）。
+ * ほかの室へは「この食材はここ」と名前ごとに覚える（pref）。いつもの室に戻したら覚えた分は消す
+ */
+export function planZoneMove(
+  now: { auto: FridgeZone; pref: FridgeZone | null },
+  target: FridgeZone | null,
+): { itemZone: FridgeZone | null; pref: FridgeZone | null | "keep" } {
+  if (target === null) return { itemZone: null, pref: null };
+  const usual = now.pref ?? now.auto;
+  if (target === "冷凍室" && usual !== "冷凍室")
+    return { itemZone: "冷凍室", pref: "keep" };
+  return { itemZone: null, pref: target === now.auto ? null : target };
 }
 
 /** 期限が「近い」とみなす日数（今日から数えてこの日数以内。過ぎたものも近い） */
@@ -150,6 +230,56 @@ export const pantryPatchSchema = z
       message: "直す項目がありません",
     },
   );
+
+/** まとめて移動。null は「おまかせ」に戻す */
+export const moveIdsSchema = z.object({
+  ids: z.array(z.string().min(1).max(64)).min(1).max(100),
+  zone: z.enum(FRIDGE_ZONES).nullable(),
+});
+
+/** 元に戻すための、移す前の状態（moveZones が返し、そのまま送り返す） */
+export const zoneUndoSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        zone: z.enum(FRIDGE_ZONES).nullable(),
+      }),
+    )
+    .max(100),
+  prefs: z
+    .array(
+      z.object({
+        name: pantryName,
+        zone: z.enum(FRIDGE_ZONES).nullable(),
+      }),
+    )
+    .max(100),
+});
+export type ZoneUndo = z.infer<typeof zoneUndoSchema>;
+
+/** 手で並べた順（冷蔵庫の全部の品の id を、上から並べたもの） */
+export const pantryOrderSchema = z.object({
+  ids: z.array(z.string().min(1).max(64)).max(500),
+});
+
+/** 並べ方と室の順番（どちらか、または両方）。zones: null でおすすめの順に戻す */
+export const fridgeSettingsSchema = z
+  .object({
+    sort: z.enum(FRIDGE_SORTS).optional(),
+    zones: z
+      .array(z.enum(FRIDGE_ZONES))
+      .length(INSIDE_ZONES.length)
+      .refine(
+        (a) => new Set(a).size === a.length && !a.includes("常温"),
+        "室の順番を確認してください",
+      )
+      .nullable()
+      .optional(),
+  })
+  .refine((p) => p.sort !== undefined || p.zones !== undefined, {
+    message: "直す項目がありません",
+  });
 
 export const shoppingHaveSchema = z.object({
   name: pantryName,

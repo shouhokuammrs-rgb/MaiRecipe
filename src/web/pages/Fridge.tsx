@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check } from "lucide-react";
+import { ArrowDown, ArrowUp, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient, type PantryItem } from "@/api/client";
@@ -19,17 +19,25 @@ import { apiErrorMessage, cn } from "@/lib/utils";
 import { addDays, labelDate } from "../../shared/dates";
 import {
   addedLabel,
+  FRIDGE_SORT_LABELS,
+  FRIDGE_SORTS,
   FRIDGE_ZONES,
+  type FridgeSort,
   type FridgeZone,
   fridgeZone,
   groupByZone,
+  INSIDE_ZONES,
   isExpiringSoon,
+  resolveFridgeOrder,
   splitPantryInput,
 } from "../../shared/pantry";
+import { moveSection } from "../../shared/shop-order";
 import { firstEmptyDinner } from "../../shared/recommend";
 
-/** 一度に選べる食材の上限 */
-const SELECT_LIMIT = 10;
+/** 一度に選べる食材の上限（まとめて移動のため多め） */
+const SELECT_LIMIT = 50;
+/** レシピを探すときに使える食材の上限 */
+const FIND_LIMIT = 10;
 
 /** 消す確認が自動で元に戻るまでの時間 */
 const CONFIRM_MS = 4000;
@@ -43,6 +51,11 @@ export function Fridge() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
   const [terms, setTerms] = useState<string[]>([]);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  /** 手で並べている途中の並び（null は並べていない） */
+  const [arranging, setArranging] = useState<string[] | null>(null);
+  const undo = useUndoToast();
 
   useEffect(() => {
     if (!confirming) return;
@@ -78,7 +91,100 @@ export function Fridge() {
     zone: i.zone ?? fridgeZone(i.name),
   }));
   const today = q.data?.today ?? "";
-  const groups = groupByZone(items);
+  const zoneOrder = q.data?.zones ?? resolveFridgeOrder(null);
+  const sort: FridgeSort = q.data?.sort ?? "expires";
+  // 手で並べている間は、その並びで見せる
+  const shown = arranging
+    ? arranging
+        .map((id) => items.find((i) => i.id === id))
+        .filter((i): i is (typeof items)[number] => Boolean(i))
+    : items;
+  const groups = groupByZone(shown, zoneOrder);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["pantry"] });
+    qc.invalidateQueries({ queryKey: ["recommend"] });
+  };
+
+  const moveMut = useMutation({
+    mutationFn: (p: { ids: string[]; zone: FridgeZone | null }) =>
+      apiClient.movePantry(p.ids, p.zone),
+    onSuccess: (r, p) => {
+      setMoveOpen(false);
+      setSelectedNames(new Set());
+      setTerms([]);
+      undo.show(
+        p.zone
+          ? `${r.moved}個を${p.zone}に移しました`
+          : `${r.moved}個をおまかせの置き場所に戻しました`,
+        async () => {
+          await apiClient.restorePantryZones(r.undo);
+          refresh();
+        },
+      );
+    },
+    onError: (e) => show(apiErrorMessage(e)),
+    onSettled: refresh,
+  });
+
+  const settingsMut = useMutation({
+    mutationFn: (p: { sort?: FridgeSort; zones?: FridgeZone[] | null }) =>
+      apiClient.setFridgeSettings(p),
+    onError: (e) => show(apiErrorMessage(e)),
+    onSettled: refresh,
+  });
+
+  /** 並べ方・室の順番を変える。変える前に戻せるようにする */
+  const applySettings = async (
+    next: { sort?: FridgeSort; zones?: FridgeZone[] | null },
+    msg: string,
+  ) => {
+    const before = { sort, zones: zoneOrder.filter((z) => z !== "常温") };
+    await settingsMut.mutateAsync(next);
+    undo.show(msg, async () => {
+      await apiClient.setFridgeSettings(before);
+      refresh();
+    });
+  };
+
+  const finishArranging = useMutation({
+    mutationFn: async (order: string[]) => {
+      await apiClient.setPantryOrder(order);
+      await apiClient.setFridgeSettings({ sort: "manual" });
+    },
+    onSuccess: () => {
+      // 並べる前の手並べ（あれば）と並べ方に戻せるようにする
+      const prevOrder = [...items]
+        .filter((i) => i.position != null)
+        .sort((a, b) => a.position! - b.position!)
+        .map((i) => i.id);
+      const prevSort = sort;
+      setArranging(null);
+      undo.show("並びを保存しました", async () => {
+        await apiClient.setPantryOrder(prevOrder);
+        await apiClient.setFridgeSettings({ sort: prevSort });
+        refresh();
+      });
+    },
+    onError: (e) => show(apiErrorMessage(e)),
+    onSettled: refresh,
+  });
+
+  /** 手で並べる：同じ室の中で1つ上・下へ */
+  const nudge = (id: string, dir: -1 | 1) => {
+    if (!arranging) return;
+    const zoneOfId = (x: string) => items.find((i) => i.id === x)?.zone;
+    const z = zoneOfId(id);
+    const i = arranging.indexOf(id);
+    // 同じ室の隣を探す
+    let j = i + dir;
+    while (j >= 0 && j < arranging.length && zoneOfId(arranging[j]!) !== z)
+      j += dir;
+    if (j < 0 || j >= arranging.length) return;
+    const next = [...arranging];
+    [next[i], next[j]] = [next[j]!, next[i]!];
+    setArranging(next);
+  };
   // 画面の並び（室ごと）にそろえる
   const selected = groups
     .flatMap((g) => g.items)
@@ -136,34 +242,110 @@ export function Fridge() {
               <h2 className="text-[13px] font-bold text-sub">
                 冷蔵庫の中（{items.length}）
               </h2>
-              <span className="text-[11.5px] text-faint">
-                食材を選ぶと「これを使いたい」
-              </span>
+              {!arranging && (
+                <button
+                  type="button"
+                  onClick={() => setSortOpen(true)}
+                  className="flex h-11 items-center rounded-full border border-field bg-card px-3 text-xs"
+                >
+                  並べ替え：{FRIDGE_SORT_LABELS[sort]}
+                </button>
+              )}
             </div>
+            {arranging ? (
+              <p className="text-[11.5px] text-sub">
+                ↑↓
+                で室の中の順番を変えて、下の「この並びにする」を押してください。
+              </p>
+            ) : (
+              <p className="text-[11.5px] text-faint">
+                食材を選ぶと、まとめて移動・レシピを探す
+              </p>
+            )}
             <FridgeView
               groups={groups}
-              renderItem={(item) => (
-                <FridgeRow
-                  key={item.id}
-                  item={item}
-                  today={today}
-                  confirming={confirming === item.id}
-                  disabled={del.isPending}
-                  selected={selectedNames.has(item.name)}
-                  onEdit={() => setEditing(item)}
-                  onToggleSelect={() => toggleSelect(item.name)}
-                  onFinishTap={() =>
-                    confirming === item.id
-                      ? del.mutate(item)
-                      : setConfirming(item.id)
-                  }
-                />
-              )}
+              renderItem={(item) =>
+                arranging ? (
+                  <ArrangeRow
+                    key={item.id}
+                    item={item}
+                    first={
+                      groups.find((g) => g.zone === item.zone)?.items[0]?.id ===
+                      item.id
+                    }
+                    last={
+                      groups.find((g) => g.zone === item.zone)?.items.at(-1)
+                        ?.id === item.id
+                    }
+                    onUp={() => nudge(item.id, -1)}
+                    onDown={() => nudge(item.id, 1)}
+                  />
+                ) : (
+                  <FridgeRow
+                    key={item.id}
+                    item={item}
+                    today={today}
+                    confirming={confirming === item.id}
+                    disabled={del.isPending}
+                    selected={selectedNames.has(item.name)}
+                    onEdit={() => setEditing(item)}
+                    onToggleSelect={() => toggleSelect(item.name)}
+                    onFinishTap={() =>
+                      confirming === item.id
+                        ? del.mutate(item)
+                        : setConfirming(item.id)
+                    }
+                  />
+                )
+              }
             />
-            {selected.length > 0 && (
-              <PrimaryButton onClick={() => setTerms(selected)}>
-                {`${selected.length}個を使いたい → レシピを探す`}
-              </PrimaryButton>
+            {arranging && (
+              <div className="sticky bottom-[84px] z-10 flex gap-2 rounded-2xl bg-paper/95 p-1 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
+                <SecondaryButton
+                  className="flex-1"
+                  onClick={() => setArranging(null)}
+                >
+                  やめる
+                </SecondaryButton>
+                <PrimaryButton
+                  className="flex-1"
+                  disabled={finishArranging.isPending}
+                  onClick={() => finishArranging.mutate(arranging)}
+                >
+                  この並びにする
+                </PrimaryButton>
+              </div>
+            )}
+            {!arranging && selected.length > 0 && (
+              <div className="sticky bottom-[84px] z-10 flex flex-col gap-2 rounded-2xl bg-paper/95 p-1 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
+                <div className="flex gap-2">
+                  <SecondaryButton
+                    className="flex-1"
+                    onClick={() => setMoveOpen(true)}
+                  >
+                    {selected.length}個をまとめて移動
+                  </SecondaryButton>
+                  <PrimaryButton
+                    className="flex-1"
+                    disabled={selected.length > FIND_LIMIT}
+                    onClick={() => setTerms(selected)}
+                  >
+                    {selected.length > FIND_LIMIT
+                      ? `探すのは${FIND_LIMIT}個まで`
+                      : "レシピを探す"}
+                  </PrimaryButton>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedNames(new Set());
+                    setTerms([]);
+                  }}
+                  className="min-h-11 text-xs text-sub underline"
+                >
+                  選ぶのをやめる
+                </button>
+              </div>
             )}
             {terms.length > 0 && (
               <>
@@ -187,8 +369,339 @@ export function Fridge() {
           onDone={show}
         />
       )}
+      {moveOpen && (
+        <MoveSheet
+          count={selected.length}
+          pending={moveMut.isPending}
+          onClose={() => setMoveOpen(false)}
+          onPick={(zone) =>
+            moveMut.mutate({
+              ids: items
+                .filter((i) => selectedNames.has(i.name))
+                .map((i) => i.id),
+              zone,
+            })
+          }
+        />
+      )}
+      {sortOpen && (
+        <SortSheet
+          sort={sort}
+          zones={zoneOrder}
+          onClose={() => setSortOpen(false)}
+          onArrange={() => {
+            setSortOpen(false);
+            setSelectedNames(new Set());
+            setTerms([]);
+            // いま見えている順から並べ始める
+            setArranging(
+              groupByZone(items, zoneOrder).flatMap((g) =>
+                g.items.map((i) => i.id),
+              ),
+            );
+          }}
+          onSave={async (next, msg) => {
+            setSortOpen(false);
+            await applySettings(next, msg);
+          }}
+        />
+      )}
       <Toast message={toast} />
+      <UndoToast state={undo.state} onUndo={undo.run} />
     </>
+  );
+}
+
+/** 「元に戻す」つきのお知らせ（DEC-034）。6秒で消える */
+function useUndoToast() {
+  const [state, setState] = useState<{
+    msg: string;
+    undo: () => Promise<void>;
+    key: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    const t = setTimeout(() => setState(null), 6000);
+    return () => clearTimeout(t);
+  }, [state]);
+  return {
+    state,
+    show: (msg: string, undo: () => Promise<void>) =>
+      setState({ msg, undo, key: Date.now() }),
+    run: async () => {
+      const s = state;
+      setState(null);
+      await s?.undo();
+    },
+  };
+}
+
+function UndoToast({
+  state,
+  onUndo,
+}: {
+  state: { msg: string; key: number } | null;
+  onUndo: () => void;
+}) {
+  if (!state) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-20 left-1/2 z-30 flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center gap-2 rounded-xl bg-ink py-1 pr-1 pl-4 text-[13px] text-white shadow-lg"
+    >
+      <span className="flex-1">{state.msg}</span>
+      <button
+        type="button"
+        onClick={onUndo}
+        className="flex h-11 shrink-0 items-center rounded-lg px-3 font-bold text-[#f3c9b6] underline"
+      >
+        元に戻す
+      </button>
+    </div>
+  );
+}
+
+/** 下からのシートの枠（Esc と背景タップで閉じる） */
+function Sheet({
+  label,
+  onClose,
+  children,
+}: {
+  label: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  useSheetEsc(onClose);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => ref.current?.focus(), []);
+  return (
+    <div
+      className="fixed inset-0 z-20 flex flex-col justify-end bg-ink/45"
+      onClick={onClose}
+    >
+      <div
+        ref={ref}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        className="mx-auto flex max-h-[90dvh] w-full max-w-xl flex-col gap-3 overflow-y-auto rounded-t-3xl bg-card px-5 pt-5 pb-[max(env(safe-area-inset-bottom),24px)] outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MoveSheet({
+  count,
+  pending,
+  onClose,
+  onPick,
+}: {
+  count: number;
+  pending: boolean;
+  onClose: () => void;
+  onPick: (zone: FridgeZone | null) => void;
+}) {
+  return (
+    <Sheet label="まとめて移動" onClose={onClose}>
+      <h2 className="text-[17px] font-bold">{count}個をどこへ移す？</h2>
+      <div className="grid grid-cols-2 gap-2">
+        {FRIDGE_ZONES.map((z) => (
+          <button
+            key={z}
+            type="button"
+            disabled={pending}
+            onClick={() => onPick(z)}
+            className={cn(
+              "flex min-h-12 items-center justify-center rounded-xl border text-[15px] font-bold disabled:opacity-50",
+              ZONE_LOOK[z].box,
+              ZONE_LOOK[z].head,
+            )}
+          >
+            {z}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11.5px] leading-5 text-sub">
+        冷凍室へはこの品だけ移します（次に買った分はいつもの室に入ります）。ほかの室へ移すと、次からもその室に入ります。
+      </p>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onPick(null)}
+        className="min-h-11 text-sm text-sub underline disabled:opacity-50"
+      >
+        おまかせの置き場所に戻す
+      </button>
+      <SecondaryButton onClick={onClose}>やめる</SecondaryButton>
+    </Sheet>
+  );
+}
+
+function SortSheet({
+  sort,
+  zones,
+  onClose,
+  onArrange,
+  onSave,
+}: {
+  sort: FridgeSort;
+  zones: FridgeZone[];
+  onClose: () => void;
+  onArrange: () => void;
+  onSave: (
+    next: { sort?: FridgeSort; zones?: FridgeZone[] | null },
+    msg: string,
+  ) => void;
+}) {
+  const [nextSort, setNextSort] = useState(sort);
+  const inside = zones.filter((z) => z !== "常温");
+  const [order, setOrder] = useState<FridgeZone[]>(inside);
+  const isDefault = order.every((z, i) => z === INSIDE_ZONES[i]);
+  const zonesChanged = order.some((z, i) => z !== inside[i]);
+  const changed = nextSort !== sort || zonesChanged;
+
+  return (
+    <Sheet label="並べ替え" onClose={onClose}>
+      <h2 className="text-[17px] font-bold">並べ替え</h2>
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1 text-xs font-bold text-sub">
+          室の中の並び
+        </legend>
+        <div className="flex flex-wrap gap-1.5">
+          {FRIDGE_SORTS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={nextSort === m}
+              onClick={() => setNextSort(m)}
+              className={cn(
+                "min-h-11 rounded-full border px-3.5 text-sm",
+                nextSort === m
+                  ? "border-herb-mid bg-herb-soft font-bold text-herb"
+                  : "border-field bg-card text-sub",
+              )}
+            >
+              {FRIDGE_SORT_LABELS[m]}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onArrange}
+          className="flex min-h-11 items-center justify-center rounded-xl border border-dashed border-field text-sm font-bold text-ink"
+        >
+          食材を手で並べる（↑↓）
+        </button>
+        <p className="text-[11.5px] text-sub">
+          手で並べた順は、ほかの並びにしても消えません。「手で並べた順」に戻せばまた出ます。
+        </p>
+      </fieldset>
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1 text-xs font-bold text-sub">
+          室の順番（うちの冷蔵庫に合わせる）
+        </legend>
+        <ol className="overflow-hidden rounded-2xl border border-line-soft">
+          {order.map((z, i) => (
+            <li
+              key={z}
+              className="flex items-center gap-2 border-b border-[#f3eee7] pl-3.5 last:border-b-0"
+            >
+              <span className="w-5 text-xs text-sub tabular-nums">{i + 1}</span>
+              <span className="flex-1 text-[15px]">{z}</span>
+              <button
+                type="button"
+                aria-label={`${z}を上へ`}
+                disabled={i === 0}
+                onClick={() => setOrder(moveSection(order, z, -1))}
+                className="flex size-11 items-center justify-center text-sub disabled:opacity-25"
+              >
+                <ArrowUp className="size-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={`${z}を下へ`}
+                disabled={i === order.length - 1}
+                onClick={() => setOrder(moveSection(order, z, 1))}
+                className="flex size-11 items-center justify-center text-sub disabled:opacity-25"
+              >
+                <ArrowDown className="size-4" />
+              </button>
+            </li>
+          ))}
+        </ol>
+        <p className="text-[11.5px] text-sub">常温の棚はいつも一番下です。</p>
+        <button
+          type="button"
+          disabled={isDefault}
+          onClick={() => setOrder([...INSIDE_ZONES])}
+          className="min-h-11 text-sm text-sub underline disabled:opacity-40"
+        >
+          おすすめの順番に戻す
+        </button>
+      </fieldset>
+      <PrimaryButton
+        disabled={!changed}
+        onClick={() =>
+          onSave(
+            {
+              ...(nextSort !== sort ? { sort: nextSort } : {}),
+              ...(zonesChanged ? { zones: isDefault ? null : order } : {}),
+            },
+            nextSort !== sort
+              ? `${FRIDGE_SORT_LABELS[nextSort]}にしました`
+              : "室の順番を変えました",
+          )
+        }
+        className="h-12"
+      >
+        この並びにする
+      </PrimaryButton>
+      <SecondaryButton onClick={onClose}>やめる</SecondaryButton>
+    </Sheet>
+  );
+}
+
+/** 手で並べるときの行。同じ室の中で ↑↓ */
+function ArrangeRow({
+  item,
+  first,
+  last,
+  onUp,
+  onDown,
+}: {
+  item: PantryItem;
+  first: boolean;
+  last: boolean;
+  onUp: () => void;
+  onDown: () => void;
+}) {
+  return (
+    <li className="flex items-center gap-1 border-t border-black/5 py-1 pr-1 pl-4">
+      <span className="min-w-0 flex-1 truncate text-[15px]">{item.name}</span>
+      <button
+        type="button"
+        aria-label={`${item.name}を上へ`}
+        disabled={first}
+        onClick={onUp}
+        className="flex size-11 items-center justify-center rounded-lg text-sub disabled:opacity-25"
+      >
+        <ArrowUp className="size-4" />
+      </button>
+      <button
+        type="button"
+        aria-label={`${item.name}を下へ`}
+        disabled={last}
+        onClick={onDown}
+        className="flex size-11 items-center justify-center rounded-lg text-sub disabled:opacity-25"
+      >
+        <ArrowDown className="size-4" />
+      </button>
+    </li>
   );
 }
 
@@ -591,6 +1104,8 @@ function EditSheet({
   const [amount, setAmount] = useState(item.amount ?? "");
   const [expires, setExpires] = useState(item.expiresOn ?? "");
   const auto = fridgeZone(item.name);
+  // 次に買ったときに入る室（名前ごとに覚えた室があればそれ）
+  const usual = item.zoneSet && !item.onlyThis && item.zone ? item.zone : auto;
   // null は「おまかせ」（名前から決める）
   const [zone, setZone] = useState<FridgeZone | null>(
     item.zoneSet ? (item.zone ?? null) : null,
@@ -688,7 +1203,9 @@ function EditSheet({
           <p className="text-[11.5px] text-sub">
             {zone === null
               ? `おまかせ：「${item.name}」は${auto}に入れています`
-              : `次に「${item.name}」を入れたときも${zone}に入ります`}
+              : zone === "冷凍室" && usual !== "冷凍室"
+                ? `この品だけ冷凍室に移します（次に買った分は${usual}）`
+                : `次に「${item.name}」を入れたときも${zone}に入ります`}
           </p>
         </fieldset>
         <div className="flex gap-2">

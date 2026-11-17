@@ -134,6 +134,13 @@
       "when": 1794901327452,
       "tag": "0018_pantry_zone_prefs",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1794903121935,
+      "tag": "0019_fridge_arrange",
+      "breakpoints": true
     }
   ]
 }
