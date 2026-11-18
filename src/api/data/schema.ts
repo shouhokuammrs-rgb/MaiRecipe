@@ -478,7 +478,12 @@ export const importJobs = sqliteTable(
     recipeId: text("recipe_id").references(() => recipes.id, {
       onDelete: "cascade",
     }),
-    status: text("status", { enum: ["running", "done", "failed"] }).notNull(),
+    /** queued は、まとめて読み直すときの順番待ち（DEC-037） */
+    status: text("status", {
+      enum: ["queued", "running", "done", "failed"],
+    }).notNull(),
+    /** まとめて読み直した分（今までの版と同じ結果なら、確かめる一覧に出さずに消す） */
+    bulk: integer("bulk", { mode: "boolean" }).notNull().default(false),
     /** 読み取りの結果（POST /api/import と同じ形の JSON）。done のときだけ */
     result: text("result"),
     error: text("error"),

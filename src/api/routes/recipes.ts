@@ -18,7 +18,8 @@ import {
   scanPage,
   youtubeSnippet,
 } from "../platform/fetch-page";
-import { startImportJob } from "./import-jobs";
+import { startImportJob, startQueued } from "./import-jobs";
+import { bulkRereadSchema } from "../../shared/recipe";
 import {
   AiBadOutput,
   AiDailyStop,
@@ -149,6 +150,33 @@ recipes.post("/ideas", async (c) => {
       );
     throw e;
   }
+});
+
+// ---- まとめて読み直す（DEC-037）。読む URL は保存してある出典（クライアントから受け取るのはレシピの id だけ）
+// /:id より前に置く（「reread」をレシピの id と読まれないように）
+recipes.get("/reread", async (c) =>
+  c.json({
+    recipes: (await c.var.repo.rereadCandidates()).map(
+      ({ url: _url, ...r }) => r,
+    ),
+  }),
+);
+
+recipes.post("/reread", async (c) => {
+  const parsed = bulkRereadSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) return badRequest(c, parsed.error);
+  const r = await c.var.repo.queueRereads(parsed.data.ids, c.var.userId);
+  await startQueued(c.env, c.var.groupId, c.var.repo, (p) =>
+    c.executionCtx.waitUntil(p),
+  );
+  return c.json(r, 202);
+});
+
+recipes.delete("/reread", async (c) => {
+  await c.var.repo.clearQueued();
+  return c.body(null, 204);
 });
 
 recipes.get("/:id", async (c) => {

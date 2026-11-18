@@ -15,6 +15,7 @@ import { RecipeDetail } from "./pages/RecipeDetail";
 import { RecipeEdit } from "./pages/RecipeEdit";
 import { RecipeNew } from "./pages/RecipeNew";
 import { Recipes } from "./pages/Recipes";
+import { Reread } from "./pages/Reread";
 import { Settings } from "./pages/Settings";
 import { Shopping } from "./pages/Shopping";
 
@@ -35,6 +36,7 @@ const router = createBrowserRouter([
       { path: "fridge", element: <Fridge /> },
       { path: "shopping", element: <Shopping /> },
       { path: "settings", element: <Settings /> },
+      { path: "reread", element: <Reread /> },
       { path: "invites/:id", element: <JoinGroup /> },
     ],
   },

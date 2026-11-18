@@ -108,3 +108,44 @@ describe("名寄せと売り場", () => {
     expect(matchesIngredient("たまねぎ", "玉ねぎ")).toBe(true);
   });
 });
+
+describe("nothingNewIn（読み直した下書きに新しい内容が無いか。DEC-037）", () => {
+  const v = {
+    title: "煮物",
+    ingredients: [
+      { name: "大根", amount: "1/2本" },
+      { name: "しょうゆ", amount: "大さじ1" },
+    ],
+    steps: ["切る", "煮る"],
+    tips: [{ step: 1, text: "厚めに" }],
+    servings: 2,
+  };
+  it("整え方（空白・全角）だけの違いは同じ。下書きにコツ・人数が無いのは新しい内容ではない", async () => {
+    const { nothingNewIn } = await import("../../src/shared/recipe");
+    expect(
+      nothingNewIn(v, {
+        title: "煮物",
+        ingredients: [
+          { name: " 大根", amount: "1/2 本" },
+          { name: "しょうゆ", amount: "大さじ 1" },
+        ],
+        steps: ["切る ", "煮る"],
+      }),
+    ).toBe(true);
+  });
+  it("材料の並び・手順・コツ・人数が違えば新しい内容", async () => {
+    const { nothingNewIn } = await import("../../src/shared/recipe");
+    const base = { title: v.title, ingredients: v.ingredients, steps: v.steps };
+    expect(
+      nothingNewIn(v, { ...base, ingredients: [...v.ingredients].reverse() }),
+    ).toBe(false);
+    expect(nothingNewIn(v, { ...base, steps: ["切る", "煮る", "盛る"] })).toBe(
+      false,
+    );
+    expect(
+      nothingNewIn(v, { ...base, tips: [{ step: 2, text: "弱火で" }] }),
+    ).toBe(false);
+    expect(nothingNewIn(v, { ...base, servings: 4 })).toBe(false);
+    expect(nothingNewIn(v, { ...base, tips: v.tips, servings: 2 })).toBe(true);
+  });
+});

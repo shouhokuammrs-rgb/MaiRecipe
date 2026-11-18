@@ -1,0 +1,1 @@
+ALTER TABLE `import_jobs` ADD `bulk` integer DEFAULT false NOT NULL;

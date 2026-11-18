@@ -15,6 +15,8 @@ import {
   isNull,
   lte,
   max,
+  lt,
+  ne,
   sql,
 } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
@@ -28,7 +30,7 @@ import { fitStepTimes } from "../../shared/scenes";
 import type { RecoRecipe } from "../../shared/recommend";
 import { LIMITS } from "../../shared/constants";
 import { addDays, todayJst } from "../../shared/dates";
-import { diffVersions } from "../../shared/recipe";
+import { diffVersions, nothingNewIn } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
 import { canonicalName } from "../../shared/ingredients";
 import { sourceKey } from "../../shared/source-key";
@@ -51,6 +53,10 @@ export type Db = DrizzleD1Database<typeof s>;
 
 /** 同時に読み取れる数（グループごと）。AI の無料枠を一度に使い切らないため */
 const IMPORT_JOBS_RUNNING_MAX = 5;
+/** まとめて読み直すとき、同時に動かす数（AI の無料枠と相手のサイトにやさしく。DEC-037） */
+const REREAD_RUNNING_MAX = 2;
+/** 順番待ちに入れられる数 */
+const REREAD_QUEUE_MAX = 200;
 /**
  * これより長く「読み取り中」のままなら、止まったとみなす。
  * Workflow の読み取り（5分まで × やり直し1回 ＋ 待ち）より長くする
@@ -235,6 +241,26 @@ export function forGroup(db: Db, groupId: string) {
       .limit(1);
     if (!r[0]) throw new NotFound("recipe");
     return r[0];
+  }
+
+  /**
+   * まとめて読み直した結果に、今までのどの版にも無い内容があるか（DEC-037）。
+   * 無ければ確かめる一覧に出さない。1件ずつの読み直し（本人が押して待っている）はいつも出す
+   */
+  async function bulkHasNothingNew(jobId: string, result: unknown) {
+    const [job] = await db
+      .select({ recipeId: s.importJobs.recipeId, bulk: s.importJobs.bulk })
+      .from(s.importJobs)
+      .where(and(eq(s.importJobs.id, jobId), eq(s.importJobs.groupId, groupId)))
+      .limit(1);
+    if (!job?.bulk || !job.recipeId) return false;
+    const r = result as {
+      found?: boolean;
+      draft?: Parameters<typeof nothingNewIn>[1];
+    } | null;
+    if (!r?.draft || !r.found) return false;
+    const draft = r.draft;
+    return (await versionsOf(job.recipeId)).some((v) => nothingNewIn(v, draft));
   }
 
   async function versionsOf(recipeId: string): Promise<VersionRow[]> {
@@ -1636,7 +1662,19 @@ export function forGroup(db: Db, groupId: string) {
       /** 保存済みのレシピの読み直し（グループのレシピでなければ NotFound） */
       recipeId?: string,
     ): Promise<string | null> {
-      if (recipeId) await recipeRow(recipeId);
+      if (recipeId) {
+        await recipeRow(recipeId);
+        // 順番待ちに入っていたら、そちらは取り下げる（二重に読まない）
+        await db
+          .delete(s.importJobs)
+          .where(
+            and(
+              eq(s.importJobs.groupId, groupId),
+              eq(s.importJobs.recipeId, recipeId),
+              eq(s.importJobs.status, "queued"),
+            ),
+          );
+      }
       const [row] = await db
         .select({ n: count() })
         .from(s.importJobs)
@@ -1670,6 +1708,19 @@ export function forGroup(db: Db, groupId: string) {
       id: string,
       outcome: { result: unknown } | { error: string },
     ) {
+      const mine = and(
+        eq(s.importJobs.id, id),
+        eq(s.importJobs.groupId, groupId),
+        eq(s.importJobs.status, "running"),
+      );
+      // 「読めました」と出す前に決める（一瞬「確かめる」が出ないように）
+      if (
+        "result" in outcome &&
+        (await bulkHasNothingNew(id, outcome.result))
+      ) {
+        await db.delete(s.importJobs).where(mine);
+        return;
+      }
       await db
         .update(s.importJobs)
         .set(
@@ -1685,11 +1736,171 @@ export function forGroup(db: Db, groupId: string) {
                 updatedAt: new Date(),
               },
         )
+        .where(mine);
+    },
+
+    /** 始められなかった読み取りを、順番待ちに戻す（Workflows が一時的に使えないとき） */
+    async requeueImportJob(id: string) {
+      await db
+        .update(s.importJobs)
+        .set({ status: "queued", updatedAt: new Date() })
         .where(
           and(
             eq(s.importJobs.id, id),
             eq(s.importJobs.groupId, groupId),
             eq(s.importJobs.status, "running"),
+            eq(s.importJobs.bulk, true),
+          ),
+        );
+    },
+
+    // ---- まとめて読み直す（DEC-037）
+    /** 読み直せるレシピ（出典があるもの）。versions は版の数（手で直した版があるかの目安） */
+    async rereadCandidates() {
+      const rows = await db
+        .select({
+          id: s.recipes.id,
+          sourceUrl: s.recipes.sourceUrl,
+          videoUrl: s.recipes.videoUrl,
+          title: s.recipeVersions.title,
+          seq: s.recipeVersions.seq,
+        })
+        .from(s.recipes)
+        .innerJoin(
+          s.recipeVersions,
+          eq(s.recipeVersions.recipeId, s.recipes.id),
+        )
+        .where(inGroup)
+        .orderBy(asc(s.recipeVersions.seq));
+      const by = new Map<
+        string,
+        { id: string; title: string; url: string; versions: number }
+      >();
+      for (const r of rows) {
+        const url = r.sourceUrl ?? r.videoUrl;
+        if (!url) continue;
+        const cur = by.get(r.id);
+        // 題名は最後の版のもの
+        by.set(r.id, {
+          id: r.id,
+          title: r.title,
+          url,
+          versions: (cur?.versions ?? 0) + 1,
+        });
+      }
+      return [...by.values()].sort((a, b) =>
+        a.title.localeCompare(b.title, "ja"),
+      );
+    },
+
+    /** 選んだレシピを順番待ちに入れる。出典の無いもの・もう待っているか動いているもの・ほかの家のものは飛ばす */
+    async queueRereads(ids: string[], userId: string) {
+      const [candidates, active] = await Promise.all([
+        this.rereadCandidates(),
+        db
+          .select({
+            recipeId: s.importJobs.recipeId,
+            status: s.importJobs.status,
+            updatedAt: s.importJobs.updatedAt,
+          })
+          .from(s.importJobs)
+          .where(
+            and(
+              eq(s.importJobs.groupId, groupId),
+              inArray(s.importJobs.status, ["queued", "running"]),
+            ),
+          ),
+        // 古い読み取り（7日より前に終わったもの）は片付ける
+        db
+          .delete(s.importJobs)
+          .where(
+            and(
+              eq(s.importJobs.groupId, groupId),
+              inArray(s.importJobs.status, ["done", "failed"]),
+              lt(s.importJobs.updatedAt, new Date(Date.now() - 7 * 86400_000)),
+            ),
+          ),
+      ]);
+      const stuckBefore = Date.now() - IMPORT_JOB_STUCK_MS;
+      const busy = new Set(
+        active
+          .filter(
+            (j) =>
+              j.status === "queued" ||
+              (j.status === "running" && j.updatedAt.getTime() >= stuckBefore),
+          )
+          .map((j) => j.recipeId),
+      );
+      const waiting = active.filter((j) => j.status === "queued").length;
+      const by = new Map(candidates.map((c) => [c.id, c]));
+      const rows = [];
+      const now = Date.now();
+      for (const id of new Set(ids)) {
+        const c = by.get(id);
+        if (!c || busy.has(id) || waiting + rows.length >= REREAD_QUEUE_MAX)
+          continue;
+        rows.push({
+          id: newId(),
+          groupId,
+          url: c.url,
+          recipeId: id,
+          createdBy: userId,
+          status: "queued" as const,
+          bulk: true,
+          // 入れた順に始まるように、時刻を1ミリ秒ずつずらす
+          createdAt: new Date(now + rows.length),
+          updatedAt: new Date(now),
+        });
+      }
+      // D1 は1文の値が100個まで。1行9個なので10行ずつ
+      for (let i = 0; i < rows.length; i += 10)
+        await db.insert(s.importJobs).values(rows.slice(i, i + 10));
+      return { queued: rows.length, skipped: new Set(ids).size - rows.length };
+    },
+
+    /** 順番待ちから1件を「読み取り中」にして返す。動いているものが多ければ null。数えるのと変えるのを1文で */
+    async takeQueued(): Promise<{ jobId: string; url: string } | null> {
+      const now = Date.now();
+      const r = await db
+        .update(s.importJobs)
+        // 一覧は始めた時刻から1日ぶん出すので、待っていた時間は数えない
+        .set({
+          status: "running",
+          createdAt: new Date(now),
+          updatedAt: new Date(now),
+        })
+        .where(
+          and(
+            eq(s.importJobs.groupId, groupId),
+            sql`${s.importJobs.id} = (select q.id from import_jobs q where q.group_id = ${groupId} and q.status = 'queued' order by q.created_at, q.id limit 1)`,
+            sql`(select count(*) from import_jobs r where r.group_id = ${groupId} and r.status = 'running' and r.updated_at >= ${now - IMPORT_JOB_STUCK_MS}) < ${REREAD_RUNNING_MAX}`,
+          ),
+        )
+        .returning({ jobId: s.importJobs.id, url: s.importJobs.url });
+      return r[0] ?? null;
+    },
+
+    async queuedCount() {
+      const [r] = await db
+        .select({ n: count() })
+        .from(s.importJobs)
+        .where(
+          and(
+            eq(s.importJobs.groupId, groupId),
+            eq(s.importJobs.status, "queued"),
+          ),
+        );
+      return r?.n ?? 0;
+    },
+
+    /** 順番待ちをやめる（動いているものはそのまま） */
+    async clearQueued() {
+      await db
+        .delete(s.importJobs)
+        .where(
+          and(
+            eq(s.importJobs.groupId, groupId),
+            eq(s.importJobs.status, "queued"),
           ),
         );
     },
@@ -1702,12 +1913,14 @@ export function forGroup(db: Db, groupId: string) {
         .where(
           and(
             eq(s.importJobs.groupId, groupId),
+            ne(s.importJobs.status, "queued"),
             gte(s.importJobs.createdAt, new Date(now - 24 * 3600_000)),
           ),
         )
         .orderBy(desc(s.importJobs.createdAt))
         .limit(20);
-      return rows.map((r) => {
+      return rows.flatMap((r) => {
+        if (r.status === "queued") return [];
         const stuck =
           r.status === "running" &&
           now - r.updatedAt.getTime() > IMPORT_JOB_STUCK_MS;

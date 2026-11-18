@@ -364,7 +364,20 @@ export const apiClient = {
     call<{ id: string }>(`/recipes/${encodeURIComponent(id)}/reread`, {
       method: "POST",
     }),
-  importJobs: () => call<{ jobs: ImportJob[] }>("/import/jobs"),
+  /** queued は、まとめて読み直す順番待ちの数（DEC-037。古いサーバーの答えには無い） */
+  importJobs: () =>
+    call<{ jobs: ImportJob[]; queued?: number }>("/import/jobs"),
+  /** まとめて読み直せるレシピ（出典があるもの） */
+  rereadCandidates: () =>
+    call<{ recipes: { id: string; title: string; versions: number }[] }>(
+      "/recipes/reread",
+    ),
+  rereadMany: (ids: string[]) =>
+    call<{ queued: number; skipped: number }>("/recipes/reread", {
+      method: "POST",
+      json: { ids },
+    }),
+  stopRereadQueue: () => call<null>("/recipes/reread", { method: "DELETE" }),
   dismissImportJob: (id: string) =>
     call<null>(`/import/jobs/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** お料理アシスタントに相談する（DEC-021）。保存はしない */

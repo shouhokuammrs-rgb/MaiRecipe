@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/api/client";
 import {
   ErrorState,
@@ -50,6 +50,22 @@ export function Settings() {
         <AiUsageSection />
 
         <HouseholdSection />
+
+        <section className="flex flex-col gap-1.5">
+          <h2 className="text-[13px] font-bold text-sub">レシピの読み直し</h2>
+          <Link
+            to="/reread"
+            className="flex min-h-12 items-center justify-between rounded-2xl border border-line-soft bg-card px-3.5 text-sm"
+          >
+            まとめて読み直す
+            <span aria-hidden className="text-sub">
+              ›
+            </span>
+          </Link>
+          <p className="text-xs leading-6 text-sub">
+            読み取りの機能が良くなったあと、前に取り込んだレシピを出典からもう一度読みます。
+          </p>
+        </section>
 
         <ImportReports />
 
