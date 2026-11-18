@@ -204,6 +204,43 @@ describe("まとめて読み直す", () => {
     expect(j.jobs.filter((x) => x.recipeId === ids[2])).toHaveLength(1);
   });
 
+  it("読み直しで手順が1つも読めなかったら「読めました」にしない（手順が空の版を保存させない）", async () => {
+    serve([]);
+    const me = await signUp();
+    const id = await makeRecipe(me, 1);
+    // 1件ずつの読み直しでも同じ
+    const r = await api(me, `/recipes/${id}/reread`, { method: "POST" });
+    expect(r.status).toBe(202);
+    await run(create.mock.calls[0]![0].params);
+    const j = await jobsOf(me);
+    expect(j.jobs).toMatchObject([{ status: "failed", recipeId: id }]);
+    expect((j.jobs[0] as unknown as { error: string }).error).toContain(
+      "今のレシピはそのまま",
+    );
+  });
+
+  it("今の版にも手順が無いレシピなら、材料だけの読み直しも受け取る", async () => {
+    serve([]);
+    const me = await signUp();
+    const res = await api(me, "/recipes", {
+      method: "POST",
+      body: {
+        ...sampleRecipe,
+        title: "ダミーの煮物",
+        ingredients: [{ name: "大根", amount: "1本" }],
+        steps: [],
+        sourceUrl: "https://example.com/r/nosteps",
+        videoUrl: null,
+      },
+    });
+    const { id } = (await res.json()) as { id: string };
+    await api(me, `/recipes/${id}/reread`, { method: "POST" });
+    await run(create.mock.calls[0]![0].params);
+    expect((await jobsOf(me)).jobs).toMatchObject([
+      { status: "done", recipeId: id },
+    ]);
+  });
+
   it("おかしな入力は弾く", async () => {
     const me = await signUp();
     expect((await bulk(me, [])).status).toBe(400);

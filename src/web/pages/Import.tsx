@@ -185,7 +185,8 @@ export function Import() {
     setTextError("");
   };
 
-  // 読み直しで材料も手順も取れなかったときは、空の版を作らせない（今の版のまま）
+  // 読み直しで何も取れなかったとき（手順が読めなかった読み直しは、サーバーが「読めなかった」にして返す）は、
+  // 空の版を作らせない（今の版のまま）
   if (
     result &&
     rereadOf &&
@@ -206,7 +207,8 @@ export function Import() {
             role="status"
             className="rounded-xl bg-memo p-3 text-sm leading-7 text-memo-ink"
           >
-            出典から読み直せませんでした。今のレシピはそのままです。時間をおいてもう一度試すか、「材料・作り方を編集」から直してください。
+            出典から読み直せませんでした（AI
+            が混み合っていて動画を見られないときなどに起きます）。今のレシピはそのままにしています。時間をおいてもう一度読み直すか、「材料・作り方を編集」から直してください。
           </p>
           <PrimaryButton onClick={() => void back()}>
             レシピに戻る

@@ -34,7 +34,9 @@ test("出典から読み直す（読めなかったとき）", async ({ page }) 
     timeout: 60_000,
   });
   await strip.getByRole("link", { name: "確かめる" }).click();
-  await expect(page.getByText("出典から読み直せませんでした")).toBeVisible();
+  await expect(
+    page.getByText("今のレシピはそのままにしています"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "レシピに戻る" }).click();
   await expect(
     page.getByRole("heading", { name: "ダミーの読み直し" }),

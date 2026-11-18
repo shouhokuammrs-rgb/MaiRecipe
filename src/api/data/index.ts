@@ -263,6 +263,21 @@ export function forGroup(db: Db, groupId: string) {
     return (await versionsOf(job.recipeId)).some((v) => nothingNewIn(v, draft));
   }
 
+  /** 手順のある保存済みレシピの読み直しで、手順が1つも読めなかったか */
+  async function rereadWithoutSteps(jobId: string, result: unknown) {
+    const steps = (result as { draft?: { steps?: unknown[] } } | null)?.draft
+      ?.steps;
+    if (steps?.length) return false;
+    const [job] = await db
+      .select({ recipeId: s.importJobs.recipeId })
+      .from(s.importJobs)
+      .where(and(eq(s.importJobs.id, jobId), eq(s.importJobs.groupId, groupId)))
+      .limit(1);
+    if (!job?.recipeId) return false;
+    // 今の版にも手順が無い（材料だけ保存してある）レシピなら、材料だけの読み直しも受け取る
+    return ((await versionsOf(job.recipeId)).at(-1)?.steps.length ?? 0) > 0;
+  }
+
   async function versionsOf(recipeId: string): Promise<VersionRow[]> {
     const rows = await db
       .select()
@@ -1721,6 +1736,13 @@ export function forGroup(db: Db, groupId: string) {
         await db.delete(s.importJobs).where(mine);
         return;
       }
+      // 読み直しで手順が取れなかった（AI が混んでいて動画を見られなかった、など）は「読めました」にしない。
+      // 手順が空の版を保存させないため
+      if ("result" in outcome && (await rereadWithoutSteps(id, outcome.result)))
+        outcome = {
+          error:
+            "作り方を読み直せませんでした（AI が混み合っているなど）。今のレシピはそのままです。時間をおいてもう一度読み直してください。",
+        };
       await db
         .update(s.importJobs)
         .set(
