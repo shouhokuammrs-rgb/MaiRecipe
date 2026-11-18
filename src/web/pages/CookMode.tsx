@@ -36,7 +36,8 @@ import {
   wakeQuestion,
   type QuickAction,
 } from "../../shared/assist";
-import { explainStep, normalizeGroups } from "../../shared/groups";
+import { normalizeGroups } from "../../shared/groups";
+import { stepWithAmounts } from "../../shared/step-amounts";
 import { scaleIngredients } from "../../shared/servings";
 import { tipsForStep, type Tip } from "../../shared/tips";
 import { sceneUrl } from "../../shared/scene-url";
@@ -67,14 +68,17 @@ export function CookMode() {
     asked !== base
       ? asked
       : null;
+  // 人数を変えていれば、手順に添える分量も換算したもの
+  const scaled = scaleIngredients(v.ingredients, base, people ?? base ?? 0);
   return (
     <CookView
       offlineAt={r.offlineSavedAt}
       recipeId={r.id}
       versionId={v.id}
       title={v.title}
-      // 「Aを加える」→「A（しょうゆ・みりん）を加える」。表示も読み上げも同じ文
-      steps={v.steps.map((s) => explainStep(s, v.ingredients))}
+      // 「塩をふる」→「塩（小さじ1/2）をふる」、「Aを加える」→「A（しょうゆ 大さじ1・みりん 大さじ2）を加える」。
+      // 表示も読み上げも同じ文（DEC-036）
+      steps={v.steps.map((s) => stepWithAmounts(s, scaled))}
       ingredients={scaleIngredients(
         normalizeGroups(v.ingredients, v.steps),
         base,

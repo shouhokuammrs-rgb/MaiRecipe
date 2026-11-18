@@ -38,7 +38,8 @@ import { scaleIngredients } from "../../shared/servings";
 import { tipsForStep } from "../../shared/tips";
 import { formatClock } from "../../shared/cook";
 import { coverCredit } from "../../shared/cover";
-import { explainStep, normalizeGroups } from "../../shared/groups";
+import { normalizeGroups } from "../../shared/groups";
+import { stepWithAmounts } from "../../shared/step-amounts";
 import { shrinkImage } from "@/lib/image";
 import { cn } from "@/lib/utils";
 
@@ -424,7 +425,7 @@ function DetailView({ r }: { r: Detail }) {
           {base && people !== base && (
             <p className="text-xs leading-5 text-sub">
               元の{base}
-              人分から換算しています。手順の中の分量・火にかける時間は元のままです。
+              人分から換算しています。手順に元から書いてある分量・火にかける時間は元のままです。
             </p>
           )}
         </section>
@@ -441,7 +442,7 @@ function DetailView({ r }: { r: Detail }) {
                   {k + 1}
                 </span>
                 <span className="flex flex-col gap-1 pt-0.5 text-sm leading-7">
-                  {explainStep(s, view.ingredients)}
+                  {stepWithAmounts(s, shownIngs)}
                   {r.videoUrl && times[k] != null && (
                     <button
                       type="button"

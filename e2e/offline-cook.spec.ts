@@ -35,7 +35,7 @@ test("API に届かなくても、開いたことのあるレシピは料理モ�
     (r) => r.abort("internetdisconnected"),
   );
   await page.goto(`/recipes/${id}/cook`);
-  await expect(page.getByText("卵を割る")).toBeVisible();
+  await expect(page.getByText("卵（2個）を割る")).toBeVisible();
   await expect(page.getByText(/この端末に残していたレシピ/)).toBeVisible();
   await page.screenshot({ path: "test-results/11-offline-cook.png" });
 });
