@@ -35,8 +35,8 @@ function shortAmount(raw: string): string | null {
 
 type Target = {
   key: string;
-  /** まとまりの印を外した材料の名前 */
-  base: string;
+  /** 材料表の中の位置 */
+  idx: number;
   name: string;
   amount: string;
   re: RegExp;
@@ -45,7 +45,7 @@ type Target = {
 /** 探す書き方（名寄せの揺れも）と分量。長い名前から当てる。同じ名前はまとまりの外の材料を先に */
 function buildTargets(ingredients: Ing[]): Target[] {
   return ingredients
-    .flatMap((i) => {
+    .flatMap((i, idx) => {
       const amount = shortAmount(i.amount);
       if (!amount) return [];
       const { group, name } = splitGroup(i.name);
@@ -54,7 +54,7 @@ function buildTargets(ingredients: Ing[]): Target[] {
         .filter((n) => n.length > 0)
         .map((n) => ({
           key: i.name,
-          base: name.trim(),
+          idx,
           name: n,
           amount,
           grouped: group ? 1 : 0,
@@ -67,10 +67,10 @@ function buildTargets(ingredients: Ing[]): Target[] {
 function annotate(
   step: string,
   targets: Target[],
-): { text: string; shown: Set<string> } {
+): { text: string; shown: Set<number> } {
   // 見つけた場所を集めてから、後ろから差し込む（差し込んだ文字に別の名前が当たらないように）
   const hits: { at: number; amount: string }[] = [];
-  const shown = new Set<string>();
+  const shown = new Set<number>();
   const taken: [number, number][] = [];
   // 同じ材料・同じ書き方は、1つの手順で1回だけ（塩が材料表に2つあっても、2つ目に別の分量を付けない）
   const done = new Set<string>();
@@ -91,7 +91,7 @@ function annotate(
         (UTILITY.has(t.name) && !UTILITY_AFTER.test(rest));
       if (!skip) {
         hits.push({ at: end, amount: t.amount });
-        shown.add(t.base);
+        shown.add(t.idx);
       }
       break; // 最初の1回だけ見る
     }
@@ -99,10 +99,12 @@ function annotate(
   let out = step;
   for (const h of hits.sort((a, b) => b.at - a.at)) {
     // かっこの中（「（しょうゆ、砂糖、酒）を混ぜる」）では、かっこを重ねずに「しょうゆ 大さじ1」と書く
+    // 閉じていないかっこ（書き間違い）では重ねる心配が無いので、後ろに閉じかっこがあるときだけ
     const before = step.slice(0, h.at);
     const inParen =
       (before.match(/[（(]/gu)?.length ?? 0) >
-      (before.match(/[）)]/gu)?.length ?? 0);
+        (before.match(/[）)]/gu)?.length ?? 0) &&
+      /[）)]/u.test(step.slice(h.at));
     out = `${out.slice(0, h.at)}${inParen ? ` ${h.amount}` : `（${h.amount}）`}${out.slice(h.at)}`;
   }
   return { text: out, shown };
