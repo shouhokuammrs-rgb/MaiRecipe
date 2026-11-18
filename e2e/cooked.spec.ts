@@ -40,11 +40,8 @@ test("できあがり → 作った！ で記録が残り、冷蔵庫から使�
   const sheet = page.getByRole("dialog", { name: "作った！" });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByText("2人分")).toBeVisible();
-  // 自分は食べた（既定）、評価は「また作る」。にんじんは候補に出ない
-  await expect(sheet.getByRole("button", { name: /自分/ })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  // 誰が食べたかは聞かない（DEC-035）。評価は「また作る」。にんじんは候補に出ない
+  await expect(sheet.getByText("誰が食べた？")).toHaveCount(0);
   await sheet.getByRole("button", { name: "また作る" }).click();
   await expect(sheet.getByRole("button", { name: "じゃがいも" })).toBeVisible();
   await expect(sheet.getByRole("button", { name: "にんじん" })).toHaveCount(0);

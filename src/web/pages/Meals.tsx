@@ -1,3 +1,4 @@
+// 食べた記録の画面。いまは画面から隠している（DEC-035）。戻すときは main.tsx の route と献立画面の入口を足す
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, ChevronLeft, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
