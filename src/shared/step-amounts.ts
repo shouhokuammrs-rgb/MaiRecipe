@@ -37,12 +37,16 @@ function shortAmount(raw: string): string | null {
  * 手順では短く呼ぶ肉（「豚小間切れ肉」を「豚肉」）。その種類の材料が1つだけのときに、同じものと見なす。
  * 2つ以上あるとき（豚バラと豚ひき肉）は、どちらか分からないので添えない
  */
+/** 名前が豚・鶏・牛で始まっても肉ではないもの（鶏がらスープの素・鶏卵・豚骨スープ・牛乳・牛蒡） */
+const NOT_MEAT =
+  /がら|ガラ|骨|卵|乳|脂|蒡|汁|スープ|だし|出汁|の素|エキス|コンソメ|ブイヨン/u;
+const meat = (re: RegExp) => (n: string) => re.test(n) && !NOT_MEAT.test(n);
 const MEAT_KINDS: { is: (n: string) => boolean; calls: string[] }[] = [
-  { is: (n) => /^豚/u.test(n), calls: ["豚肉"] },
-  { is: (n) => /^(?:鶏|とり|鳥)/u.test(n), calls: ["鶏肉", "とり肉", "鳥肉"] },
-  { is: (n) => /^牛(?!乳|脂)/u.test(n), calls: ["牛肉"] },
+  { is: meat(/^豚/u), calls: ["豚肉"] },
+  { is: meat(/^(?:鶏|とり|鳥)/u), calls: ["鶏肉", "とり肉", "鳥肉"] },
+  { is: meat(/^牛/u), calls: ["牛肉"] },
   {
-    is: (n) => /(?:[ひび]き|挽き?)肉|ミンチ/u.test(n),
+    is: meat(/(?:[ひび]き|挽き?)肉|ミンチ/u),
     calls: ["ひき肉", "挽き肉", "挽肉"],
   },
 ];
