@@ -263,7 +263,7 @@ export function forGroup(db: Db, groupId: string) {
     return (await versionsOf(job.recipeId)).some((v) => nothingNewIn(v, draft));
   }
 
-  /** 保存済みのレシピの読み直しで、手順が1つも読めなかったか */
+  /** 手順のある保存済みレシピの読み直しで、手順が1つも読めなかったか */
   async function rereadWithoutSteps(jobId: string, result: unknown) {
     const steps = (result as { draft?: { steps?: unknown[] } } | null)?.draft
       ?.steps;
@@ -273,7 +273,9 @@ export function forGroup(db: Db, groupId: string) {
       .from(s.importJobs)
       .where(and(eq(s.importJobs.id, jobId), eq(s.importJobs.groupId, groupId)))
       .limit(1);
-    return Boolean(job?.recipeId);
+    if (!job?.recipeId) return false;
+    // 今の版にも手順が無い（材料だけ保存してある）レシピなら、材料だけの読み直しも受け取る
+    return ((await versionsOf(job.recipeId)).at(-1)?.steps.length ?? 0) > 0;
   }
 
   async function versionsOf(recipeId: string): Promise<VersionRow[]> {

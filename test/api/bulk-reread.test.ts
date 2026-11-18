@@ -219,6 +219,28 @@ describe("まとめて読み直す", () => {
     );
   });
 
+  it("今の版にも手順が無いレシピなら、材料だけの読み直しも受け取る", async () => {
+    serve([]);
+    const me = await signUp();
+    const res = await api(me, "/recipes", {
+      method: "POST",
+      body: {
+        ...sampleRecipe,
+        title: "ダミーの煮物",
+        ingredients: [{ name: "大根", amount: "1本" }],
+        steps: [],
+        sourceUrl: "https://example.com/r/nosteps",
+        videoUrl: null,
+      },
+    });
+    const { id } = (await res.json()) as { id: string };
+    await api(me, `/recipes/${id}/reread`, { method: "POST" });
+    await run(create.mock.calls[0]![0].params);
+    expect((await jobsOf(me)).jobs).toMatchObject([
+      { status: "done", recipeId: id },
+    ]);
+  });
+
   it("おかしな入力は弾く", async () => {
     const me = await signUp();
     expect((await bulk(me, [])).status).toBe(400);

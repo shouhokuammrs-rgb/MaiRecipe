@@ -185,9 +185,14 @@ export function Import() {
     setTextError("");
   };
 
-  // 読み直しで手順が取れなかったとき（AI が混んでいて動画を見られなかった、など）は、
-  // 手順が空の版を作らせない（今の版のまま）。材料だけ読めていても同じ
-  if (result && rereadOf && !result.draft.steps.length) {
+  // 読み直しで何も取れなかったとき（手順が読めなかった読み直しは、サーバーが「読めなかった」にして返す）は、
+  // 空の版を作らせない（今の版のまま）
+  if (
+    result &&
+    rereadOf &&
+    !result.draft.ingredients.length &&
+    !result.draft.steps.length
+  ) {
     const back = async () => {
       if (activeJob)
         await apiClient.dismissImportJob(activeJob).catch(() => {});
@@ -202,14 +207,8 @@ export function Import() {
             role="status"
             className="rounded-xl bg-memo p-3 text-sm leading-7 text-memo-ink"
           >
-            {result.message
-              ? `${result.message
-                  .replace(/保存したあと、.*$/u, "")
-                  .replace(/出典を残したまま、手で入れられます。/u, "")
-                  .replace(/今のレシピはそのままです。.*$/u, "")
-                  .trim()} `
-              : ""}
-            作り方を読み直せなかったので、今のレシピはそのままにしています。時間をおいてもう一度読み直すか、「材料・作り方を編集」から直してください。
+            出典から読み直せませんでした（AI
+            が混み合っていて動画を見られないときなどに起きます）。今のレシピはそのままにしています。時間をおいてもう一度読み直すか、「材料・作り方を編集」から直してください。
           </p>
           <PrimaryButton onClick={() => void back()}>
             レシピに戻る
