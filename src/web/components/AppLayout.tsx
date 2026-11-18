@@ -122,8 +122,9 @@ function ImportJobsStrip() {
         </>
       ) : (
         <span className="flex h-11 items-center">
-          レシピを読み取り中…（{running}件
-          {queued ? `・あと${queued}件待ち` : ""}）
+          {running
+            ? `レシピを読み取り中…（${running}件${queued ? `・あと${queued}件待ち` : ""}）`
+            : `読み直しの順番待ち（あと${queued}件）`}
         </span>
       )}
     </div>

@@ -35,7 +35,7 @@ type ReadOutcome = { result: unknown } | { retry: string };
 export async function runImportJob(
   env: AppBindings,
   p: ImportJobParams,
-  repo: Pick<GroupRepo, "finishImportJob" | "takeQueued">,
+  repo: Pick<GroupRepo, "finishImportJob" | "takeQueued" | "requeueImportJob">,
   step: RunStep = inline,
   sleep?: SleepStep,
 ): Promise<void> {
@@ -85,7 +85,7 @@ export async function runImportJob(
 export async function startQueued(
   env: AppBindings,
   groupId: string,
-  repo: Pick<GroupRepo, "finishImportJob" | "takeQueued">,
+  repo: Pick<GroupRepo, "finishImportJob" | "takeQueued" | "requeueImportJob">,
   /** Workflow が無い環境で、その場で読む処理を後ろに回す口 */
   defer?: (p: Promise<unknown>) => void,
 ): Promise<void> {
@@ -97,9 +97,10 @@ export async function startQueued(
       try {
         await env.IMPORT_WORKFLOW.create({ id: next.jobId, params });
       } catch {
-        await repo.finishImportJob(next.jobId, {
-          error: "読み取りを始められませんでした。もう一度試してください。",
-        });
+        // Workflows が一時的に使えない：待ちに戻して、ここでやめる（残りを全部「読めなかった」にしない）。
+        // 次に読み取りを見に来たとき（GET）にまた始める
+        await repo.requeueImportJob(next.jobId);
+        return;
       }
     } else if (defer) defer(runImportJob(env, params, repo));
     else await runImportJob(env, params, repo);

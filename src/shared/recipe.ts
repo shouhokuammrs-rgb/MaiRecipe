@@ -204,3 +204,42 @@ export function splitIngredientLine(line: string): Ingredient {
 export const bulkRereadSchema = z.object({
   ids: z.array(z.string().min(1).max(64)).min(1).max(200),
 });
+
+/**
+ * 読み直した下書きに、その版に無い新しい内容が無いか（DEC-037）。
+ * 保存のときと同じ整え方（前後の空白・分量の書き方）をしてから、材料（並びも）・手順・題名を比べる。
+ * コツと人数は、下書きにあるときだけ比べる（下書きに無いのは「新しい内容」ではない）
+ */
+export function nothingNewIn(
+  version: {
+    title: string;
+    ingredients: Ingredient[];
+    steps: string[];
+    tips?: unknown[];
+    servings?: number | null;
+  },
+  draft: {
+    title?: string;
+    ingredients: Ingredient[];
+    steps: string[];
+    tips?: unknown[];
+    servings?: number | null;
+  },
+): boolean {
+  const ings = (xs: Ingredient[]) =>
+    JSON.stringify(
+      xs.map((i) => [i.name.trim(), tidyAmount((i.amount ?? "").trim())]),
+    );
+  const steps = (xs: string[]) => JSON.stringify(xs.map((x) => x.trim()));
+  if (draft.title?.trim() && draft.title.trim() !== version.title) return false;
+  if (ings(draft.ingredients) !== ings(version.ingredients)) return false;
+  if (steps(draft.steps) !== steps(version.steps)) return false;
+  if (
+    draft.tips?.length &&
+    JSON.stringify(draft.tips) !== JSON.stringify(version.tips ?? [])
+  )
+    return false;
+  if (draft.servings && draft.servings !== (version.servings || null))
+    return false;
+  return true;
+}

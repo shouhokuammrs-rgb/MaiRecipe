@@ -43,6 +43,7 @@ export function Reread() {
   });
   const stop = useMutation({
     mutationFn: apiClient.stopRereadQueue,
+    onSuccess: () => setStarted(null),
     onSettled: () => qc.invalidateQueries({ queryKey: ["import-jobs"] }),
   });
 
@@ -78,6 +79,11 @@ export function Reread() {
                 >
                   残りをやめる
                 </SecondaryButton>
+                {stop.isError && (
+                  <span role="alert" className="text-danger">
+                    {apiErrorMessage(stop.error)}
+                  </span>
+                )}
               </>
             ) : (
               <span>

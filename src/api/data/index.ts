@@ -15,6 +15,7 @@ import {
   isNull,
   lte,
   max,
+  lt,
   ne,
   sql,
 } from "drizzle-orm";
@@ -29,7 +30,7 @@ import { fitStepTimes } from "../../shared/scenes";
 import type { RecoRecipe } from "../../shared/recommend";
 import { LIMITS } from "../../shared/constants";
 import { addDays, todayJst } from "../../shared/dates";
-import { diffVersions } from "../../shared/recipe";
+import { diffVersions, nothingNewIn } from "../../shared/recipe";
 import { GROUP_MAX_MEMBERS, normalizeEmail } from "../../shared/group";
 import { canonicalName } from "../../shared/ingredients";
 import { sourceKey } from "../../shared/source-key";
@@ -243,35 +244,23 @@ export function forGroup(db: Db, groupId: string) {
   }
 
   /**
-   * まとめて読み直した結果が、今までのどれかの版と同じ（題名・材料・手順）なら、確かめる一覧に出さずに消す（DEC-037）。
-   * 1件ずつの読み直し（本人が押して待っている）は消さない
+   * まとめて読み直した結果に、今までのどの版にも無い内容があるか（DEC-037）。
+   * 無ければ確かめる一覧に出さない。1件ずつの読み直し（本人が押して待っている）はいつも出す
    */
-  async function dropIfNothingNew(jobId: string, result: unknown) {
+  async function bulkHasNothingNew(jobId: string, result: unknown) {
     const [job] = await db
       .select({ recipeId: s.importJobs.recipeId, bulk: s.importJobs.bulk })
       .from(s.importJobs)
       .where(and(eq(s.importJobs.id, jobId), eq(s.importJobs.groupId, groupId)))
       .limit(1);
-    if (!job?.bulk || !job.recipeId) return;
-    const draft = (
-      result as {
-        found?: boolean;
-        draft?: { title: string; ingredients: Ingredient[]; steps: string[] };
-      }
-    )?.draft;
-    if (!draft || !(result as { found?: boolean }).found) return;
-    const vs = await versionsOf(job.recipeId);
-    const same = vs.some(
-      (v) =>
-        diffVersions(v, { ...draft, title: draft.title || v.title }).length ===
-        0,
-    );
-    if (same)
-      await db
-        .delete(s.importJobs)
-        .where(
-          and(eq(s.importJobs.id, jobId), eq(s.importJobs.groupId, groupId)),
-        );
+    if (!job?.bulk || !job.recipeId) return false;
+    const r = result as {
+      found?: boolean;
+      draft?: Parameters<typeof nothingNewIn>[1];
+    } | null;
+    if (!r?.draft || !r.found) return false;
+    const draft = r.draft;
+    return (await versionsOf(job.recipeId)).some((v) => nothingNewIn(v, draft));
   }
 
   async function versionsOf(recipeId: string): Promise<VersionRow[]> {
@@ -1673,7 +1662,19 @@ export function forGroup(db: Db, groupId: string) {
       /** 保存済みのレシピの読み直し（グループのレシピでなければ NotFound） */
       recipeId?: string,
     ): Promise<string | null> {
-      if (recipeId) await recipeRow(recipeId);
+      if (recipeId) {
+        await recipeRow(recipeId);
+        // 順番待ちに入っていたら、そちらは取り下げる（二重に読まない）
+        await db
+          .delete(s.importJobs)
+          .where(
+            and(
+              eq(s.importJobs.groupId, groupId),
+              eq(s.importJobs.recipeId, recipeId),
+              eq(s.importJobs.status, "queued"),
+            ),
+          );
+      }
       const [row] = await db
         .select({ n: count() })
         .from(s.importJobs)
@@ -1707,6 +1708,19 @@ export function forGroup(db: Db, groupId: string) {
       id: string,
       outcome: { result: unknown } | { error: string },
     ) {
+      const mine = and(
+        eq(s.importJobs.id, id),
+        eq(s.importJobs.groupId, groupId),
+        eq(s.importJobs.status, "running"),
+      );
+      // 「読めました」と出す前に決める（一瞬「確かめる」が出ないように）
+      if (
+        "result" in outcome &&
+        (await bulkHasNothingNew(id, outcome.result))
+      ) {
+        await db.delete(s.importJobs).where(mine);
+        return;
+      }
       await db
         .update(s.importJobs)
         .set(
@@ -1722,14 +1736,22 @@ export function forGroup(db: Db, groupId: string) {
                 updatedAt: new Date(),
               },
         )
+        .where(mine);
+    },
+
+    /** 始められなかった読み取りを、順番待ちに戻す（Workflows が一時的に使えないとき） */
+    async requeueImportJob(id: string) {
+      await db
+        .update(s.importJobs)
+        .set({ status: "queued", updatedAt: new Date() })
         .where(
           and(
             eq(s.importJobs.id, id),
             eq(s.importJobs.groupId, groupId),
             eq(s.importJobs.status, "running"),
+            eq(s.importJobs.bulk, true),
           ),
         );
-      if ("result" in outcome) await dropIfNothingNew(id, outcome.result);
     },
 
     // ---- まとめて読み直す（DEC-037）
@@ -1782,7 +1804,22 @@ export function forGroup(db: Db, groupId: string) {
             updatedAt: s.importJobs.updatedAt,
           })
           .from(s.importJobs)
-          .where(eq(s.importJobs.groupId, groupId)),
+          .where(
+            and(
+              eq(s.importJobs.groupId, groupId),
+              inArray(s.importJobs.status, ["queued", "running"]),
+            ),
+          ),
+        // 古い読み取り（7日より前に終わったもの）は片付ける
+        db
+          .delete(s.importJobs)
+          .where(
+            and(
+              eq(s.importJobs.groupId, groupId),
+              inArray(s.importJobs.status, ["done", "failed"]),
+              lt(s.importJobs.updatedAt, new Date(Date.now() - 7 * 86400_000)),
+            ),
+          ),
       ]);
       const stuckBefore = Date.now() - IMPORT_JOB_STUCK_MS;
       const busy = new Set(
@@ -1826,7 +1863,12 @@ export function forGroup(db: Db, groupId: string) {
       const now = Date.now();
       const r = await db
         .update(s.importJobs)
-        .set({ status: "running", updatedAt: new Date(now) })
+        // 一覧は始めた時刻から1日ぶん出すので、待っていた時間は数えない
+        .set({
+          status: "running",
+          createdAt: new Date(now),
+          updatedAt: new Date(now),
+        })
         .where(
           and(
             eq(s.importJobs.groupId, groupId),

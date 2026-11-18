@@ -80,7 +80,7 @@ describe("まとめて読み直す", () => {
   it("選んだ分を待ちに入れ、2件ずつ動かす。終わると次が始まる", async () => {
     serve(["切る", "煮る", "盛る"]);
     const me = await signUp();
-    const ids = [];
+    const ids: string[] = [];
     for (let i = 0; i < 4; i++) ids.push(await makeRecipe(me, i));
     const res = await bulk(me, ids);
     expect(res.status).toBe(202);
@@ -125,7 +125,7 @@ describe("まとめて読み直す", () => {
 
   it("待ちを止められる（動いているものはそのまま）", async () => {
     const me = await signUp();
-    const ids = [];
+    const ids: string[] = [];
     for (let i = 0; i < 4; i++) ids.push(await makeRecipe(me, i));
     await bulk(me, ids);
     const res = await api(me, "/recipes/reread", { method: "DELETE" });
@@ -145,13 +145,63 @@ describe("まとめて読み直す", () => {
     expect((await jobsOf(a)).queued).toBe(0);
 
     // a の待ちは、b が読み取りを見に行っても始まらない
-    const ids = [];
+    const ids: string[] = [];
     for (let i = 0; i < 3; i++) ids.push(await makeRecipe(a, 10 + i));
     await bulk(a, ids);
     const before = create.mock.calls.length;
     await jobsOf(b);
     expect(create.mock.calls.length).toBe(before);
     expect((await jobsOf(b)).jobs).toEqual([]);
+  });
+
+  it("分量の書き方（空白）だけの違いは「同じ」とみなす。材料が変われば確かめる一覧に出る", async () => {
+    const me = await signUp();
+    const id = await makeRecipe(me, 1);
+    const serveWith = (amount: string) =>
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        async () =>
+          new Response(page(["切る", "煮る"]).replace("大根 1/2本", amount), {
+            headers: { "content-type": "text/html" },
+          }),
+      );
+    serveWith("大根 1/2 本");
+    await bulk(me, [id]);
+    await run(create.mock.calls[0]![0].params);
+    expect((await jobsOf(me)).jobs).toEqual([]);
+
+    vi.restoreAllMocks();
+    serveWith("大根 1本");
+    await bulk(me, [id]);
+    await run(create.mock.calls[1]![0].params);
+    expect((await jobsOf(me)).jobs).toMatchObject([
+      { status: "done", recipeId: id },
+    ]);
+  });
+
+  it("Workflows が使えないときは、待ちに戻して残りを失敗にしない。次に見に来たときに始まる", async () => {
+    const me = await signUp();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push(await makeRecipe(me, i));
+    create.mockRejectedValueOnce(new Error("workflows down"));
+    await bulk(me, ids);
+    expect(create).toHaveBeenCalledTimes(1);
+    const j = await jobsOf(me);
+    expect(j.jobs.filter((x) => x.status === "failed")).toEqual([]);
+    expect(j.jobs.filter((x) => x.status === "running")).toHaveLength(2);
+    expect(j.queued).toBe(1);
+  });
+
+  it("順番待ちのレシピを1件だけ読み直すと、待ちの分は取り下げる", async () => {
+    const me = await signUp();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push(await makeRecipe(me, i));
+    await bulk(me, ids);
+    expect((await jobsOf(me)).queued).toBe(1);
+    const r = await api(me, `/recipes/${ids[2]}/reread`, { method: "POST" });
+    expect(r.status).toBe(202);
+    const j = await jobsOf(me);
+    expect(j.queued).toBe(0);
+    expect(j.jobs.filter((x) => x.recipeId === ids[2])).toHaveLength(1);
   });
 
   it("おかしな入力は弾く", async () => {
