@@ -6,7 +6,7 @@ import { apiErrorMessage, cn } from "@/lib/utils";
 import { pantryUsedBy, RATING_LABELS, RATINGS } from "../../shared/cooked";
 
 /**
- * 作った！（DEC-030）。作った記録は2人のもの、誰が食べたか・評価は本人のもの。
+ * 作った！（DEC-030）。作った記録は2人のもの、評価は本人のもの。
  * 使った食材は冷蔵庫の候補から選んだものだけ消す
  */
 export function CookedSheet({
@@ -39,8 +39,6 @@ export function CookedSheet({
   const [count, setCount] = useState(servings ?? 2);
   const [rating, setRating] = useState<Rating | null>(null);
   const [note, setNote] = useState("");
-  /** 食べた人（userId → 何人前） */
-  const [eaters, setEaters] = useState<Map<string, number> | null>(null);
   const [used, setUsed] = useState<Set<string> | null>(null);
 
   useEffect(() => {
@@ -52,9 +50,8 @@ export function CookedSheet({
   }, [onClose]);
 
   const members = group.data?.members ?? [];
-  // 既定は全員が1人前
-  const eatersNow =
-    eaters ?? new Map(members.map((m) => [m.id, 1] as [string, number]));
+  // 誰が食べたかは聞かず、全員が1人前で残す（食べた記録の画面は隠している。DEC-035）
+  const eatersNow = new Map(members.map((m) => [m.id, 1] as [string, number]));
   const candidates = pantryUsedBy(ingredients, pantry.data?.items ?? []);
   const usedNow = used ?? new Set(candidates.map((c) => c.id));
 
@@ -91,17 +88,6 @@ export function CookedSheet({
     },
   });
 
-  const toggleEater = (id: string) => {
-    const next = new Map(eatersNow);
-    if (next.has(id)) next.delete(id);
-    else next.set(id, 1);
-    setEaters(next);
-  };
-  const setPortion = (id: string, portion: number) => {
-    const next = new Map(eatersNow);
-    next.set(id, portion);
-    setEaters(next);
-  };
   const toggleUsed = (id: string) => {
     const next = new Set(usedNow);
     if (next.has(id)) next.delete(id);
@@ -149,68 +135,6 @@ export function CookedSheet({
               ＋
             </button>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-bold">誰が食べた？</span>
-          {group.isPending && <p className="text-xs text-sub">読み込み中…</p>}
-          {group.isError && (
-            <p role="alert" className="text-xs text-danger">
-              {apiErrorMessage(group.error)}
-            </p>
-          )}
-          <ul className="flex flex-col gap-1.5">
-            {members.map((m) => {
-              const on = eatersNow.has(m.id);
-              const portion = eatersNow.get(m.id) ?? 1;
-              return (
-                <li key={m.id} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggleEater(m.id)}
-                    className={cn(
-                      "flex min-h-11 flex-1 items-center gap-2 rounded-xl border px-3 text-left text-sm",
-                      on
-                        ? "border-herb-mid bg-herb-soft font-bold text-herb"
-                        : "border-field bg-card text-sub",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex size-6 items-center justify-center rounded-full text-xs font-bold text-white",
-                        on ? "bg-herb-mid" : "bg-[#cfc5b8]",
-                      )}
-                    >
-                      {m.name.slice(0, 1)}
-                    </span>
-                    {m.name}
-                    {m.isMe ? "（自分）" : ""}
-                    {!on && (
-                      <span className="ml-auto text-xs">食べていない</span>
-                    )}
-                  </button>
-                  {on && (
-                    <select
-                      aria-label={`${m.name}の人前`}
-                      value={portion}
-                      onChange={(e) => setPortion(m.id, Number(e.target.value))}
-                      className="h-11 rounded-xl border border-field bg-card px-2 text-sm"
-                    >
-                      {[0.5, 1, 1.5, 2, 3].map((p) => (
-                        <option key={p} value={p}>
-                          {p}人前
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-[11.5px] text-sub">
-            誰が食べたかと評価は、それぞれ本人だけに見えます
-          </p>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -272,6 +196,11 @@ export function CookedSheet({
           </div>
         )}
 
+        {group.isError && (
+          <p role="alert" className="text-sm text-danger">
+            {apiErrorMessage(group.error)}
+          </p>
+        )}
         {save.isError && (
           <p role="alert" className="text-sm text-danger">
             {apiErrorMessage(save.error)}
@@ -279,7 +208,7 @@ export function CookedSheet({
         )}
         <PrimaryButton
           type="button"
-          disabled={save.isPending || group.isPending}
+          disabled={save.isPending || !group.data}
           onClick={() => save.mutate()}
           className="h-12"
         >
