@@ -11,7 +11,7 @@ import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { checkOfflineOwner, clearOfflineRecipes } from "@/lib/offlineRecipes";
 import { apiClient, ApiError } from "@/api/client";
 import { Loading } from "@/components/common";
-import { jobLabel, useImportJobs } from "@/lib/importJobs";
+import { jobLabel, useImportJobs, useRereadQueue } from "@/lib/importJobs";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -87,8 +87,9 @@ function ImportJobsStrip() {
   const done = jobs?.find((j) => j.status === "done");
   const failed = jobs?.find((j) => j.status === "failed");
   const running = jobs?.filter((j) => j.status === "running").length ?? 0;
+  const queued = useRereadQueue().data ?? 0;
   const show = done ?? failed;
-  if (!show && !running) return null;
+  if (!show && !running && !queued) return null;
   return (
     <div
       role="status"
@@ -121,7 +122,8 @@ function ImportJobsStrip() {
         </>
       ) : (
         <span className="flex h-11 items-center">
-          レシピを読み取り中…（{running}件）
+          レシピを読み取り中…（{running}件
+          {queued ? `・あと${queued}件待ち` : ""}）
         </span>
       )}
     </div>

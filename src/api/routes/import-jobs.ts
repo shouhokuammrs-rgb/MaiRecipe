@@ -35,7 +35,7 @@ type ReadOutcome = { result: unknown } | { retry: string };
 export async function runImportJob(
   env: AppBindings,
   p: ImportJobParams,
-  repo: Pick<GroupRepo, "finishImportJob">,
+  repo: Pick<GroupRepo, "finishImportJob" | "takeQueued">,
   step: RunStep = inline,
   sleep?: SleepStep,
 ): Promise<void> {
@@ -71,6 +71,39 @@ export async function runImportJob(
     await repo.finishImportJob(p.jobId, done);
     return true;
   });
+  // まとめて読み直す順番待ちがあれば、次を始める（DEC-037）
+  await step("next", async () => {
+    await startQueued(env, p.groupId, repo);
+    return true;
+  });
+}
+
+/**
+ * 順番待ちから、動かせるだけ始める（同時に動かす数は takeQueued が数える）。
+ * グループは呼ぶ側がセッション（または Workflow に渡されたもの）から決めた repo のもの
+ */
+export async function startQueued(
+  env: AppBindings,
+  groupId: string,
+  repo: Pick<GroupRepo, "finishImportJob" | "takeQueued">,
+  /** Workflow が無い環境で、その場で読む処理を後ろに回す口 */
+  defer?: (p: Promise<unknown>) => void,
+): Promise<void> {
+  for (;;) {
+    const next = await repo.takeQueued();
+    if (!next) return;
+    const params: ImportJobParams = { ...next, groupId };
+    if (env.IMPORT_WORKFLOW) {
+      try {
+        await env.IMPORT_WORKFLOW.create({ id: next.jobId, params });
+      } catch {
+        await repo.finishImportJob(next.jobId, {
+          error: "読み取りを始められませんでした。もう一度試してください。",
+        });
+      }
+    } else if (defer) defer(runImportJob(env, params, repo));
+    else await runImportJob(env, params, repo);
+  }
 }
 
 export const importJobs = new Hono<AppEnv>();
@@ -120,9 +153,17 @@ importJobs.post("/", async (c) => {
   return startImportJob(c, parsed.data.url);
 });
 
-importJobs.get("/", async (c) =>
-  c.json({ jobs: await c.var.repo.listImportJobs() }),
-);
+importJobs.get("/", async (c) => {
+  let queued = await c.var.repo.queuedCount();
+  if (queued > 0) {
+    // 念のため：前の読み取りが「次」を始められずに終わっていても、見に来たときに進める
+    await startQueued(c.env, c.var.groupId, c.var.repo, (p) =>
+      c.executionCtx.waitUntil(p),
+    );
+    queued = await c.var.repo.queuedCount();
+  }
+  return c.json({ jobs: await c.var.repo.listImportJobs(), queued });
+});
 
 importJobs.delete("/:id", async (c) => {
   await c.var.repo.deleteImportJob(c.req.param("id"));

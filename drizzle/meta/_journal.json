@@ -141,6 +141,13 @@
       "when": 1794903121935,
       "tag": "0019_fridge_arrange",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1794993437033,
+      "tag": "0020_import_jobs_bulk",
+      "breakpoints": true
     }
   ]
 }

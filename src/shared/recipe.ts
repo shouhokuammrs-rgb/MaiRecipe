@@ -199,3 +199,8 @@ export function splitIngredientLine(line: string): Ingredient {
     return { name: tail[1].trim(), amount: tail[2].trim() };
   return { name: s, amount: "" };
 }
+
+/** まとめて読み直すレシピ（DEC-037） */
+export const bulkRereadSchema = z.object({
+  ids: z.array(z.string().min(1).max(64)).min(1).max(200),
+});

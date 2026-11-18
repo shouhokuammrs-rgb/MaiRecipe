@@ -6,18 +6,26 @@ import { cleanSourceUrl, parseVideoUrl } from "../../shared/importer";
  * 裏で進めている取り込みの様子（DEC-022）。読み取り中があるあいだだけ数秒ごとに見に行く。
  * どの画面からも同じものを見る（取り込み画面と、上の知らせ）
  */
+type JobsData = { jobs: ImportJob[]; queued?: number };
+const jobsQuery = {
+  queryKey: ["import-jobs"],
+  queryFn: () => apiClient.importJobs() as Promise<JobsData>,
+  refetchInterval: (q: { state: { data?: JobsData } }) => {
+    const d = q.state.data;
+    return d?.jobs.some((j) => j.status === "running") || (d?.queued ?? 0) > 0
+      ? 4000
+      : false;
+  },
+  refetchOnWindowFocus: true,
+} as const;
+
 export function useImportJobs() {
-  return useQuery({
-    queryKey: ["import-jobs"],
-    queryFn: async () => (await apiClient.importJobs()).jobs,
-    refetchInterval: (q) =>
-      (q.state.data as ImportJob[] | undefined)?.some(
-        (j) => j.status === "running",
-      )
-        ? 4000
-        : false,
-    refetchOnWindowFocus: true,
-  });
+  return useQuery({ ...jobsQuery, select: (d: JobsData) => d.jobs });
+}
+
+/** まとめて読み直す順番待ちの数（DEC-037） */
+export function useRereadQueue() {
+  return useQuery({ ...jobsQuery, select: (d: JobsData) => d.queued ?? 0 });
 }
 
 /** 一覧などに出す、読み取り結果の短い名前 */
