@@ -39,7 +39,7 @@ import { tipsForStep } from "../../shared/tips";
 import { formatClock } from "../../shared/cook";
 import { coverCredit } from "../../shared/cover";
 import { normalizeGroups } from "../../shared/groups";
-import { stepWithAmounts } from "../../shared/step-amounts";
+import { stepsWithAmounts } from "../../shared/step-amounts";
 import { shrinkImage } from "@/lib/image";
 import { cn } from "@/lib/utils";
 
@@ -97,6 +97,13 @@ function DetailView({ r }: { r: Detail }) {
     base && people
       ? scaleIngredients(view.ingredients, base, people)
       : view.ingredients;
+  // 手順に分量を添える（DEC-036）。メモを打つたびに計算し直さない
+  const shownSteps = useMemo(
+    () => stepsWithAmounts(view.steps, shownIngs),
+    // shownIngs は毎回作り直されるので、元になる値で比べる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view.steps, view.ingredients, base, people],
+  );
   // 読み直しの保存から戻ったときの知らせ（版を増やさなかったときなど）
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
   // 同じレシピの読み直しが動いている間は、もう一度は始めない
@@ -442,7 +449,7 @@ function DetailView({ r }: { r: Detail }) {
                   {k + 1}
                 </span>
                 <span className="flex flex-col gap-1 pt-0.5 text-sm leading-7">
-                  {stepWithAmounts(s, shownIngs)}
+                  {shownSteps[k] ?? s}
                   {r.videoUrl && times[k] != null && (
                     <button
                       type="button"

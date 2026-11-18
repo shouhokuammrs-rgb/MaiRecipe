@@ -37,7 +37,7 @@ import {
   type QuickAction,
 } from "../../shared/assist";
 import { normalizeGroups } from "../../shared/groups";
-import { stepWithAmounts } from "../../shared/step-amounts";
+import { stepsWithAmounts } from "../../shared/step-amounts";
 import { scaleIngredients } from "../../shared/servings";
 import { tipsForStep, type Tip } from "../../shared/tips";
 import { sceneUrl } from "../../shared/scene-url";
@@ -78,7 +78,8 @@ export function CookMode() {
       title={v.title}
       // 「塩をふる」→「塩（小さじ1/2）をふる」、「Aを加える」→「A（しょうゆ 大さじ1・みりん 大さじ2）を加える」。
       // 表示も読み上げも同じ文（DEC-036）
-      steps={v.steps.map((s) => stepWithAmounts(s, scaled))}
+      steps={stepsWithAmounts(v.steps, scaled)}
+      rawSteps={v.steps}
       ingredients={scaleIngredients(
         normalizeGroups(v.ingredients, v.steps),
         base,
@@ -121,6 +122,7 @@ function CookView({
   versionId,
   title,
   steps,
+  rawSteps,
   ingredients,
   people,
   baseServings,
@@ -136,6 +138,8 @@ function CookView({
   versionId: string;
   title: string;
   steps: string[];
+  /** 分量を添える前の手順（タイマーは元の文から探す。添えた分量の「30分」を拾わないように） */
+  rawSteps: string[];
   ingredients: { name: string; amount: string }[];
   /** 人数を変えて作るとき（分量は換算済み） */
   people?: number;
@@ -196,7 +200,7 @@ function CookView({
     ];
     return `${i + 1}。${steps[i]}${t.length ? `。コツ。${t.join("。")}` : ""}`;
   };
-  const stepTimers = findTimers(step);
+  const stepTimers = findTimers(rawSteps[idx] ?? step);
 
   const go = useCallback(
     (to: number) => setIdx(Math.max(0, Math.min(count - 1, to))),

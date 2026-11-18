@@ -77,4 +77,58 @@ describe("stepWithAmounts", () => {
       "ごま油（小さじ1）を回しかけ、油（適量）を足す",
     );
   });
+
+  // レビューで見つかったもの
+  it("後ろに分量が書いてあるときは添えない", () => {
+    const xs = [...ings, ing("酒", "大さじ1"), ing("砂糖", "大さじ1")];
+    for (const st of [
+      "塩をひとつまみ加える",
+      "水を大さじ2加える",
+      "酒、みりん、しょうゆを各大さじ1ずつ入れる",
+      "塩と砂糖各小さじ1を混ぜる",
+      "塩もみする",
+    ])
+      expect(stepWithAmounts(st, xs)).toBe(st);
+  });
+
+  it("水・油は、材料として入れるとき（を・と・、が続く）だけ添える", () => {
+    const xs = [ing("水", "200ml"), ing("油", "大さじ1")];
+    for (const st of ["野菜を水にさらす", "米を水で洗う", "油は捨てる"])
+      expect(stepWithAmounts(st, xs)).toBe(st);
+    expect(stepWithAmounts("水と油を入れる", xs)).toBe(
+      "水（200ml）と油（大さじ1）を入れる",
+    );
+  });
+
+  it("同じ名前が材料表に2つあっても、2つ目に別の分量を付けない。まとまりの外を先に", () => {
+    const xs = [ing("【A】塩", "ひとつまみ"), ing("塩", "小さじ1/2")];
+    expect(stepWithAmounts("塩をふり、塩は控えめにする", xs)).toBe(
+      "塩（小さじ1/2）をふり、塩は控えめにする",
+    );
+  });
+
+  it("分量の但し書きは外し、長すぎる分量は添えない", () => {
+    const xs = [
+      ing("鶏もも肉", "1枚(300g)"),
+      ing("だし汁", "400ml（水400ml＋顆粒だし小さじ1でも可）"),
+      ing("バター", "室温に30分おいてやわらかくしたもの"),
+    ];
+    expect(stepWithAmounts("鶏もも肉を切る", xs)).toBe("鶏もも肉（1枚）を切る");
+    expect(stepWithAmounts("だし汁を注ぐ", xs)).toBe("だし汁（400ml）を注ぐ");
+    expect(stepWithAmounts("バターを塗る", xs)).toBe("バターを塗る");
+  });
+
+  it("切り方の数字（2cm幅・2等分・2つに）は分量ではないので添える", () => {
+    const xs = [ing("大根", "1/2本"), ing("玉ねぎ", "1個")];
+    expect(stepWithAmounts("大根を2cm幅に切る", xs)).toBe(
+      "大根（1/2本）を2cm幅に切る",
+    );
+    expect(stepWithAmounts("玉ねぎを2等分にする", xs)).toBe(
+      "玉ねぎ（1個）を2等分にする",
+    );
+    expect(stepWithAmounts("玉ねぎを2つに切る", xs)).toBe(
+      "玉ねぎ（1個）を2つに切る",
+    );
+    expect(stepWithAmounts("玉ねぎを2個使う", xs)).toBe("玉ねぎを2個使う");
+  });
 });
