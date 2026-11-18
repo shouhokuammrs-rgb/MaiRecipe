@@ -131,4 +131,44 @@ describe("stepWithAmounts", () => {
     );
     expect(stepWithAmounts("玉ねぎを2個使う", xs)).toBe("玉ねぎを2個使う");
   });
+
+  // 実際のレシピで見つかったもの（なすと豚肉の炒め物）
+  describe("かっこで材料を並べた手順", () => {
+    const step =
+      "容器に合わせ調味料の材料（オイスターソース、しょうゆ、砂糖、酒）を入れて混ぜ合わせる";
+    const seasonings = [
+      ing("オイスターソース", "大さじ1"),
+      ing("しょうゆ", "大さじ1"),
+      ing("砂糖", "小さじ2"),
+      ing("酒", "大さじ1"),
+    ];
+    const want =
+      "容器に合わせ調味料の材料（オイスターソース 大さじ1、しょうゆ 大さじ1、砂糖 小さじ2、酒 大さじ1）を入れて混ぜ合わせる";
+
+    it("かっこを重ねず、最後の材料（「）」の前）にも添える", () => {
+      expect(stepWithAmounts(step, seasonings)).toBe(want);
+    });
+
+    it("材料がまとまりになっていても、同じ中身を2回書かない", () => {
+      const grouped = seasonings.map((i) => ({
+        ...i,
+        name: `【合わせ調味料】${i.name}`,
+      }));
+      expect(stepWithAmounts(step, grouped)).toBe(want);
+      // 中身の書いていない手順では、まとまりを書き足す
+      expect(stepWithAmounts("合わせ調味料を加える", grouped)).toBe(
+        "合わせ調味料（オイスターソース 大さじ1・しょうゆ 大さじ1・砂糖 小さじ2・酒 大さじ1）を加える",
+      );
+    });
+  });
+
+  it("「ちぎった赤唐辛子」「切ったなす」のように、動詞の後の材料にも添える", () => {
+    const xs = [ing("赤唐辛子", "1本"), ing("なす", "3本")];
+    expect(stepWithAmounts("ちぎった赤唐辛子を加える", xs)).toBe(
+      "ちぎった赤唐辛子（1本）を加える",
+    );
+    expect(stepWithAmounts("切ったなすを加える", xs)).toBe(
+      "切ったなす（3本）を加える",
+    );
+  });
 });
