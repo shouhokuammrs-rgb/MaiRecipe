@@ -128,11 +128,16 @@ export function explainStep(
   ingredients: Ing[],
   /** 中身に分量も付ける（「しょうゆ 大さじ1・みりん 大さじ2」。DEC-036） */
   withAmounts = false,
+  /** この手順でもう分量を添えた材料（ingredients の中の位置）。その材料が入るまとまりは書き足さない（同じ中身が2回出ないように） */
+  shown?: ReadonlySet<number>,
 ): string {
   const groups = new Map<string, string[]>();
-  for (const i of normalizeGroups(ingredients, [step])) {
+  const skip = new Set<string>();
+  // normalizeGroups は並びと数を変えないので、位置で突き合わせられる
+  for (const [k, i] of normalizeGroups(ingredients, [step]).entries()) {
     const { group, name } = splitGroup(i.name);
     if (!group) continue;
+    if (shown?.has(k)) skip.add(group);
     const amount = withAmounts ? i.amount.trim() : "";
     groups.set(group, [
       ...(groups.get(group) ?? []),
@@ -142,6 +147,7 @@ export function explainStep(
   const stars = [...groups.keys()].filter((g) => g === "★" || g === "☆");
   let out = step;
   for (const [g, names] of groups) {
+    if (skip.has(g)) continue;
     const list =
       names.length > 5
         ? `${names.slice(0, 5).join("・")}など`
