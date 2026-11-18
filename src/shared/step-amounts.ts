@@ -33,6 +33,20 @@ function shortAmount(raw: string): string | null {
   return a && a.length <= AMOUNT_MAX && !/[（()）]/.test(a) ? a : null;
 }
 
+/**
+ * 手順では短く呼ぶ肉（「豚小間切れ肉」を「豚肉」）。その種類の材料が1つだけのときに、同じものと見なす。
+ * 2つ以上あるとき（豚バラと豚ひき肉）は、どちらか分からないので添えない
+ */
+const MEAT_KINDS: { is: (n: string) => boolean; calls: string[] }[] = [
+  { is: (n) => /^豚/u.test(n), calls: ["豚肉"] },
+  { is: (n) => /^(?:鶏|とり|鳥)/u.test(n), calls: ["鶏肉", "とり肉", "鳥肉"] },
+  { is: (n) => /^牛(?!乳|脂)/u.test(n), calls: ["牛肉"] },
+  {
+    is: (n) => /(?:[ひび]き|挽き?)肉|ミンチ/u.test(n),
+    calls: ["ひき肉", "挽き肉", "挽肉"],
+  },
+];
+
 type Target = {
   key: string;
   /** 材料表の中の位置 */
@@ -44,12 +58,16 @@ type Target = {
 
 /** 探す書き方（名寄せの揺れも）と分量。長い名前から当てる。同じ名前はまとまりの外の材料を先に */
 function buildTargets(ingredients: Ing[]): Target[] {
+  const bases = ingredients.map((i) => splitGroup(i.name).name.trim());
   return ingredients
     .flatMap((i, idx) => {
       const amount = shortAmount(i.amount);
       if (!amount) return [];
       const { group, name } = splitGroup(i.name);
       const names = new Set([...aliasesOf(name), name.trim()]);
+      for (const kind of MEAT_KINDS)
+        if (kind.is(name.trim()) && bases.filter(kind.is).length === 1)
+          for (const c of kind.calls) names.add(c);
       return [...names]
         .filter((n) => n.length > 0)
         .map((n) => ({
@@ -67,6 +85,8 @@ function buildTargets(ingredients: Ing[]): Target[] {
 function annotate(
   step: string,
   targets: Target[],
+  /** もう前の手順で分量を添えた材料（添えない） */
+  already?: ReadonlySet<number>,
 ): { text: string; shown: Set<number> } {
   // 見つけた場所を集めてから、後ろから差し込む（差し込んだ文字に別の名前が当たらないように）
   const hits: { at: number; amount: string }[] = [];
@@ -89,7 +109,7 @@ function annotate(
         AMOUNT_NEXT.test(rest) ||
         EACH_NEXT.test(rest) ||
         (UTILITY.has(t.name) && !UTILITY_AFTER.test(rest));
-      if (!skip) {
+      if (!skip && !already?.has(t.idx)) {
         hits.push({ at: end, amount: t.amount });
         shown.add(t.idx);
       }
@@ -110,15 +130,22 @@ function annotate(
   return { text: out, shown };
 }
 
-/** 全部の手順に分量を添える（探す準備はレシピで1回） */
+/**
+ * 全部の手順に分量を添える（探す準備はレシピで1回）。
+ * once: 同じ材料には、最初に出てきた手順でだけ添える（手順を並べて見せるレシピの画面用。
+ * 1つずつ見せる料理モードでは毎回添える）
+ */
 export function stepsWithAmounts(
   steps: string[],
   ingredients: Ing[],
+  opts: { once?: boolean } = {},
 ): string[] {
   const targets = buildTargets(ingredients);
+  const seen = new Set<number>();
   // 「Aを加える」→「A（しょうゆ 大さじ1・みりん 大さじ2）を加える」
   return steps.map((s) => {
-    const { text, shown } = annotate(s, targets);
+    const { text, shown } = annotate(s, targets, opts.once ? seen : undefined);
+    for (const k of shown) seen.add(k);
     return explainStep(text, ingredients, true, shown);
   });
 }

@@ -99,7 +99,8 @@ function DetailView({ r }: { r: Detail }) {
       : view.ingredients;
   // 手順に分量を添える（DEC-036）。メモを打つたびに計算し直さない
   const shownSteps = useMemo(
-    () => stepsWithAmounts(view.steps, shownIngs),
+    // 手順を並べて見せるので、同じ材料の分量は最初の手順でだけ
+    () => stepsWithAmounts(view.steps, shownIngs, { once: true }),
     // shownIngs は毎回作り直されるので、元になる値で比べる
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [view.steps, view.ingredients, base, people],

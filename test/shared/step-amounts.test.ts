@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { stepWithAmounts } from "../../src/shared/step-amounts";
+import {
+  stepsWithAmounts,
+  stepWithAmounts,
+} from "../../src/shared/step-amounts";
 
 // 手順に出てくる材料に分量を添える（DEC-036）
 const ing = (name: string, amount = "") => ({ name, amount });
@@ -187,5 +190,56 @@ describe("stepWithAmounts", () => {
     expect(
       stepWithAmounts("鍋に(水を入れ、塩を加える", [ing("塩", "少々")]),
     ).toBe("鍋に(水を入れ、塩（少々）を加える");
+  });
+
+  describe("手順で短く呼ぶ肉（豚肉・鶏肉・牛肉・ひき肉）", () => {
+    it("その種類の材料が1つだけなら、同じものと見なす", () => {
+      expect(
+        stepWithAmounts("豚肉に塩をふる", [ing("豚小間切れ肉", "150g")]),
+      ).toBe("豚肉（150g）に塩をふる");
+      expect(stepWithAmounts("鶏肉を焼く", [ing("鶏もも肉", "1枚")])).toBe(
+        "鶏肉（1枚）を焼く",
+      );
+      expect(
+        stepWithAmounts("ひき肉を炒める", [ing("合いびき肉", "200g")]),
+      ).toBe("ひき肉（200g）を炒める");
+      expect(
+        stepWithAmounts("牛肉を加える", [ing("牛こま切れ肉", "200g")]),
+      ).toBe("牛肉（200g）を加える");
+    });
+    it("2つ以上あるとき・肉ではないもの（牛乳）は添えない", () => {
+      const two = [ing("豚バラ肉", "100g"), ing("豚ロース", "2枚")];
+      expect(stepWithAmounts("豚肉を焼く", two)).toBe("豚肉を焼く");
+      expect(stepWithAmounts("牛肉を加える", [ing("牛乳", "200ml")])).toBe(
+        "牛肉を加える",
+      );
+    });
+  });
+
+  it("once: 同じ材料には最初の手順でだけ添える。まとまりの中身は使う手順でも出す", () => {
+    const xs = [
+      ing("なす", "3本"),
+      ing("にんにく", "1かけ"),
+      ing("【合わせ調味料】しょうゆ", "小さじ2"),
+      ing("【合わせ調味料】酒", "大さじ2"),
+    ];
+    const steps = [
+      "合わせ調味料の材料（しょうゆ、酒）を混ぜる",
+      "なすを切る",
+      "切ったなすを焼き、にんにくを刻む",
+      "にんにくを加える",
+      "合わせ調味料を加える",
+    ];
+    expect(stepsWithAmounts(steps, xs, { once: true })).toEqual([
+      "合わせ調味料の材料（しょうゆ 小さじ2、酒 大さじ2）を混ぜる",
+      "なす（3本）を切る",
+      "切ったなすを焼き、にんにく（1かけ）を刻む",
+      "にんにくを加える",
+      "合わせ調味料（しょうゆ 小さじ2・酒 大さじ2）を加える",
+    ]);
+    // 料理モード（once なし）は毎回
+    expect(stepsWithAmounts(steps, xs)[2]).toBe(
+      "切ったなす（3本）を焼き、にんにく（1かけ）を刻む",
+    );
   });
 });
