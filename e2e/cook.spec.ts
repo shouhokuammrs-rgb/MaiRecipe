@@ -38,12 +38,12 @@ test("料理モードで作る", async ({ page }) => {
   ).toBeVisible();
   // 手順の「A」に中身を書き足す（材料は【A】の札で見せる）
   await expect(
-    page.getByText("A（しょうゆ・みりん）を入れて味を見る"),
+    page.getByText("A（しょうゆ 大さじ2・みりん 大さじ1）を入れて味を見る"),
   ).toBeVisible();
   await page.screenshot({ path: "test-results/08-groups.png", fullPage: true });
   await page.getByRole("button", { name: "料理モードで作る" }).click();
   await expect(page.getByText("1 / 3")).toBeVisible();
-  await expect(page.getByText("大根を2cm幅に切る")).toBeVisible();
+  await expect(page.getByText("大根（1/2本）を2cm幅に切る")).toBeVisible();
   await expect(page.getByRole("button", { name: "戻る" })).toBeDisabled();
 
   await page.getByRole("button", { name: "次へ" }).click();
@@ -124,7 +124,7 @@ test("料理モードから動画のその場面を見る", async ({ page }) => 
   ).toBeVisible();
 
   await page.goto(`/recipes/${id}/cook`);
-  await expect(page.getByText("卵を割る")).toBeVisible();
+  await expect(page.getByText("卵（2個）を割る")).toBeVisible();
   // 時刻の無い手順にはボタンを出さない
   await expect(
     page.getByRole("button", { name: /動画でこの場面を見る/ }),

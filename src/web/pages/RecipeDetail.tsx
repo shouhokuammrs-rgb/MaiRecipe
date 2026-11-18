@@ -38,7 +38,8 @@ import { scaleIngredients } from "../../shared/servings";
 import { tipsForStep } from "../../shared/tips";
 import { formatClock } from "../../shared/cook";
 import { coverCredit } from "../../shared/cover";
-import { explainStep, normalizeGroups } from "../../shared/groups";
+import { normalizeGroups } from "../../shared/groups";
+import { stepsWithAmounts } from "../../shared/step-amounts";
 import { shrinkImage } from "@/lib/image";
 import { cn } from "@/lib/utils";
 
@@ -96,6 +97,13 @@ function DetailView({ r }: { r: Detail }) {
     base && people
       ? scaleIngredients(view.ingredients, base, people)
       : view.ingredients;
+  // 手順に分量を添える（DEC-036）。メモを打つたびに計算し直さない
+  const shownSteps = useMemo(
+    () => stepsWithAmounts(view.steps, shownIngs),
+    // shownIngs は毎回作り直されるので、元になる値で比べる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view.steps, view.ingredients, base, people],
+  );
   // 読み直しの保存から戻ったときの知らせ（版を増やさなかったときなど）
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
   // 同じレシピの読み直しが動いている間は、もう一度は始めない
@@ -424,7 +432,7 @@ function DetailView({ r }: { r: Detail }) {
           {base && people !== base && (
             <p className="text-xs leading-5 text-sub">
               元の{base}
-              人分から換算しています。手順の中の分量・火にかける時間は元のままです。
+              人分から換算しています。手順に元から書いてある分量・火にかける時間は元のままです。
             </p>
           )}
         </section>
@@ -441,7 +449,7 @@ function DetailView({ r }: { r: Detail }) {
                   {k + 1}
                 </span>
                 <span className="flex flex-col gap-1 pt-0.5 text-sm leading-7">
-                  {explainStep(s, view.ingredients)}
+                  {shownSteps[k] ?? s}
                   {r.videoUrl && times[k] != null && (
                     <button
                       type="button"

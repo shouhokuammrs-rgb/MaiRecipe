@@ -123,12 +123,21 @@ function tokenPattern(g: string, anyStar = false): string {
  * 手順の「Aを加える」「★を合わせる」「タレをかける」に、まとまりの中身を書き足す。
  * 「A（しょうゆ・みりん）を加える」。書き足し済み・別の言葉の一部（Aランク・ビタミンA）は触らない
  */
-export function explainStep(step: string, ingredients: Ing[]): string {
+export function explainStep(
+  step: string,
+  ingredients: Ing[],
+  /** 中身に分量も付ける（「しょうゆ 大さじ1・みりん 大さじ2」。DEC-036） */
+  withAmounts = false,
+): string {
   const groups = new Map<string, string[]>();
   for (const i of normalizeGroups(ingredients, [step])) {
     const { group, name } = splitGroup(i.name);
     if (!group) continue;
-    groups.set(group, [...(groups.get(group) ?? []), name]);
+    const amount = withAmounts ? i.amount.trim() : "";
+    groups.set(group, [
+      ...(groups.get(group) ?? []),
+      amount ? `${name} ${amount}` : name,
+    ]);
   }
   const stars = [...groups.keys()].filter((g) => g === "★" || g === "☆");
   let out = step;
