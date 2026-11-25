@@ -301,9 +301,21 @@ export type RecipeNutrition = {
 };
 
 export const DEFAULT_SERVINGS = 2;
-/** だしを取って捨てることが多い物 */
+/** 煮汁・漬けだれ・合わせ調味料になり、全部は食べないことが多い調味料（nutrition-data の key） */
+const LIQUID_SEASONINGS = new Set([
+  "醤油",
+  "みりん",
+  "酒",
+  "酢",
+  "めんつゆ",
+  "ポン酢",
+  "ウスターソース",
+  "オイスターソース",
+  "味噌",
+]);
+/** だしを取って捨てることが多い物（塩昆布・刻み昆布など、食べる昆布は数える） */
 const DASHI_ONLY =
-  /かつお節|鰹節|削り節|かつおぶし|花かつお|昆布|こんぶ|煮干し|にぼし/;
+  /^(?:かつお節|鰹節|削り節|かつおぶし|花かつお)$|^(?:だし|出汁|乾燥)?(?:昆布|こんぶ)$/;
 const zeros = () => NUTRIENT_IDS.map(() => 0);
 
 /** レシピ 1 つの、1人前あたりの栄養の目安 */
@@ -319,21 +331,20 @@ export function recipeNutrition(
     const name = canonicalName(ing.name);
     if (!name) continue;
     const section = sectionOfCanonical(name);
-    // 調味料と、だしを取って捨てる物は数えない。煮汁・漬けだれ・だしがらは食べる量が分からず、
-    // 数えると「醤油から鉄」「かつお節から鉄」のように、食べていない分で「多い」が出る
-    if (
-      isStapleCanonical(name) ||
-      section === "調味料" ||
-      DASHI_ONLY.test(name)
-    )
-      continue;
     const food = foodForCanonical(name);
+    // 煮汁・漬けだれになる調味料と、だしを取って捨てる物は数えない。食べる量が分からず、
+    // 数えると「醤油から鉄」「かつお節から鉄」のように、食べていない分で「多い」が出る。
+    // ごま・粉・きな粉・塩昆布のように食べ切る物は数える
+    if (food && (LIQUID_SEASONINGS.has(food.key) || DASHI_ONLY.test(name)))
+      continue;
     const grams = food ? gramsOf(ing.amount, food) : null;
     // 肉・魚が「適量」のときは、主役の量が分からないので「分からない材料」に数える
     const mainUnknown = grams === 0 && (section === "肉" || section === "魚");
     if (!food || grams === null || mainUnknown) {
-      // 水・酒などの飲み物は、計算できなくても「分からない材料」に数えない
-      if (section !== "飲み物") unknown.push(name);
+      // 調味料・水は、計算できなくても「分からない材料」に数えない（量が少なく、響きにくい）
+      const minor =
+        isStapleCanonical(name) || ["調味料", "飲み物"].includes(section);
+      if (!minor) unknown.push(name);
       continue;
     }
     // 殻つきで量る貝は、食べられる分だけを数える
@@ -342,7 +353,10 @@ export function recipeNutrition(
     values.forEach((v, i) => (perServing[i]! += v));
     parts.push({ name, grams, values });
   }
-  const main = parts.filter((p) => p.grams > 0).length;
+  // 調味料だけ計算できても、料理の目安にはならない
+  const main = parts.filter(
+    (p) => !isStapleCanonical(p.name) && p.grams > 0,
+  ).length;
   return {
     perServing,
     parts,
@@ -412,7 +426,7 @@ export type NutrientRank = {
   id: string;
   title: string;
   level: NutrientLevel;
-  /** 1日の目安に対する割合（0.25 = 4分の1）。並べるための値で、画面に細かくは出さない */
+  /** 1日の目安に対する割合（0.33 = 3分の1）。並べるための値で、画面に細かくは出さない */
   ratio: number;
   sources: string[];
   /** 人数が書かれていないので、2人分として計算した */

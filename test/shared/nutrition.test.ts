@@ -299,7 +299,7 @@ describe("レシピの栄養の目安", () => {
 
   it("段階は 1日の目安の 1/3 以上で「多い」、1/6 以上で「ふつう」", () => {
     expect(levelOf("iron", 6.5 / 3)).toBe("high");
-    expect(levelOf("iron", 2.0)).toBe("mid");
+    expect(levelOf("iron", 2.1)).toBe("mid");
     expect(levelOf("iron", 6.5 / 6)).toBe("mid");
     expect(levelOf("iron", 1.0)).toBe("low");
   });
@@ -326,6 +326,75 @@ describe("レシピの栄養の目安", () => {
       "キャベツ",
     ]);
     expect(withSauce.unknown).toEqual([]);
+  });
+
+  it("食べ切る物は数える（ごま・きな粉・粉・塩昆布・刻み昆布・おかか以外のかつお節は外す）", () => {
+    const names = (ings: [string, string][]) =>
+      recipeNutrition(
+        ings.map(([name, amount]) => ({ name, amount })),
+        2,
+      ).parts.map((p) => p.name);
+    expect(
+      names([
+        ["ほうれん草", "1束"],
+        ["すりごま", "大さじ3"],
+        ["練りごま", "大さじ1"],
+        ["きな粉", "大さじ2"],
+        ["小麦粉", "100g"],
+        ["パン粉", "大さじ4"],
+        ["刻み昆布", "30g"],
+        ["塩昆布", "10g"],
+        ["はちみつ", "大さじ1"],
+      ]),
+    ).toEqual([
+      "ほうれん草",
+      "すりごま",
+      "練りごま",
+      "きな粉",
+      "小麦粉",
+      "パン粉",
+      "刻み昆布",
+      "塩昆布",
+      "はちみつ",
+    ]);
+    expect(
+      names([
+        ["だし昆布", "10g"],
+        ["かつお節", "20g"],
+        ["みりん", "大さじ2"],
+        ["酒", "大さじ2"],
+        ["めんつゆ", "大さじ2"],
+        ["オイスターソース", "大さじ1"],
+      ]),
+    ).toEqual([]);
+  });
+
+  it("名前に「塩麹漬け」などが付いた肉・魚も数える", () => {
+    const n = recipeNutrition(
+      [
+        { name: "鮭の塩麹漬け", amount: "2切れ" },
+        { name: "大根", amount: "100g" },
+      ],
+      2,
+    );
+    expect(n.parts.map((p) => p.name)).toEqual(["鮭の塩麹漬け", "大根"]);
+    expect(levelOf("vitaminD", n.perServing[at("vitaminD")]!)).toBe("high");
+  });
+
+  it("調味料だけ・粉だけでは目安を出さない", () => {
+    const only = (ings: [string, string][]) =>
+      recipeNutrition(
+        ings.map(([name, amount]) => ({ name, amount })),
+        2,
+      ).enough;
+    expect(
+      only([
+        ["醤油", "大さじ2"],
+        ["みりん", "大さじ2"],
+        ["砂糖", "大さじ1"],
+      ]),
+    ).toBe(false);
+    expect(only([["小松菜", "少々"]])).toBe(false);
   });
 });
 
