@@ -301,6 +301,9 @@ export type RecipeNutrition = {
 };
 
 export const DEFAULT_SERVINGS = 2;
+/** だしを取って捨てることが多い物 */
+const DASHI_ONLY =
+  /かつお節|鰹節|削り節|かつおぶし|花かつお|昆布|こんぶ|煮干し|にぼし/;
 const zeros = () => NUTRIENT_IDS.map(() => 0);
 
 /** レシピ 1 つの、1人前あたりの栄養の目安 */
@@ -315,16 +318,22 @@ export function recipeNutrition(
   for (const ing of ingredients) {
     const name = canonicalName(ing.name);
     if (!name) continue;
+    const section = sectionOfCanonical(name);
+    // 調味料と、だしを取って捨てる物は数えない。煮汁・漬けだれ・だしがらは食べる量が分からず、
+    // 数えると「醤油から鉄」「かつお節から鉄」のように、食べていない分で「多い」が出る
+    if (
+      isStapleCanonical(name) ||
+      section === "調味料" ||
+      DASHI_ONLY.test(name)
+    )
+      continue;
     const food = foodForCanonical(name);
     const grams = food ? gramsOf(ing.amount, food) : null;
-    const section = sectionOfCanonical(name);
     // 肉・魚が「適量」のときは、主役の量が分からないので「分からない材料」に数える
     const mainUnknown = grams === 0 && (section === "肉" || section === "魚");
     if (!food || grams === null || mainUnknown) {
-      // 調味料・水は、計算できなくても「分からない材料」に数えない（量が少なく、響きにくい）
-      const minor =
-        isStapleCanonical(name) || ["調味料", "飲み物"].includes(section);
-      if (!minor) unknown.push(name);
+      // 水・酒などの飲み物は、計算できなくても「分からない材料」に数えない
+      if (section !== "飲み物") unknown.push(name);
       continue;
     }
     // 殻つきで量る貝は、食べられる分だけを数える
@@ -333,10 +342,7 @@ export function recipeNutrition(
     values.forEach((v, i) => (perServing[i]! += v));
     parts.push({ name, grams, values });
   }
-  // 調味料だけ計算できても、料理の目安にはならない
-  const main = parts.filter(
-    (p) => !isStapleCanonical(p.name) && p.grams > 0,
-  ).length;
+  const main = parts.filter((p) => p.grams > 0).length;
   return {
     perServing,
     parts,
@@ -354,9 +360,12 @@ export const LEVEL_LABEL: Record<NutrientLevel, string> = {
   mid: "ふつう",
   low: "少なめ",
 };
-/** 1人前で、1日の目安の 1/4 以上なら「多い」、1/10 以上なら「ふつう」 */
-export const LEVEL_HIGH = 1 / 4;
-export const LEVEL_MID = 1 / 10;
+/**
+ * 1人前で、1日の目安の 1/3 以上（1食ぶんをこの一品でまかなえる）なら「多い」、1/6 以上なら「ふつう」。
+ * はじめは 1/4 と 1/10 だったが、実際のレシピでは半分以上が「多い」になり、印の意味が無かった
+ */
+export const LEVEL_HIGH = 1 / 3;
+export const LEVEL_MID = 1 / 6;
 
 export function levelOf(id: NutrientId, perServing: number): NutrientLevel {
   const ratio = perServing / NUTRIENTS[id].daily;

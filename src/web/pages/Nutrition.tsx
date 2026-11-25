@@ -113,8 +113,8 @@ export function Nutrition() {
 
         {list.data && list.data.length > 0 && (
           <p className="border-t border-line-soft pt-3 text-xs leading-5 text-sub">
-            1人前の目安です（多い ＝ 1日の目安の 4分の1
-            以上）。必要な量は人によって違います。材料の分量から計算していて、加熱での増減は入れていません。体の不調があるときは、医師や管理栄養士に相談してください。
+            1人前の目安です（多い ＝ 1日の目安の 3分の1
+            以上）。必要な量は人によって違います。材料の分量から計算していて、調味料・だしの分と、加熱での増減は入れていません。体の不調があるときは、医師や管理栄養士に相談してください。
             <br />
             {NUTRITION_SOURCE}。
           </p>

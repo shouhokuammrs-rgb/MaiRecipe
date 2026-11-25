@@ -71,11 +71,11 @@ test("栄養を選ぶと多い順に並び、レシピの画面から同じ栄�
   await page.getByRole("link", { name: /小松菜の煮びたし/ }).click();
   await page
     .getByRole("region", { name: "栄養の目安" })
-    .getByRole("link", { name: "カルシウムが多いレシピを探す" })
+    .getByRole("link", { name: "ビタミンCが多いレシピを探す" })
     .click();
-  await expect(page).toHaveURL(/\/nutrition\?n=calcium/);
+  await expect(page).toHaveURL(/\/nutrition\?n=vitaminC/);
   await expect(
-    page.getByRole("button", { name: "カルシウム", exact: true }),
+    page.getByRole("button", { name: "ビタミンC", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("小松菜の煮びたし")).toBeVisible();
 });
