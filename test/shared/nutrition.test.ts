@@ -223,8 +223,8 @@ describe("レシピの栄養の目安", () => {
 
   it("1人前あたりを、成分表の値 × グラム ÷ 人数で出す", () => {
     const n = recipeNutrition(komatsuna, 2);
-    // 小松菜 250g×2.8 + 厚揚げ 150g×2.6 + 醤油 18g×1.7 = 7.0 + 3.9 + 0.306（mg）→ 2人で割る
-    expect(n.perServing[at("iron")]).toBeCloseTo((7 + 3.9 + 0.306) / 2, 3);
+    // 小松菜 250g×2.8 + 厚揚げ 150g×2.6 = 7.0 + 3.9（mg）→ 2人で割る。醤油（調味料）は数えない
+    expect(n.perServing[at("iron")]).toBeCloseTo((7 + 3.9) / 2, 3);
     expect(n.servings).toBe(2);
     expect(n.servingsAssumed).toBe(false);
     expect(n.enough).toBe(true);
@@ -297,10 +297,104 @@ describe("レシピの栄養の目安", () => {
     expect(n.enough).toBe(false);
   });
 
-  it("段階は 1日の目安の 1/4 以上で「多い」、1/10 以上で「ふつう」", () => {
-    expect(levelOf("iron", 6.5 / 4)).toBe("high");
-    expect(levelOf("iron", 1.0)).toBe("mid");
-    expect(levelOf("iron", 0.5)).toBe("low");
+  it("段階は 1日の目安の 1/3 以上で「多い」、1/6 以上で「ふつう」", () => {
+    expect(levelOf("iron", 6.5 / 3)).toBe("high");
+    expect(levelOf("iron", 2.1)).toBe("mid");
+    expect(levelOf("iron", 6.5 / 6)).toBe("mid");
+    expect(levelOf("iron", 1.0)).toBe("low");
+  });
+
+  it("調味料と、だしを取って捨てる物は数えない（煮汁の醤油・かつお節で「多い」を出さない）", () => {
+    const base = [
+      { name: "豚バラ肉", amount: "200g" },
+      { name: "キャベツ", amount: "1/4個" },
+    ];
+    const plain = recipeNutrition(base, 2);
+    const withSauce = recipeNutrition(
+      [
+        ...base,
+        { name: "醤油", amount: "100ml" },
+        { name: "かつおぶし", amount: "30g" },
+        { name: "昆布", amount: "10g" },
+        { name: "味噌", amount: "大さじ3" },
+      ],
+      2,
+    );
+    expect(withSauce.perServing).toEqual(plain.perServing);
+    expect(withSauce.parts.map((p) => p.name)).toEqual([
+      "豚バラ肉",
+      "キャベツ",
+    ]);
+    expect(withSauce.unknown).toEqual([]);
+  });
+
+  it("食べ切る物は数える（ごま・きな粉・粉・塩昆布・刻み昆布・おかか以外のかつお節は外す）", () => {
+    const names = (ings: [string, string][]) =>
+      recipeNutrition(
+        ings.map(([name, amount]) => ({ name, amount })),
+        2,
+      ).parts.map((p) => p.name);
+    expect(
+      names([
+        ["ほうれん草", "1束"],
+        ["すりごま", "大さじ3"],
+        ["練りごま", "大さじ1"],
+        ["きな粉", "大さじ2"],
+        ["小麦粉", "100g"],
+        ["パン粉", "大さじ4"],
+        ["刻み昆布", "30g"],
+        ["塩昆布", "10g"],
+        ["はちみつ", "大さじ1"],
+      ]),
+    ).toEqual([
+      "ほうれん草",
+      "すりごま",
+      "練りごま",
+      "きな粉",
+      "小麦粉",
+      "パン粉",
+      "刻み昆布",
+      "塩昆布",
+      "はちみつ",
+    ]);
+    expect(
+      names([
+        ["だし昆布", "10g"],
+        ["かつお節", "20g"],
+        ["みりん", "大さじ2"],
+        ["酒", "大さじ2"],
+        ["めんつゆ", "大さじ2"],
+        ["オイスターソース", "大さじ1"],
+      ]),
+    ).toEqual([]);
+  });
+
+  it("名前に「塩麹漬け」などが付いた肉・魚も数える", () => {
+    const n = recipeNutrition(
+      [
+        { name: "鮭の塩麹漬け", amount: "2切れ" },
+        { name: "大根", amount: "100g" },
+      ],
+      2,
+    );
+    expect(n.parts.map((p) => p.name)).toEqual(["鮭の塩麹漬け", "大根"]);
+    expect(levelOf("vitaminD", n.perServing[at("vitaminD")]!)).toBe("high");
+  });
+
+  it("調味料だけ・粉だけでは目安を出さない", () => {
+    const only = (ings: [string, string][]) =>
+      recipeNutrition(
+        ings.map(([name, amount]) => ({ name, amount })),
+        2,
+      ).enough;
+    expect(
+      only([
+        ["醤油", "大さじ2"],
+        ["みりん", "大さじ2"],
+        ["砂糖", "大さじ1"],
+      ]),
+    ).toBe(false);
+    expect(only([["小松菜", "少々"]])).toBe(false);
   });
 });
 
@@ -320,7 +414,7 @@ describe("栄養で探す", () => {
       title: "あさりの酒蒸し",
       servings: 2,
       ingredients: [
-        { name: "あさり", amount: "300g" },
+        { name: "あさり", amount: "500g" },
         { name: "酒", amount: "大さじ2" },
       ],
     },
