@@ -2,13 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/api/client";
-import {
-  Chip,
-  Empty,
-  ErrorState,
-  Loading,
-  SubHeader,
-} from "@/components/common";
+import { Empty, ErrorState, Loading, SubHeader } from "@/components/common";
 import {
   LEVEL_LABEL,
   NUTRIENTS,
@@ -37,21 +31,23 @@ export function Nutrition() {
     <>
       <SubHeader title="栄養で探す" back="/" />
       <div className="flex flex-col gap-4 px-5 pt-4 pb-10">
-        <p className="text-sm leading-7 text-[#4a433c]">
+        <p className="text-sm leading-7 text-ink">
           とりたい栄養を選ぶと、自分のレシピを多い順に並べます。
         </p>
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="栄養素">
           {NUTRIENT_IDS.map((id) => (
-            <Chip
+            <button
               key={id}
-              on={picked === id}
+              type="button"
+              aria-pressed={picked === id}
               onClick={() =>
                 setParams(picked === id ? {} : { n: id }, { replace: true })
               }
+              className={`h-11 rounded-full border px-4 text-[13px] font-medium ${picked === id ? "border-ink bg-ink text-white" : "border-field bg-card text-ink"}`}
             >
               {NUTRIENTS[id].label}
-            </Chip>
+            </button>
           ))}
         </div>
 
@@ -87,7 +83,7 @@ export function Nutrition() {
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-[15px] font-bold">{r.title}</span>
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${r.level === "high" ? "bg-herb-soft text-herb" : "bg-chip text-[#4a433c]"}`}
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${r.level === "high" ? "bg-herb-soft text-herb" : "bg-chip text-sub"}`}
                     >
                       {LEVEL_LABEL[r.level]}
                     </span>
@@ -95,6 +91,11 @@ export function Nutrition() {
                   {r.sources.length > 0 && (
                     <span className="text-xs text-sub">
                       主に {r.sources.join("・")} から
+                    </span>
+                  )}
+                  {r.servingsAssumed && (
+                    <span className="text-xs text-sub">
+                      人数が書かれていないので、2人分として計算
                     </span>
                   )}
                 </Link>
@@ -113,7 +114,7 @@ export function Nutrition() {
         {list.data && list.data.length > 0 && (
           <p className="border-t border-line-soft pt-3 text-xs leading-5 text-sub">
             1人前の目安です（多い ＝ 1日の目安の 4分の1
-            以上）。材料の分量から計算していて、切り方や加熱での増減は入れていません。体の不調があるときは、医師や管理栄養士に相談してください。
+            以上）。必要な量は人によって違います。材料の分量から計算していて、加熱での増減は入れていません。体の不調があるときは、医師や管理栄養士に相談してください。
             <br />
             {NUTRITION_SOURCE}。
           </p>

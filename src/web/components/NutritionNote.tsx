@@ -30,7 +30,7 @@ export function NutritionNote({
       className="flex flex-col gap-2 rounded-2xl bg-herb-soft px-3.5 py-3"
     >
       <h2 className="text-[13px] font-bold text-herb">
-        1人前で多くとれる栄養（目安）
+        1人前に多く含まれる栄養（目安）
       </h2>
       <ul className="flex flex-wrap gap-1.5">
         {high.map((id) => (
@@ -47,7 +47,7 @@ export function NutritionNote({
       </ul>
       <p className="text-[11px] leading-5 text-sub">
         {assumed && "人数が書かれていないので、2人分として計算しています。"}
-        材料の分量からの計算で、加熱での増減は入れていません。
+        材料の分量からの計算で、加熱での増減は入れていません。必要な量は人によって違います。体の不調があるときは、医師や管理栄養士に相談してください。
         {NUTRITION_SOURCE}。
       </p>
     </section>
