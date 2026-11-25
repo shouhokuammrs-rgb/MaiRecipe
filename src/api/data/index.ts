@@ -1194,6 +1194,29 @@ export function forGroup(db: Db, groupId: string) {
       }));
     },
 
+    /** 栄養で探す用：レシピの名前と、最新版の材料・人数（計算は src/shared/nutrition.ts。DEC-038） */
+    async nutritionRecipes() {
+      const [latest, rows] = await Promise.all([
+        latestVersionsInGroup(),
+        db
+          .select({ id: s.recipes.id, title: s.recipes.title })
+          .from(s.recipes)
+          .where(inGroup),
+      ]);
+      return rows.map((r) => {
+        const v = latest.get(r.id);
+        return {
+          id: r.id,
+          title: r.title,
+          servings: v?.servings ?? null,
+          ingredients: (v?.ingredients ?? []).map((i) => ({
+            name: i.name,
+            amount: i.amount,
+          })),
+        };
+      });
+    },
+
     /** おすすめ用：レシピの分類・更新日時と、最新版の材料 */
     async recommendRecipes(): Promise<RecoRecipe[]> {
       const [latest, rows] = await Promise.all([

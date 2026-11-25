@@ -6,6 +6,7 @@ import type {
   ShopSection,
 } from "../../shared/constants";
 import type { FindResult } from "../../shared/find";
+import type { NutritionRecipe } from "../../shared/nutrition";
 import type { FridgeSort, FridgeZone, ZoneUndo } from "../../shared/pantry";
 import type { Ingredient } from "../../shared/recipe";
 import type { RecoLists } from "../../shared/recommend";
@@ -348,6 +349,11 @@ export const apiClient = {
   deleteImage: (id: string) =>
     call<void>(`/recipes/${id}/image`, { method: "DELETE" }),
   imageUrl: (id: string, bust: number) => `/api/recipes/${id}/image?v=${bust}`,
+  /** 栄養で探す用：レシピごとの最新版の材料と人数（計算は shared/nutrition.ts） */
+  nutritionRecipes: () =>
+    call<{ recipes: NutritionRecipe[] }>("/recipes/nutrition").then(
+      (r) => r.recipes,
+    ),
   find: (terms: string[]) =>
     call<{ results: FindResult[] }>("/recipes/find", {
       method: "POST",

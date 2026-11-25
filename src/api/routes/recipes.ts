@@ -96,6 +96,14 @@ recipes.get("/by-source", async (c) => {
   return c.json({ recipe: url ? await c.var.repo.findBySource(url) : null });
 });
 
+/**
+ * 栄養で探す（DEC-038）。材料と人数を返すだけで、栄養の計算は画面が src/shared/nutrition.ts で行う
+ * （成分表に当てはめる処理を Worker の CPU 10ms に載せないため）
+ */
+recipes.get("/nutrition", async (c) => {
+  return c.json({ recipes: await c.var.repo.nutritionRecipes() });
+});
+
 recipes.post("/find", async (c) => {
   const parsed = findSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return badRequest(c, parsed.error);

@@ -1,5 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Plus, Search, ShoppingBasket, SquarePen } from "lucide-react";
+import {
+  Leaf,
+  Link2,
+  Plus,
+  Search,
+  ShoppingBasket,
+  SquarePen,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { categoryTint } from "@/lib/tint";
@@ -84,6 +91,13 @@ export function Recipes() {
             材料から探す
           </Link>
         </div>
+        <Link
+          to="/nutrition"
+          className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-field bg-card text-[13px] font-bold"
+        >
+          <Leaf className="size-4 text-herb" />
+          栄養で探す（鉄・カルシウム・ビタミン など）
+        </Link>
         <div className="no-scrollbar flex gap-2 overflow-x-auto">
           <Chip on={!category} onClick={() => setCategory("")}>
             すべて

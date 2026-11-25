@@ -17,6 +17,7 @@ import { RecipeNew } from "./pages/RecipeNew";
 import { Recipes } from "./pages/Recipes";
 import { Reread } from "./pages/Reread";
 import { Settings } from "./pages/Settings";
+import { Nutrition } from "./pages/Nutrition";
 import { Shopping } from "./pages/Shopping";
 
 const router = createBrowserRouter([
@@ -27,6 +28,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Recipes /> },
       { path: "find", element: <Find /> },
+      { path: "nutrition", element: <Nutrition /> },
       { path: "import", element: <Import /> },
       { path: "recipes/new", element: <RecipeNew /> },
       { path: "recipes/:id", element: <RecipeDetail /> },
