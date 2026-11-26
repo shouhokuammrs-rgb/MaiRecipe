@@ -443,9 +443,9 @@ function DetailView({ r }: { r: Detail }) {
         <NutritionNote ingredients={view.ingredients} servings={base} />
         <NutritionAdd
           title={view.title}
-          steps={view.steps}
           ingredients={view.ingredients}
           servings={base}
+          people={people}
         />
 
         <section className="flex flex-col gap-2.5">
