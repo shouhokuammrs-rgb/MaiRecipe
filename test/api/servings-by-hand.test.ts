@@ -45,13 +45,18 @@ describe("PUT /api/recipes/:id/servings（人数を手で入れる）", () => {
     const id = await create(me);
     // 出典の無いレシピは、探しても見つからないので 0 が入る
     const found = await api(me, `/recipes/${id}/servings`, { method: "POST" });
-    expect(await found.json()).toEqual({ servings: 0 });
+    expect(await found.json()).toEqual({ servings: 0, read: true });
     expect(await versions(me, id)).toEqual([0]);
     // もう一度探す（読み方を広げたあとの探し直し）でも、出典が無ければ 0 のまま
     const again = await api(me, `/recipes/${id}/servings?again=1`, {
       method: "POST",
     });
-    expect(await again.json()).toEqual({ servings: 0 });
+    expect(await again.json()).toEqual({ servings: 0, read: true });
+    // 続けて頼まれた探し直しは読まない（read: false。相手のサイトを何度も読まない）
+    const soon = await api(me, `/recipes/${id}/servings?again=1`, {
+      method: "POST",
+    });
+    expect(await soon.json()).toEqual({ servings: 0, read: false });
     expect((await put(me, id, 3)).status).toBe(200);
     expect(await versions(me, id)).toEqual([3]);
   });
@@ -67,7 +72,20 @@ describe("PUT /api/recipes/:id/servings（人数を手で入れる）", () => {
     const again = await api(me, `/recipes/${id}/servings?again=1`, {
       method: "POST",
     });
-    expect(await again.json()).toEqual({ servings: 2 });
+    expect(await again.json()).toEqual({ servings: 2, read: true });
+  });
+
+  it("どれかの版に人数があるレシピには書かない（版ごとに違う人数を並べない）", async () => {
+    const me = await signUp();
+    const id = await create(me);
+    const v2 = await api(me, `/recipes/${id}/versions`, {
+      method: "POST",
+      body: { ...base, servings: 2, note: "" },
+    });
+    expect(v2.status).toBeLessThan(300);
+    expect(await versions(me, id)).toEqual([null, 2]);
+    expect(await (await put(me, id, 6)).json()).toEqual({ servings: 2 });
+    expect(await versions(me, id)).toEqual([null, 2]);
   });
 
   it.each([0, 21, 2.5, "x", null])("人数 %j は 400", async (bad) => {

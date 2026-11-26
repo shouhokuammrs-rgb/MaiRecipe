@@ -339,6 +339,13 @@ recipes.post("/:id/cover", async (c) => {
  * ページは構造化データか材料の見出し、動画は概要欄から。見つからなければ 0（もう探さない）。
  * 出典が読めなかったときは覚えない（次に開いたときにまた探す）
  */
+/**
+ * 探し直し（again=1）の歯止め。同じレシピを続けて探し直さない（相手のサイトと YouTube の枠を守る）。
+ * Worker の 1 つのインスタンスの中だけの控えで、消えてもよい（消えたら、もう 1 回探すだけ）
+ */
+const AGAIN_GAP_MS = 10 * 60 * 1000;
+const lastAgain = new Map<string, number>();
+
 recipes.post("/:id/servings", async (c) => {
   const id = c.req.param("id");
   // again=1：前に探して無かった（0）レシピを、もう一度探す。読める書き方を広げたあとに、
@@ -354,7 +361,16 @@ recipes.post("/:id/servings", async (c) => {
     known ||
     (!again && r.versions.some((v) => v.servings !== null))
   )
-    return c.json({ servings: latest?.servings ?? null });
+    return c.json({ servings: latest?.servings ?? null, read: true });
+  if (again) {
+    const now = Date.now();
+    const last = lastAgain.get(id);
+    // 続けて頼まれたときは読まない（read: false ＝ 画面は「探し直した」と覚えない）
+    if (last !== undefined && now - last < AGAIN_GAP_MS)
+      return c.json({ servings: latest.servings, read: false });
+    if (lastAgain.size >= 5000) lastAgain.clear();
+    lastAgain.set(id, now);
+  }
   let found: number | null = null;
   const video = r.videoUrl ? parseVideoUrl(r.videoUrl) : null;
   const pageUrl =
@@ -366,18 +382,19 @@ recipes.post("/:id/servings", async (c) => {
     }
     if (!found && video) {
       const snip = await youtubeSnippet(c.env, video.id);
-      if (!snip) return c.json({ servings: latest.servings });
+      // 鍵が無い・枠切れなどで読めなかった（read: false ＝ 次にまた探す）
+      if (!snip) return c.json({ servings: latest.servings, read: false });
       found = servingsFromText(snip.description);
     }
   } catch (e) {
     // 一時的な失敗（不通・時間切れ・相手の 5xx）は覚えない。次に開いたときにまた探す。
     // ページが無い・レシピのページでない などは、何度読んでも同じなので「無かった」として覚える
     if (!(e instanceof FetchPageError) || isTransient(e))
-      return c.json({ servings: latest.servings });
+      return c.json({ servings: latest.servings, read: false });
   }
   if (found) await c.var.repo.setMissingServings(id, found);
   else await c.var.repo.fillServings(id, 0);
-  return c.json({ servings: found ?? 0 });
+  return c.json({ servings: found ?? 0, read: true });
 });
 
 const servingsByHandSchema = z.object({
@@ -396,11 +413,12 @@ recipes.put("/:id/servings", async (c) => {
   if (!parsed.success)
     return c.json({ error: "人数は 1〜20 で入れてください" }, 400);
   const id = c.req.param("id");
+  const before = await c.var.repo.getRecipe(id);
+  // どれかの版に人数があるレシピには書かない（同じレシピで、版ごとに違う人数が並ばないように）
+  const known = before.versions.findLast((v) => (v.servings ?? 0) > 0);
+  if (known) return c.json({ servings: known.servings });
   await c.var.repo.setMissingServings(id, parsed.data.servings);
-  const r = await c.var.repo.getRecipe(id);
-  return c.json({
-    servings: r.versions[r.versions.length - 1]?.servings ?? null,
-  });
+  return c.json({ servings: parsed.data.servings });
 });
 
 /**

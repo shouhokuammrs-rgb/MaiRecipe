@@ -287,7 +287,7 @@ export const apiClient = {
     }),
   /** 前に保存したレシピの人数を、出典から一度だけ探す（0：書いていなかった） */
   findServings: (id: string, again = false) =>
-    call<{ servings: number | null }>(
+    call<{ servings: number | null; read?: boolean }>(
       `/recipes/${id}/servings${again ? "?again=1" : ""}`,
       { method: "POST" },
     ),

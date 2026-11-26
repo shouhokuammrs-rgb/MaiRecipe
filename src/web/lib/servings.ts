@@ -16,19 +16,20 @@ export function useHousehold(): number | null {
 // 前に探して人数が無かった（0）レシピを、読める書き方を広げたあとにもう一度だけ探す（DEC-039）。
 // 「もう探し直した」はこの端末で覚える。覚えられなくても害は無い（もう一度探すだけ）
 const AGAIN_KEY = "mairecipe:servings-again:v1";
+const againThisVisit = new Set<string>();
 function triedAgain(): Set<string> {
+  const seen = new Set(againThisVisit);
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(AGAIN_KEY) ?? "[]");
-    return new Set(
-      Array.isArray(raw)
-        ? raw.filter((x): x is string => typeof x === "string")
-        : [],
-    );
+    if (Array.isArray(raw))
+      for (const x of raw) if (typeof x === "string") seen.add(x);
   } catch {
-    return new Set();
+    // 読めない端末（プライベートブラウズなど）では、開いている間の控えだけを使う
   }
+  return seen;
 }
 function rememberAgain(id: string) {
+  againThisVisit.add(id);
   try {
     const next = [...triedAgain().add(id)].slice(-2000);
     localStorage.setItem(AGAIN_KEY, JSON.stringify(next));
@@ -44,25 +45,28 @@ function rememberAgain(id: string) {
 export function useFindServings(r: RecipeDetail) {
   const qc = useQueryClient();
   const tried = useRef(new Set<string>());
-  const plan = findPlan(
-    r.id,
-    r.versions.map((v) => v.servings),
-    triedAgain(),
-  );
+  const versions = r.versions.map((v) => v.servings).join(",");
   useEffect(() => {
-    if (!plan || tried.current.has(r.id)) return;
+    if (tried.current.has(r.id)) return;
+    const plan = findPlan(
+      r.id,
+      versions.split(",").map((x) => (x === "" ? null : Number(x))),
+      triedAgain(),
+    );
+    if (!plan) return;
     tried.current.add(r.id);
     apiClient
       .findServings(r.id, plan === "again")
       .then((res) => {
-        if (plan === "again") rememberAgain(r.id);
+        // 読めなかった（不通・時間切れ）ときは覚えない。次に開いたときにまた探す
+        if (plan === "again" && res.read !== false) rememberAgain(r.id);
         if (res.servings !== null) {
           void qc.invalidateQueries({ queryKey: ["recipe", r.id] });
           void qc.invalidateQueries({ queryKey: ["recipes", "nutrition"] });
         }
       })
       .catch(() => {});
-  }, [plan, r.id, qc]);
+  }, [versions, r.id, qc]);
 }
 
 /** 一度に探すレシピの上限（開くたびに続きから探す） */
@@ -76,43 +80,54 @@ export function useFillMissingServings(
   rows: { id: string; servings: number | null }[] | undefined,
 ): number {
   const qc = useQueryClient();
-  const started = useRef(false);
   const [left, setLeft] = useState(0);
+  // 一覧が読めたときの中身で 1 回だけ始める。途中で一覧が読み直されても（人数を手で入れた・
+  // 見つかった）止めない。止めるのは画面を離れたときだけ
+  const latest = useRef(rows);
   useEffect(() => {
-    if (!rows || started.current) return;
-    const again = triedAgain();
-    const todo = rows
-      .map((r) => ({ id: r.id, plan: findPlan(r.id, [r.servings], again) }))
-      .filter((x) => x.plan !== null)
-      .slice(0, FILL_MAX);
-    if (todo.length === 0) return;
-    started.current = true;
+    latest.current = rows;
+  }, [rows]);
+  const ready = rows !== undefined;
+  useEffect(() => {
+    if (!ready) return;
     let alive = true;
-    let changed = false;
     void (async () => {
       await Promise.resolve();
-      if (alive) setLeft(todo.length);
+      if (!alive) return;
+      const again = triedAgain();
+      const todo = (latest.current ?? [])
+        .map((r) => ({ id: r.id, plan: findPlan(r.id, [r.servings], again) }))
+        .filter((x) => x.plan !== null)
+        .slice(0, FILL_MAX);
+      if (todo.length === 0) return;
+      setLeft(todo.length);
       // 相手のサイトに負担をかけないよう、1 つずつ順に読む
       for (const x of todo) {
         if (!alive) return;
-        try {
-          const res = await apiClient.findServings(x.id, x.plan === "again");
-          if (x.plan === "again") rememberAgain(x.id);
-          // 見つかった・「無かった」と分かった（聞く欄を出す）ときは、一覧を読み直す
-          if (res.servings !== null && (x.plan === "first" || res.servings > 0))
-            changed = true;
-        } catch {
-          // 読めなかったレシピは、次に開いたときにまた探す
+        // 待っている間に人が人数を入れたレシピは飛ばす
+        const now = latest.current?.find((r) => r.id === x.id);
+        if (now && (now.servings ?? 0) <= 0) {
+          try {
+            const res = await apiClient.findServings(x.id, x.plan === "again");
+            if (x.plan === "again" && res.read !== false) rememberAgain(x.id);
+            // 見つかった・「無かった」と分かった（聞く欄を出す）ときは、一覧を読み直す
+            if (
+              res.servings !== null &&
+              (x.plan === "first" || res.servings > 0)
+            )
+              void qc.invalidateQueries({ queryKey: ["recipes", "nutrition"] });
+          } catch {
+            // 読めなかったレシピは、次に開いたときにまた探す
+          }
         }
         if (alive) setLeft((n) => Math.max(0, n - 1));
       }
-      if (changed)
-        void qc.invalidateQueries({ queryKey: ["recipes", "nutrition"] });
     })();
     return () => {
       alive = false;
+      setLeft(0);
     };
-  }, [rows, qc]);
+  }, [ready, qc]);
   return left;
 }
 

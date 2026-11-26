@@ -115,9 +115,15 @@ test("人数の分からないレシピは、その場で人数を入れると�
   await expect(row).toContainText("2人分として計算");
   const ask = row.getByRole("group", { name: "何人分のレシピか" });
   await expect(ask).toBeVisible();
+  // 押し間違えたら、保存される前に取り消せる
+  await ask.getByRole("button", { name: "6人分にする" }).click();
+  await expect(ask).toContainText("6人分で保存します。");
+  await ask.getByRole("button", { name: "取り消す" }).click();
+  await expect(row).toContainText("多い");
   await ask.getByRole("button", { name: "4人分にする" }).click();
-  // 4人分で割るので「ふつう」になり、聞く欄と注記は消える
-  await expect(row).toContainText("ふつう");
+  await expect(ask).toContainText("4人分で保存します。");
+  // 数秒後に保存される。4人分で割るので「ふつう」になり、聞く欄と注記は消える
+  await expect(row).toContainText("ふつう", { timeout: 15000 });
   await expect(row).not.toContainText("2人分として計算");
   await expect(ask).toHaveCount(0);
   // レシピの画面でも 4人分になっている
