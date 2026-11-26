@@ -17,6 +17,7 @@ import {
   max,
   lt,
   ne,
+  or,
   sql,
 } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
@@ -899,6 +900,27 @@ export function forGroup(db: Db, groupId: string) {
             eq(s.recipeVersions.recipeId, recipeId),
             versionInGroup,
             isNull(s.recipeVersions.servings),
+          ),
+        );
+    },
+
+    /**
+     * 人数の分からない版（まだ探していない null・探したが無かった 0）に、人数を入れる（DEC-039）。
+     * 探し直して見つかったとき・人が手で入れたときに使う。1 以上の人数が入っている版には触らない
+     */
+    async setMissingServings(recipeId: string, servings: number) {
+      await recipeRow(recipeId);
+      await db
+        .update(s.recipeVersions)
+        .set({ servings })
+        .where(
+          and(
+            eq(s.recipeVersions.recipeId, recipeId),
+            versionInGroup,
+            or(
+              isNull(s.recipeVersions.servings),
+              eq(s.recipeVersions.servings, 0),
+            ),
           ),
         );
     },

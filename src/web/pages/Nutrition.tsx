@@ -3,6 +3,8 @@ import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/api/client";
 import { Empty, ErrorState, Loading, SubHeader } from "@/components/common";
+import { ServingsAsk } from "@/components/ServingsAsk";
+import { useFillMissingServings } from "@/lib/servings";
 import {
   LEVEL_LABEL,
   NUTRIENTS,
@@ -22,6 +24,12 @@ export function Nutrition() {
     queryKey: ["recipes", "nutrition"],
     queryFn: () => apiClient.nutritionRecipes(),
   });
+  // 人数の無いレシピは、元のレシピから人数を探す（見つかれば並びが変わる）
+  const filling = useFillMissingServings(list.data);
+  const servingsOf = useMemo(
+    () => new Map((list.data ?? []).map((r) => [r.id, r.servings])),
+    [list.data],
+  );
   const result = useMemo(
     () => (picked && list.data ? rankByNutrient(list.data, picked) : null),
     [picked, list.data],
@@ -75,10 +83,13 @@ export function Nutrition() {
         {result && result.ranked.length > 0 && (
           <ul className="flex flex-col gap-2.5">
             {result.ranked.map((r) => (
-              <li key={r.id}>
+              <li
+                key={r.id}
+                className="flex flex-col gap-2 rounded-2xl border border-line-soft bg-card p-3.5"
+              >
                 <Link
                   to={`/recipes/${r.id}?n=${picked}`}
-                  className="flex min-h-11 flex-col gap-1 rounded-2xl border border-line-soft bg-card p-3.5"
+                  className="flex min-h-11 flex-col gap-1"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-[15px] font-bold">{r.title}</span>
@@ -95,10 +106,15 @@ export function Nutrition() {
                   )}
                   {r.servingsAssumed && (
                     <span className="text-xs text-sub">
-                      人数が書かれていないので、2人分として計算
+                      {servingsOf.get(r.id) === null && filling > 0
+                        ? "元のレシピから人数を確かめています。今は 2人分として計算"
+                        : "人数が分からないので、2人分として計算"}
                     </span>
                   )}
                 </Link>
+                {r.servingsAssumed && servingsOf.get(r.id) === 0 && (
+                  <ServingsAsk recipeId={r.id} />
+                )}
               </li>
             ))}
           </ul>

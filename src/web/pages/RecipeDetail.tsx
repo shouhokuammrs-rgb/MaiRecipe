@@ -34,6 +34,7 @@ import { RATING_LABELS } from "../../shared/cooked";
 import { labelDate } from "../../shared/dates";
 import { ServingsControl } from "@/components/Servings";
 import { NutritionAdd } from "@/components/NutritionAdd";
+import { ServingsAsk } from "@/components/ServingsAsk";
 import { NutritionNote } from "@/components/NutritionNote";
 import { useFindServings, useHousehold } from "@/lib/servings";
 import { scaleIngredients } from "../../shared/servings";
@@ -415,6 +416,10 @@ function DetailView({ r }: { r: Detail }) {
               household={household}
             />
           </h2>
+          {/* 元のレシピを探しても人数が無かった（0）ときだけ聞く。探す前（null）は聞かない */}
+          {view.servings === 0 && view.ingredients.length > 0 && (
+            <ServingsAsk recipeId={r.id} />
+          )}
           {view.ingredients.length === 0 ? (
             <p className="text-sm text-sub">
               まだ材料がありません。「材料・作り方を編集」から入れてください。
