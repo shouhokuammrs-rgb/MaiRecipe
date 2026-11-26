@@ -286,9 +286,16 @@ export const apiClient = {
       method: "POST",
     }),
   /** 前に保存したレシピの人数を、出典から一度だけ探す（0：書いていなかった） */
-  findServings: (id: string) =>
+  findServings: (id: string, again = false) =>
+    call<{ servings: number | null }>(
+      `/recipes/${id}/servings${again ? "?again=1" : ""}`,
+      { method: "POST" },
+    ),
+  /** 元のレシピに人数が書かれていなかったレシピに、人数を入れる（すでにあれば今の人数が返る） */
+  setServings: (id: string, servings: number) =>
     call<{ servings: number | null }>(`/recipes/${id}/servings`, {
-      method: "POST",
+      method: "PUT",
+      json: { servings },
     }),
   /** 同じ出典のレシピが保存済みか（無ければ null） */
   findBySource: (url: string) =>

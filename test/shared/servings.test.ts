@@ -53,6 +53,44 @@ describe("servingsFromText（概要欄・ページの文）", () => {
   });
 });
 
+describe("人数のいろいろな書き方（元のレシピの人数を取りこぼさない）", () => {
+  it.each([
+    ["【材料】（2人）\n鶏もも肉 1枚", 2],
+    ["材料 3名分", 3],
+    ["■材料 4人\n・豚肉", 4],
+    ["材料\n（2〜3人）", 2],
+    ["【材料】二人分", 2],
+    ["材料（一人前）", 1],
+    ["材料（４人分）", 4],
+    ["【材料 2人用】", 2],
+    ["Ingredients (4 servings)\n- rice", 4],
+    ["作り方は動画で。\n分量：2名分", 2],
+    ["Serves 4", 4],
+    ["2〜3人前の鍋です", 2],
+  ])("%j → %d", (text, n) => {
+    expect(servingsFromText(text as string)).toBe(n);
+  });
+
+  it.each([
+    "【材料】（作りやすい分量）\n大根 1本",
+    "材料 3つで作れる！\n卵",
+    "チャンネル登録者 100万人突破",
+    "材料\n鶏もも肉 2枚\n玉ねぎ 1個",
+    "本日のお客様は 2名でした",
+    "名人が教える材料の選び方",
+    "100人分の給食を作る人の話",
+  ])("%j は人数として読まない", (text) => {
+    expect(servingsFromText(text)).toBeNull();
+  });
+
+  it("構造化データの書き方も広く読む", () => {
+    expect(parseServings("二人分")).toBe(2);
+    expect(parseServings("3名分")).toBe(3);
+    expect(parseServings("2人用")).toBe(2);
+    expect(parseServings("作りやすい分量")).toBeNull();
+  });
+});
+
 describe("scaleAmount", () => {
   it.each([
     ["300g", 0.5, "150g"],

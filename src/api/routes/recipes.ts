@@ -1,8 +1,13 @@
+import { z } from "zod";
 import { Hono } from "hono";
 import { CATEGORIES, GENRES, LIMITS } from "../../shared/constants";
 import { findByIngredients } from "../../shared/find";
 import { extractRecipeFromJsonLd, parseVideoUrl } from "../../shared/importer";
-import { servingsFromText } from "../../shared/servings";
+import {
+  SERVINGS_MAX,
+  SERVINGS_MIN,
+  servingsFromText,
+} from "../../shared/servings";
 import {
   createRecipeSchema,
   findSchema,
@@ -336,11 +341,19 @@ recipes.post("/:id/cover", async (c) => {
  */
 recipes.post("/:id/servings", async (c) => {
   const id = c.req.param("id");
+  // again=1：前に探して無かった（0）レシピを、もう一度探す。読める書き方を広げたあとに、
+  // 画面が 1 つのレシピにつき 1 回だけ頼む（DEC-039）
+  const again = c.req.query("again") === "1";
   const r = await c.var.repo.getRecipe(id);
   const latest = r.versions[r.versions.length - 1];
+  const known = r.versions.some((v) => (v.servings ?? 0) > 0);
   // 探すのは、どの版にも人数が無い（人数を読む前に保存した）レシピだけ。
-  // 人が「分からない」を選んだ版は上書きしない
-  if (!latest || r.versions.some((v) => v.servings !== null))
+  // 人が決めた人数・元から読めた人数がある版は上書きしない
+  if (
+    !latest ||
+    known ||
+    (!again && r.versions.some((v) => v.servings !== null))
+  )
     return c.json({ servings: latest?.servings ?? null });
   let found: number | null = null;
   const video = r.videoUrl ? parseVideoUrl(r.videoUrl) : null;
@@ -353,17 +366,41 @@ recipes.post("/:id/servings", async (c) => {
     }
     if (!found && video) {
       const snip = await youtubeSnippet(c.env, video.id);
-      if (!snip) return c.json({ servings: null });
+      if (!snip) return c.json({ servings: latest.servings });
       found = servingsFromText(snip.description);
     }
   } catch (e) {
     // 一時的な失敗（不通・時間切れ・相手の 5xx）は覚えない。次に開いたときにまた探す。
     // ページが無い・レシピのページでない などは、何度読んでも同じなので「無かった」として覚える
     if (!(e instanceof FetchPageError) || isTransient(e))
-      return c.json({ servings: null });
+      return c.json({ servings: latest.servings });
   }
-  await c.var.repo.fillServings(id, found ?? 0);
+  if (found) await c.var.repo.setMissingServings(id, found);
+  else await c.var.repo.fillServings(id, 0);
   return c.json({ servings: found ?? 0 });
+});
+
+const servingsByHandSchema = z.object({
+  servings: z.number().int().min(SERVINGS_MIN).max(SERVINGS_MAX),
+});
+
+/**
+ * 元のレシピに人数が書かれていなかったレシピに、人が人数を入れる（DEC-039）。
+ * 新しい版は作らない（材料も手順も変わらず、分からなかった人数が分かっただけなので）。
+ * すでに人数がある版には触らず、今の人数を返す
+ */
+recipes.put("/:id/servings", async (c) => {
+  const parsed = servingsByHandSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success)
+    return c.json({ error: "人数は 1〜20 で入れてください" }, 400);
+  const id = c.req.param("id");
+  await c.var.repo.setMissingServings(id, parsed.data.servings);
+  const r = await c.var.repo.getRecipe(id);
+  return c.json({
+    servings: r.versions[r.versions.length - 1]?.servings ?? null,
+  });
 });
 
 /**

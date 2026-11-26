@@ -100,3 +100,30 @@ test("栄養を選ぶと多い順に並び、レシピの画面から同じ栄�
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("小松菜の煮びたし")).toBeVisible();
 });
+
+test("人数の分からないレシピは、その場で人数を入れると並びが変わる", async ({
+  page,
+}) => {
+  await login(page, `e2e-servings-${Date.now()}@example.test`);
+  // 出典の無いレシピなので、元のレシピから人数は見つからない
+  await makeRecipe(page, "小松菜の煮びたし", "小松菜", "1束");
+  await page.goto("/nutrition?n=iron");
+  const row = page
+    .getByRole("listitem")
+    .filter({ hasText: "小松菜の煮びたし" });
+  await expect(row).toContainText("多い");
+  await expect(row).toContainText("2人分として計算");
+  const ask = row.getByRole("group", { name: "何人分のレシピか" });
+  await expect(ask).toBeVisible();
+  await ask.getByRole("button", { name: "4人分にする" }).click();
+  // 4人分で割るので「ふつう」になり、聞く欄と注記は消える
+  await expect(row).toContainText("ふつう");
+  await expect(row).not.toContainText("2人分として計算");
+  await expect(ask).toHaveCount(0);
+  // レシピの画面でも 4人分になっている
+  await row.getByRole("link").click();
+  await expect(
+    page.getByRole("group", { name: "何人分のレシピか" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("4人分").first()).toBeVisible();
+});
