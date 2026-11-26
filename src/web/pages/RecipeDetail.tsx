@@ -33,6 +33,7 @@ import { Toast, useToast } from "@/components/Toast";
 import { RATING_LABELS } from "../../shared/cooked";
 import { labelDate } from "../../shared/dates";
 import { ServingsControl } from "@/components/Servings";
+import { NutritionAdd } from "@/components/NutritionAdd";
 import { NutritionNote } from "@/components/NutritionNote";
 import { useFindServings, useHousehold } from "@/lib/servings";
 import { scaleIngredients } from "../../shared/servings";
@@ -440,6 +441,12 @@ function DetailView({ r }: { r: Detail }) {
         </section>
 
         <NutritionNote ingredients={view.ingredients} servings={base} />
+        <NutritionAdd
+          title={view.title}
+          ingredients={view.ingredients}
+          servings={base}
+          people={people}
+        />
 
         <section className="flex flex-col gap-2.5">
           <h2 className="text-base font-bold">作り方</h2>

@@ -66,9 +66,30 @@ test("栄養を選ぶと多い順に並び、レシピの画面から同じ栄�
     page.getByText("ビタミンDが多めのレシピは、まだありません。"),
   ).toBeVisible();
 
-  // レシピの画面のチップから、その栄養で探す画面へ
+  // 一覧からレシピを開くと、同じ栄養で「栄養を足すなら」が開いている
   await page.getByRole("button", { name: "鉄", exact: true }).click();
   await page.getByRole("link", { name: /小松菜の煮びたし/ }).click();
+  const add = page.getByRole("region", { name: "栄養を足すなら" });
+  await expect(
+    add.getByRole("button", { name: "鉄", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  // 小松菜だけで鉄はもう多いので、食材は出さずにそう伝える
+  await expect(add).toContainText("鉄がもう多く含まれています");
+  await expect(add.getByRole("list")).toHaveCount(0);
+  // 栄養を変えると、煮物に混ぜやすい食材が、量と変わり方つきで出る
+  await add.getByRole("button", { name: "ビタミンD", exact: true }).click();
+  await expect(add).toContainText("この料理に混ぜやすい食材です。");
+  await expect(add.getByRole("listitem").first()).toBeVisible();
+  await expect(add.getByRole("list")).toContainText("→");
+  await expect(add.getByRole("list")).not.toContainText("小松菜");
+  await expect(add).toContainText("日本食品標準成分表（八訂）増補2023年");
+  await expect(page).toHaveURL(/\?n=vitaminD/);
+  // もう一度押すと閉じて、URL からも消える
+  await add.getByRole("button", { name: "ビタミンD", exact: true }).click();
+  await expect(add.getByRole("list")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/n=/);
+
+  // レシピの画面のチップから、その栄養で探す画面へ
   await page
     .getByRole("region", { name: "栄養の目安" })
     .getByRole("link", { name: "ビタミンCが多いレシピを探す" })
