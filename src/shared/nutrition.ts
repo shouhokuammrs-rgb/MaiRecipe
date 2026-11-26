@@ -119,6 +119,12 @@ export function foodForCanonical(n: string): FoodRow | null {
   return food;
 }
 
+const FOOD_BY_KEY = new Map(FOOD_ROWS.map((f) => [f.key, f]));
+/** nutrition-data.ts の key から食材を引く（足す食材の表から使う） */
+export function foodByKey(key: string): FoodRow | null {
+  return FOOD_BY_KEY.get(key) ?? null;
+}
+
 export function foodFor(name: string): FoodRow | null {
   return foodForCanonical(canonicalName(name));
 }

@@ -77,7 +77,7 @@ export function Nutrition() {
             {result.ranked.map((r) => (
               <li key={r.id}>
                 <Link
-                  to={`/recipes/${r.id}`}
+                  to={`/recipes/${r.id}?n=${picked}`}
                   className="flex min-h-11 flex-col gap-1 rounded-2xl border border-line-soft bg-card p-3.5"
                 >
                   <div className="flex items-start justify-between gap-2">
